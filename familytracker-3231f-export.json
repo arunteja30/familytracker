@@ -1,0 +1,252 @@
+{
+  "UpdateData": {
+    "isDialogCancelable": true,
+    "mandatory": "yes",
+    "message": "New Version is available to Download.Please Download",
+    "notificationMessage": "Please Uninstall this build and install new Build from Link..",
+    "title": "Update",
+    "url": "https://drive.google.com/file/d/1A-5n8CpPPZRX0g4UzJF6FHtvpmO1VLCD/view?usp=sharing",
+    "version": 1
+  },
+  "familyList": {
+    "Arun family_1625406878594": "Arun family_1625406878594",
+    "Mize Friends_1625506319196": "Mize Friends_1625506319196",
+    "TESTING-Arun_1625507829205": "TESTING-Arun_1625507829205",
+    "uffffffffff_1625478972667": "uffffffffff_1625478972667"
+  },
+  "familyMembersList": {
+    "+911234567890_Arun family_1625406878594": {
+      "familyName": "Arun family_1625406878594",
+      "gpsInfo": "GPS is disabled..!",
+      "memberId": "+911234567890_Arun family_1625406878594",
+      "mobile": "+911234567890",
+      "name": "test",
+      "pushNofityToken": "fquRPY0gObw:APA91bHDmM3XNoTZTss2wdwmcd_SGjasgC--r7wGAQ9Yhz6qNd0moDP810gqhC-VTmMpqFeEvqX3KSeTyKGJhWLcx_BlYPXp_QsCEUazcIhhoPTdj5m6Hll35yjdZazgm9HwNP2GcgQp",
+      "registered": true,
+      "relationship": "",
+      "uid": "c48HpDOAOyMJ9HLgyUyIwLYHzzu2"
+    },
+    "+917207618965_Arun family_1625406878594": {
+      "familyName": "Arun family_1625406878594",
+      "gpsInfo": "GPS Enabled..!",
+      "memberId": "+917207618965_Arun family_1625406878594",
+      "mobile": "+917207618965",
+      "name": "Abhiteja",
+      "pushNofityToken": "fquRPY0gObw:APA91bHDmM3XNoTZTss2wdwmcd_SGjasgC--r7wGAQ9Yhz6qNd0moDP810gqhC-VTmMpqFeEvqX3KSeTyKGJhWLcx_BlYPXp_QsCEUazcIhhoPTdj5m6Hll35yjdZazgm9HwNP2GcgQp",
+      "registered": true,
+      "relationship": "",
+      "uid": "vwF4pcoCeJUTpEJc8uVOwyJH1H73"
+    },
+    "+917731932856_Arun family_1625406878594": {
+      "familyName": "Arun family_1625406878594",
+      "gpsInfo": "GPS is enabled..!",
+      "memberId": "+917731932856_Arun family_1625406878594",
+      "mobile": "+917731932856",
+      "name": "Vijaya Laxmi",
+      "pushNofityToken": "dz5EFXo8HvI:APA91bEKV8t7ZAV-H13hQbs7PuDeTtlF_9W3tJMcPfDadsi_SPzFodxYZfekidlrO44xE9ep566TiGeP3Y8Vq1L2SzmWH-7Fsx-_J-LgsSbmZ9XbqAf0Z_TTmdIboat4sNzE1kCQJVhX",
+      "registered": true,
+      "relationship": "",
+      "uid": "qfN86oeXMmReoF8zNmoG1y2cdNJ2"
+    },
+    "+918074807922_Arun family_1625406878594": {
+      "familyName": "Arun family_1625406878594",
+      "memberId": "+918074807922_Arun family_1625406878594",
+      "mobile": "+918074807922",
+      "name": "Sarika",
+      "registered": false,
+      "relationship": ""
+    },
+    "+918074807922_uffffffffff_1625478972667": {
+      "familyName": "uffffffffff_1625478972667",
+      "gpsInfo": "GPS Enabled..!",
+      "memberId": "+918074807922_uffffffffff_1625478972667",
+      "mobile": "+918074807922",
+      "name": "Sarika",
+      "pushNofityToken": "cMWejZr6_Qw:APA91bFu65LougWIMxRzHN9E7bt0Qt4VQy9ub-io59N5N_12ziKp3JKCjVx-QAnYErBTXmfH3_NqQm-eUkSruEspvQO_Rmelhrj6Kbpqc9FO-uefr4QI39_90RLTko1O2ui671oVqPKl",
+      "registered": true,
+      "relationship": "",
+      "uid": "kcs74hndkBPqaseCZglW6dFzfER2"
+    },
+    "+918099952117_Mize Friends_1625506319196": {
+      "familyName": "Mize Friends_1625506319196",
+      "gpsInfo": "GPS Enabled..!",
+      "memberId": "+918099952117_Mize Friends_1625506319196",
+      "mobile": "+918099952117",
+      "name": "saiswaroop chilakapati",
+      "registered": false,
+      "relationship": "",
+      "uid": "dPdLjZVw7Rbe53kInZHKzVnEaO43"
+    },
+    "+919390750196_TESTING-Arun_1625507829205": {
+      "familyName": "TESTING-Arun_1625507829205",
+      "memberId": "+919390750196_TESTING-Arun_1625507829205",
+      "mobile": "+919390750196",
+      "name": "Chinnu Bro",
+      "registered": false,
+      "relationship": ""
+    },
+    "+919392033925_TESTING-Arun_1625507829205": {
+      "familyName": "TESTING-Arun_1625507829205",
+      "memberId": "+919392033925_TESTING-Arun_1625507829205",
+      "mobile": "+919392033925",
+      "name": "My Sister",
+      "registered": false,
+      "relationship": ""
+    },
+    "+919394732856_Arun family_1625406878594": {
+      "familyName": "Arun family_1625406878594",
+      "gpsInfo": "GPS is enabled..!",
+      "memberId": "+919394732856_Arun family_1625406878594",
+      "mobile": "+919394732856",
+      "name": "Ramesh",
+      "pushNofityToken": "cUVkRnu749w:APA91bG0_FKtsOVamNGBRjR_Kmd5AivMh6tMtXNvJisEjTJT6HltfeF31ylrX7_fdyTbfsIceWiWy8PiJkY8PrhQwZcNMAngwn4BVVwRD5G5EZ1rcf7EaJAzWbnxyS_b0eJOEdHX292k",
+      "registered": true,
+      "relationship": "",
+      "uid": "WlQ53egeHLXTbUchPgzmfnd5Z3u1"
+    },
+    "+919700567735_Arun family_1625406878594": {
+      "familyName": "Arun family_1625406878594",
+      "gpsInfo": "GPS is disabled..!",
+      "memberId": "+919700567735_Arun family_1625406878594",
+      "mobile": "+919700567735",
+      "name": "",
+      "pushNofityToken": "fAk6mIPz3Q0:APA91bHfLyx7TqpFL37YXovHnj55-m34AONuZEQDlG0nhq_GnpRBT9BY_ZbrtOduOxiYej7sG55g6jTbH4hQ1SQdsPxwUpZf4If2yVmdngVy84fRhynwWSbMtc95-5WDGe-xaxVmC_Rs",
+      "registered": true,
+      "relationship": "admin",
+      "uid": "B74FRgZEEpUVfitBbQjFrT1ILtn1"
+    },
+    "+919700567735_Mize Friends_1625506319196": {
+      "familyName": "Mize Friends_1625506319196",
+      "gpsInfo": "GPS Enabled..!",
+      "memberId": "+919700567735_Mize Friends_1625506319196",
+      "mobile": "+919700567735",
+      "name": "Arunteja",
+      "pushNofityToken": "epA0nod9-9s:APA91bHEgTqFemJRD8QOwf1-uXW9ZCyUR7EviliK9E5xmLCHv4wUs35qQmPAv-0dYJvTzA1FRtOscza7o1QFDzeYLIMyjtV5B6vJ9KonNht_qsPvrBKXknC0dOu6dDnWOhew29_4-Bxx",
+      "registered": true,
+      "relationship": "admin",
+      "uid": "ovOm8zIiwceTSru8PUP7kjUHxsE3"
+    },
+    "+919700567735_TESTING-Arun_1625507829205": {
+      "familyName": "TESTING-Arun_1625507829205",
+      "gpsInfo": "GPS Disabled..!",
+      "memberId": "+919700567735_TESTING-Arun_1625507829205",
+      "mobile": "+919700567735",
+      "name": "Arunteja",
+      "pushNofityToken": "epA0nod9-9s:APA91bHEgTqFemJRD8QOwf1-uXW9ZCyUR7EviliK9E5xmLCHv4wUs35qQmPAv-0dYJvTzA1FRtOscza7o1QFDzeYLIMyjtV5B6vJ9KonNht_qsPvrBKXknC0dOu6dDnWOhew29_4-Bxx",
+      "registered": true,
+      "relationship": "admin",
+      "uid": "ovOm8zIiwceTSru8PUP7kjUHxsE3"
+    },
+    "+919700567735_uffffffffff_1625478972667": {
+      "familyName": "uffffffffff_1625478972667",
+      "gpsInfo": "GPS Enabled..!",
+      "memberId": "+919700567735_uffffffffff_1625478972667",
+      "mobile": "+919700567735",
+      "name": "",
+      "pushNofityToken": "fAk6mIPz3Q0:APA91bHfLyx7TqpFL37YXovHnj55-m34AONuZEQDlG0nhq_GnpRBT9BY_ZbrtOduOxiYej7sG55g6jTbH4hQ1SQdsPxwUpZf4If2yVmdngVy84fRhynwWSbMtc95-5WDGe-xaxVmC_Rs",
+      "registered": true,
+      "relationship": "admin",
+      "uid": "B74FRgZEEpUVfitBbQjFrT1ILtn1"
+    }
+  },
+  "locationList": {
+    "+911234567890": {
+      "batteryPercentage": 50,
+      "date": "13/09/2025 11:25:07 am",
+      "gpsStatus": "GPS Enabled..!",
+      "latitude": 18.1996632,
+      "longitude": 79.3952994,
+      "timeStamp": 1757742907691
+    },
+    "+917207618965": {
+      "batteryPercentage": 54,
+      "date": "18/08/2021 20:39:31 pm",
+      "gpsStatus": "GPS Enabled..!",
+      "latitude": 18.1972492,
+      "longitude": 79.3937579,
+      "timeStamp": 1629299371586
+    },
+    "+917731932856": {
+      "batteryPercentage": 23,
+      "date": "30/09/2025 12:07:19 pm",
+      "gpsStatus": "GPS Enabled..!",
+      "latitude": 18.1973038,
+      "longitude": 79.3938758,
+      "timeStamp": 1759214239645
+    },
+    "+918074807922": {
+      "batteryPercentage": 71,
+      "date": "20/06/2024 06:21:13 am",
+      "gpsStatus": "GPS Enabled..!",
+      "latitude": 17.4389285,
+      "longitude": 78.4469846,
+      "timeStamp": 1718844673299
+    },
+    "+918099952117": {
+      "batteryPercentage": 95,
+      "date": "15/07/2021 13:15:03 PM",
+      "gpsStatus": "GPS Enabled..!",
+      "latitude": 14.1464452,
+      "longitude": 79.8555004,
+      "timeStamp": 1626335103762
+    },
+    "+919394732856": {
+      "batteryPercentage": 55,
+      "date": "03/10/2025 18:16:58 pm",
+      "gpsStatus": "GPS Enabled..!",
+      "latitude": 18.1973075,
+      "longitude": 79.3938752,
+      "timeStamp": 1759495618506
+    },
+    "+919700567735": {
+      "batteryPercentage": 78,
+      "date": "14/08/2024 01:08:55 am",
+      "gpsStatus": "GPS Enabled..!",
+      "latitude": 17.4329274,
+      "longitude": 78.4302516,
+      "timeStamp": 1723577935783
+    }
+  },
+  "registrations": {
+    "+911234567890": {
+      "name": "testing",
+      "phoneNumber": "+911234567890",
+      "uid": "H5Z30JhvxraId49PzHuSYUUl2Bd2"
+    },
+    "+917207618965": {
+      "name": "Abhiteja",
+      "phoneNumber": "+917207618965",
+      "uid": "vwF4pcoCeJUTpEJc8uVOwyJH1H73"
+    },
+    "+917731932856": {
+      "name": "Vijaya Laxmi",
+      "phoneNumber": "+917731932856",
+      "uid": "qfN86oeXMmReoF8zNmoG1y2cdNJ2"
+    },
+    "+918074807922": {
+      "name": "sarika",
+      "phoneNumber": "+918074807922",
+      "uid": "kcs74hndkBPqaseCZglW6dFzfER2"
+    },
+    "+918099952117": {
+      "name": "",
+      "phoneNumber": "+918099952117",
+      "uid": "dPdLjZVw7Rbe53kInZHKzVnEaO43"
+    },
+    "+919394732856": {
+      "name": "Ramesh",
+      "phoneNumber": "+919394732856",
+      "uid": "WlQ53egeHLXTbUchPgzmfnd5Z3u1"
+    },
+    "+919700567735": {
+      "name": "Arunteja",
+      "phoneNumber": "+919700567735",
+      "uid": "ovOm8zIiwceTSru8PUP7kjUHxsE3"
+    },
+    "+919999999999": {
+      "name": "test",
+      "phoneNumber": "+919999999999",
+      "uid": "FKEYk0AlSdhGK0SX2V90gfPPVH72"
+    }
+  }
+}
