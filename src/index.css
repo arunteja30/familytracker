@@ -402,6 +402,17 @@ body {
   box-shadow: 0 4px 12px rgba(0,0,0,0.15);
 }
 
+.family-card {
+  background: linear-gradient(135deg, #fff 0%, #f8f9ff 100%);
+  border-left: 4px solid #667eea;
+}
+
+.family-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(102, 126, 234, 0.15);
+  background: linear-gradient(135deg, #fff 0%, #f0f2ff 100%);
+}
+
 .member-name {
   font-size: 1.1rem;
   font-weight: 600;

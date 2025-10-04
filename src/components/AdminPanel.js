@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { database } from '../firebase';
-import { ref, onValue, set, push, remove } from 'firebase/database';
+import { ref, onValue, set, remove } from 'firebase/database';
 import { 
   FaUserShield, 
   FaPlus, 
@@ -29,6 +29,8 @@ const AdminPanel = () => {
   const [newFamily, setNewFamily] = useState('');
   const [showAddFamily, setShowAddFamily] = useState(false);
   const [message, setMessage] = useState({ type: '', text: '' });
+  const [selectedFamily, setSelectedFamily] = useState(null);
+  const [viewMode, setViewMode] = useState('families'); // 'families' or 'members'
 
   useEffect(() => {
     const membersRef = ref(database, 'familyMembersList');
@@ -58,6 +60,13 @@ const AdminPanel = () => {
     };
   }, []);
 
+  // Auto-select family when in member view
+  useEffect(() => {
+    if (selectedFamily && showAddMember && !newMember.familyName) {
+      setNewMember(prev => ({ ...prev, familyName: selectedFamily }));
+    }
+  }, [selectedFamily, showAddMember, newMember.familyName]);
+
   const showMessage = (type, text) => {
     setMessage({ type, text });
     setTimeout(() => setMessage({ type: '', text: '' }), 5000);
@@ -65,6 +74,33 @@ const AdminPanel = () => {
 
   const generateMemberId = (mobile, familyName) => {
     return `${mobile}_${familyName}`;
+  };
+
+  const getFamilyMemberCount = (familyName) => {
+    return Object.values(familyMembers).filter(member => member.familyName === familyName).length;
+  };
+
+  const getFamilyRegisteredCount = (familyName) => {
+    const members = Object.values(familyMembers).filter(member => member.familyName === familyName);
+    return members.filter(member => member.registered).length;
+  };
+
+  const getFilteredMembers = () => {
+    if (!selectedFamily) return Object.entries(familyMembers);
+    
+    return Object.entries(familyMembers).filter(([_, member]) => 
+      member.familyName === selectedFamily
+    );
+  };
+
+  const handleFamilyClick = (familyName) => {
+    setSelectedFamily(familyName);
+    setViewMode('members');
+  };
+
+  const handleBackToFamilies = () => {
+    setSelectedFamily(null);
+    setViewMode('families');
   };
 
   const addFamily = async () => {
@@ -194,24 +230,18 @@ const AdminPanel = () => {
   }
 
   const familyNames = Object.keys(familyList);
+  const filteredMembers = getFilteredMembers();
 
-  return (
-    <div className="card">
-      <div className="card-header">
-        <FaUserShield className="mr-2" />
-        Admin Panel
-      </div>
-      <div className="card-content">
-        {message.text && (
-          <div className={message.type === 'error' ? 'error' : 'success'}>
-            {message.text}
-          </div>
-        )}
-
-        {/* Family Management */}
-        <div style={{ marginBottom: '2rem' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-            <h3>Family Management</h3>
+  // Show families list when no family is selected
+  if (!selectedFamily || viewMode === 'families') {
+    return (
+      <div className="card">
+        <div className="card-header">
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div>
+              <FaUserShield className="mr-2" />
+              Admin Panel - Family Management ({familyNames.length} families)
+            </div>
             <button 
               className="btn btn-small"
               onClick={() => setShowAddFamily(!showAddFamily)}
@@ -220,6 +250,13 @@ const AdminPanel = () => {
               Add Family
             </button>
           </div>
+        </div>
+        <div className="card-content">
+          {message.text && (
+            <div className={message.type === 'error' ? 'error' : 'success'}>
+              {message.text}
+            </div>
+          )}
 
           {showAddFamily && (
             <div style={{ background: '#f8f9ff', padding: '1rem', borderRadius: '6px', marginBottom: '1rem' }}>
@@ -249,38 +286,101 @@ const AdminPanel = () => {
             </div>
           )}
 
-          <div className="grid grid-2">
-            {familyNames.map(familyName => {
-              const memberCount = Object.values(familyMembers).filter(
-                member => member.familyName === familyName
-              ).length;
-
-              return (
-                <div key={familyName} className="card" style={{ margin: 0 }}>
-                  <div style={{ padding: '1rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <div>
-                      <h4 style={{ margin: 0 }}>{familyName}</h4>
-                      <p style={{ margin: '0.5rem 0 0 0', color: '#666' }}>
-                        {memberCount} member{memberCount !== 1 ? 's' : ''}
-                      </p>
+          {familyNames.length === 0 ? (
+            <div className="text-center" style={{ padding: '2rem', color: '#666' }}>
+              No families found. Add a family to get started.
+            </div>
+          ) : (
+            <div className="member-list">
+              {familyNames.map(familyName => {
+                const memberCount = getFamilyMemberCount(familyName);
+                const registeredCount = getFamilyRegisteredCount(familyName);
+                
+                return (
+                  <div 
+                    key={familyName}
+                    className="member-card family-card"
+                    onClick={() => handleFamilyClick(familyName)}
+                    style={{ 
+                      cursor: 'pointer',
+                      transition: 'transform 0.2s ease, box-shadow 0.2s ease',
+                    }}
+                  >
+                    <div className="member-name" style={{ fontSize: '1.2rem', fontWeight: '600' }}>
+                      <FaUsers style={{ marginRight: '0.5rem', color: '#667eea' }} />
+                      {familyName}
                     </div>
-                    <button 
-                      className="btn btn-small btn-danger"
-                      onClick={() => deleteFamily(familyName)}
-                    >
-                      <FaTrash />
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
+                    
+                    <div className="member-info">
+                      <FaUsers />
+                      {memberCount} member{memberCount !== 1 ? 's' : ''}
+                    </div>
+                    
+                    <div className="member-info">
+                      <FaUserShield style={{ color: registeredCount > 0 ? '#38a169' : '#f56565' }} />
+                      <span className={`status-badge ${registeredCount > 0 ? 'status-online' : 'status-offline'}`}>
+                        {registeredCount} registered
+                      </span>
+                    </div>
 
-        {/* Member Management */}
-        <div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-            <h3>Member Management</h3>
+                    <div style={{ marginTop: '1rem', display: 'flex', gap: '10px' }}>
+                      <div style={{
+                        flex: 1,
+                        padding: '0.5rem',
+                        backgroundColor: '#f8f9ff',
+                        color: '#667eea',
+                        borderRadius: '4px',
+                        fontSize: '0.85rem',
+                        textAlign: 'center',
+                        fontWeight: '500'
+                      }}>
+                        Click to manage members →
+                      </div>
+                      <button 
+                        className="btn btn-small btn-danger"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          deleteFamily(familyName);
+                        }}
+                        style={{ flexShrink: 0 }}
+                      >
+                        <FaTrash />
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // Show members of selected family
+  return (
+    <div className="card">
+      <div className="card-header">
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div>
+            <button 
+              onClick={handleBackToFamilies}
+              style={{
+                background: 'none',
+                border: 'none',
+                color: '#667eea',
+                cursor: 'pointer',
+                fontSize: '0.9rem',
+                marginRight: '1rem',
+                padding: '0.5rem',
+                borderRadius: '4px',
+                transition: 'background-color 0.2s ease'
+              }}
+              onMouseOver={(e) => e.target.style.backgroundColor = '#f8f9ff'}
+              onMouseOut={(e) => e.target.style.backgroundColor = 'transparent'}
+            >
+              ← Back to Families
+            </button>
             <button 
               className="btn btn-small"
               onClick={() => setShowAddMember(!showAddMember)}
@@ -289,79 +389,96 @@ const AdminPanel = () => {
               Add Member
             </button>
           </div>
+        </div>
+        <div style={{ marginTop: '0.5rem' }}>
+          <FaUserShield className="mr-2" />
+          Admin Panel - {selectedFamily} ({filteredMembers.length} member{filteredMembers.length !== 1 ? 's' : ''})
+        </div>
+      </div>
+      <div className="card-content">
+        {message.text && (
+          <div className={message.type === 'error' ? 'error' : 'success'}>
+            {message.text}
+          </div>
+        )}
 
-          {showAddMember && (
-            <div style={{ background: '#f8f9ff', padding: '1rem', borderRadius: '6px', marginBottom: '1rem' }}>
-              <div className="grid grid-2">
-                <div className="form-group">
-                  <label className="form-label">Name</label>
-                  <input
-                    type="text"
-                    className="form-input"
-                    value={newMember.name}
-                    onChange={(e) => setNewMember({ ...newMember, name: e.target.value })}
-                    placeholder="Enter member name"
-                  />
-                </div>
-                <div className="form-group">
-                  <label className="form-label">Mobile Number</label>
-                  <input
-                    type="text"
-                    className="form-input"
-                    value={newMember.mobile}
-                    onChange={(e) => setNewMember({ ...newMember, mobile: e.target.value })}
-                    placeholder="+919999999999"
-                  />
-                </div>
-                <div className="form-group">
-                  <label className="form-label">Family</label>
-                  <select
-                    className="form-select"
-                    value={newMember.familyName}
-                    onChange={(e) => setNewMember({ ...newMember, familyName: e.target.value })}
-                  >
-                    <option value="">Select Family</option>
-                    {familyNames.map(family => (
-                      <option key={family} value={family}>{family}</option>
-                    ))}
-                  </select>
-                </div>
-                <div className="form-group">
-                  <label className="form-label">Relationship</label>
-                  <select
-                    className="form-select"
-                    value={newMember.relationship}
-                    onChange={(e) => setNewMember({ ...newMember, relationship: e.target.value })}
-                  >
-                    <option value="">Select Relationship</option>
-                    <option value="admin">Admin</option>
-                    <option value="parent">Parent</option>
-                    <option value="child">Child</option>
-                    <option value="sibling">Sibling</option>
-                    <option value="spouse">Spouse</option>
-                    <option value="friend">Friend</option>
-                    <option value="other">Other</option>
-                  </select>
-                </div>
+        {showAddMember && (
+          <div style={{ background: '#f8f9ff', padding: '1rem', borderRadius: '6px', marginBottom: '1rem' }}>
+            <div className="grid grid-2">
+              <div className="form-group">
+                <label className="form-label">Name</label>
+                <input
+                  type="text"
+                  className="form-input"
+                  value={newMember.name}
+                  onChange={(e) => setNewMember({ ...newMember, name: e.target.value })}
+                  placeholder="Enter member name"
+                />
               </div>
-              <div style={{ display: 'flex', gap: '10px', marginTop: '1rem' }}>
-                <button className="btn btn-small" onClick={addMember}>
-                  <FaSave className="mr-1" />
-                  Save Member
-                </button>
-                <button 
-                  className="btn btn-small btn-danger" 
-                  onClick={() => setShowAddMember(false)}
+              <div className="form-group">
+                <label className="form-label">Mobile Number</label>
+                <input
+                  type="text"
+                  className="form-input"
+                  value={newMember.mobile}
+                  onChange={(e) => setNewMember({ ...newMember, mobile: e.target.value })}
+                  placeholder="+919999999999"
+                />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Family</label>
+                <select
+                  className="form-select"
+                  value={newMember.familyName || selectedFamily || ''}
+                  onChange={(e) => setNewMember({ ...newMember, familyName: e.target.value })}
                 >
-                  <FaTimes className="mr-1" />
-                  Cancel
-                </button>
+                  <option value="">Select Family</option>
+                  {familyNames.map(family => (
+                    <option key={family} value={family}>{family}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="form-group">
+                <label className="form-label">Relationship</label>
+                <select
+                  className="form-select"
+                  value={newMember.relationship}
+                  onChange={(e) => setNewMember({ ...newMember, relationship: e.target.value })}
+                >
+                  <option value="">Select Relationship</option>
+                  <option value="admin">Admin</option>
+                  <option value="parent">Parent</option>
+                  <option value="child">Child</option>
+                  <option value="sibling">Sibling</option>
+                  <option value="spouse">Spouse</option>
+                  <option value="friend">Friend</option>
+                  <option value="other">Other</option>
+                </select>
               </div>
             </div>
-          )}
+            <div style={{ display: 'flex', gap: '10px', marginTop: '1rem' }}>
+              <button className="btn btn-small" onClick={addMember}>
+                <FaSave className="mr-1" />
+                Save Member
+              </button>
+              <button 
+                className="btn btn-small btn-danger" 
+                onClick={() => setShowAddMember(false)}
+              >
+                <FaTimes className="mr-1" />
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
 
+        {filteredMembers.length === 0 ? (
+          <div className="text-center" style={{ padding: '2rem', color: '#666' }}>
+            No members found in this family. Add a member to get started.
+          </div>
+        ) : (
           <div className="member-list">
-            {Object.entries(familyMembers).map(([memberId, member]) => (
+            {filteredMembers.map(([memberId, member]) => (
               <div key={memberId} className={`member-card ${member.relationship === 'admin' ? 'admin' : ''}`}>
                 {editingMember === memberId ? (
                   <EditMemberForm
@@ -385,16 +502,16 @@ const AdminPanel = () => {
                           Not Registered
                         </span>
                       )}
+                      {member.registered && (
+                        <span className="status-badge status-online ml-2">
+                          Registered
+                        </span>
+                      )}
                     </div>
                     
                     <div className="member-info">
                       <FaPhoneAlt />
                       {member.mobile}
-                    </div>
-                    
-                    <div className="member-info">
-                      <FaUsers />
-                      {member.familyName}
                     </div>
                     
                     {member.relationship && (
@@ -425,7 +542,7 @@ const AdminPanel = () => {
               </div>
             ))}
           </div>
-        </div>
+        )}
       </div>
     </div>
   );

@@ -19,6 +19,7 @@ const FamilyMembers = ({ selectedFamily, selectedMember, onFamilyChange, onMembe
   const [familyList, setFamilyList] = useState({});
   const [locations, setLocations] = useState({});
   const [loading, setLoading] = useState(true);
+  const [viewMode, setViewMode] = useState('families'); // 'families' or 'members'
 
   useEffect(() => {
     const membersRef = ref(database, 'familyMembersList');
@@ -54,6 +55,25 @@ const FamilyMembers = ({ selectedFamily, selectedMember, onFamilyChange, onMembe
     return Object.entries(familyMembers).filter(([_, member]) => 
       member.familyName === selectedFamily
     );
+  };
+
+  const getFamilyMemberCount = (familyName) => {
+    return Object.values(familyMembers).filter(member => member.familyName === familyName).length;
+  };
+
+  const getFamilyOnlineCount = (familyName) => {
+    const members = Object.values(familyMembers).filter(member => member.familyName === familyName);
+    return members.filter(member => isOnline(member)).length;
+  };
+
+  const handleFamilyClick = (familyName) => {
+    onFamilyChange(familyName);
+    setViewMode('members');
+  };
+
+  const handleBackToFamilies = () => {
+    onFamilyChange(null);
+    setViewMode('families');
   };
 
   const getMemberLocation = (phoneNumber) => {
@@ -104,27 +124,107 @@ const FamilyMembers = ({ selectedFamily, selectedMember, onFamilyChange, onMembe
   const filteredMembers = getFilteredMembers();
   const familyNames = Object.keys(familyList);
 
+  // Show families list when no family is selected
+  if (!selectedFamily || viewMode === 'families') {
+    return (
+      <div className="card">
+        <div className="card-header">
+          <FaUsers className="mr-2" />
+          Family Management ({familyNames.length} families)
+        </div>
+        <div className="card-content">
+          {familyNames.length === 0 ? (
+            <div className="text-center" style={{ padding: '2rem', color: '#666' }}>
+              No families found
+            </div>
+          ) : (
+            <div className="member-list">
+              {familyNames.map(familyName => {
+                const memberCount = getFamilyMemberCount(familyName);
+                const onlineCount = getFamilyOnlineCount(familyName);
+                
+                return (
+                  <div 
+                    key={familyName}
+                    className="member-card family-card"
+                    onClick={() => handleFamilyClick(familyName)}
+                    style={{ 
+                      cursor: 'pointer',
+                      transition: 'transform 0.2s ease, box-shadow 0.2s ease',
+                    }}
+                  >
+                    <div className="member-name" style={{ fontSize: '1.2rem', fontWeight: '600' }}>
+                      <FaUsers style={{ marginRight: '0.5rem', color: '#667eea' }} />
+                      {familyName}
+                    </div>
+                    
+                    <div className="member-info">
+                      <FaUsers />
+                      {memberCount} member{memberCount !== 1 ? 's' : ''}
+                    </div>
+                    
+                    <div className="member-info">
+                      {onlineCount > 0 ? (
+                        <FaSignal style={{ color: '#38a169' }} />
+                      ) : (
+                        <FaTimesCircle style={{ color: '#f56565' }} />
+                      )}
+                      <span className={`status-badge ${onlineCount > 0 ? 'status-online' : 'status-offline'}`}>
+                        {onlineCount} online
+                      </span>
+                    </div>
+
+                    <div style={{
+                      marginTop: '1rem',
+                      padding: '0.5rem',
+                      backgroundColor: '#f8f9ff',
+                      color: '#667eea',
+                      borderRadius: '4px',
+                      fontSize: '0.85rem',
+                      textAlign: 'center',
+                      fontWeight: '500'
+                    }}>
+                      Click to view family members →
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // Show members of selected family
   return (
     <div className="card">
       <div className="card-header">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div>
-            <FaUsers className="mr-2" />
-            Family Members ({filteredMembers.length})
-          </div>
-          {familyNames.length > 1 && (
-            <select 
-              value={selectedFamily || ''} 
-              onChange={(e) => onFamilyChange(e.target.value || null)}
-              className="form-select"
-              style={{ width: 'auto', minWidth: '200px' }}
+            <button 
+              onClick={handleBackToFamilies}
+              style={{
+                background: 'none',
+                border: 'none',
+                color: '#667eea',
+                cursor: 'pointer',
+                fontSize: '0.9rem',
+                marginRight: '1rem',
+                padding: '0.5rem',
+                borderRadius: '4px',
+                transition: 'background-color 0.2s ease'
+              }}
+              onMouseOver={(e) => e.target.style.backgroundColor = '#f8f9ff'}
+              onMouseOut={(e) => e.target.style.backgroundColor = 'transparent'}
             >
-              <option value="">All Families</option>
-              {familyNames.map(family => (
-                <option key={family} value={family}>{family}</option>
-              ))}
-            </select>
-          )}
+              ← Back to Families
+            </button>
+          </div>
+        </div>
+        <div style={{ marginTop: '0.5rem' }}>
+          <FaUsers className="mr-2" />
+          {selectedFamily} - {filteredMembers.length} member{filteredMembers.length !== 1 ? 's' : ''}
         </div>
       </div>
       <div className="card-content">
