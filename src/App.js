@@ -4,9 +4,9 @@ import LocationMap from './components/LocationMap';
 import FamilyMembers from './components/FamilyMembers';
 import AdminPanel from './components/AdminPanel';
 import LocationHistory from './components/LocationHistory';
+import LocationHistoryDetailed from './components/LocationHistoryDetailed';
 import PWAInstallPrompt from './components/PWAInstallPrompt';
-import { database } from './firebase';
-import { ref, onValue } from 'firebase/database';
+
 import { 
   FaMapMarkerAlt, 
   FaUsers, 
@@ -125,6 +125,16 @@ function AppContent() {
                 History
               </Link>
             </li>
+            <li className="nav-item">
+              <Link 
+                to="/detailed-history" 
+                className="nav-link"
+                onClick={() => setMobileMenuOpen(false)}
+              >
+                <FaHistory style={{ marginRight: '0.5rem' }} />
+                Daily History
+              </Link>
+            </li>
             {isAdmin && (
               <li className="nav-item">
                 <Link 
@@ -176,6 +186,14 @@ function AppContent() {
               path="/history" 
               element={
                 <LocationHistory 
+                  selectedFamily={selectedFamily}
+                />
+              } 
+            />
+            <Route 
+              path="/detailed-history" 
+              element={
+                <LocationHistoryDetailed 
                   selectedFamily={selectedFamily}
                 />
               } 
