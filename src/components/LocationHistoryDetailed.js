@@ -1,3 +1,27 @@
+/**
+ * LocationHistoryDetailed Component
+ * 
+ * This component displays location history for family members organized by date.
+ * 
+ * Current Implementation:
+ * - Shows current location from 'locationList' database node
+ * - Creates sample historical entries for demonstration
+ * 
+ * For Real Historical Tracking:
+ * 1. Modify your location submission to store in: locationHistory/{phoneNumber}/{date}/[locations]
+ * 2. Update the useEffect to read from locationHistory instead of creating mock data
+ * 3. Each location should have: { latitude, longitude, timestamp, batteryPercentage, gpsStatus }
+ * 
+ * Database Structure for Real History:
+ * locationHistory: {
+ *   "+919999999999": {
+ *     "2024-10-04": [
+ *       { latitude: 18.1973, longitude: 79.3938, timestamp: 1728123456789, batteryPercentage: 85, gpsStatus: "Enabled" },
+ *       { latitude: 18.1980, longitude: 79.3945, timestamp: 1728127056789, batteryPercentage: 82, gpsStatus: "Enabled" }
+ *     ]
+ *   }
+ * }
+ */
 import React, { useState, useEffect, useCallback } from 'react';
 import { database } from '../firebase';
 import { ref, onValue } from 'firebase/database';
@@ -13,13 +37,16 @@ import {
   FaPhoneAlt,
   FaMapPin,
   FaChevronDown,
-  FaChevronRight
+  FaChevronRight,
+  FaUsers
 } from 'react-icons/fa';
 import { getCachedAddress } from '../utils/geocoding';
-import { getLocationHistory, getAvailableDates } from '../utils/locationHistory';
+import { populateTestHistoricalData } from '../utils/locationHistory';
 
 const LocationHistoryDetailed = ({ selectedFamily }) => {
   const [familyMembers, setFamilyMembers] = useState({});
+  const [familyList, setFamilyList] = useState({});
+  const [localSelectedFamily, setLocalSelectedFamily] = useState(selectedFamily || '');
   const [selectedMember, setSelectedMember] = useState('');
   const [selectedDateRange, setSelectedDateRange] = useState('7d');
   const [customStartDate, setCustomStartDate] = useState('');
@@ -30,6 +57,7 @@ const LocationHistoryDetailed = ({ selectedFamily }) => {
   const [addresses, setAddresses] = useState({});
   const [loadingAddresses, setLoadingAddresses] = useState({});
   const [expandedDates, setExpandedDates] = useState(new Set());
+  const [isPopulatingTestData, setIsPopulatingTestData] = useState(false);
 
   // Fetch addresses for locations
   const fetchAddressesForLocations = useCallback(async (locations) => {
@@ -54,17 +82,35 @@ const LocationHistoryDetailed = ({ selectedFamily }) => {
     await Promise.all(promises);
   }, [addresses]);
 
-  // Load family members
+  // Load family members and family list
   useEffect(() => {
     const membersRef = ref(database, 'familyMembersList');
-    const unsubscribe = onValue(membersRef, (snapshot) => {
+    const familiesRef = ref(database, 'familyList');
+
+    const unsubscribeMembers = onValue(membersRef, (snapshot) => {
       const data = snapshot.val();
       setFamilyMembers(data || {});
+    });
+
+    const unsubscribeFamilies = onValue(familiesRef, (snapshot) => {
+      const data = snapshot.val();
+      setFamilyList(data || {});
       setLoading(false);
     });
 
-    return () => unsubscribe();
+    return () => {
+      unsubscribeMembers();
+      unsubscribeFamilies();
+    };
   }, []);
+
+  // Update local family selection when prop changes
+  useEffect(() => {
+    if (selectedFamily !== localSelectedFamily) {
+      setLocalSelectedFamily(selectedFamily || '');
+      setSelectedMember(''); // Reset member selection when family changes
+    }
+  }, [selectedFamily, localSelectedFamily]);
 
   // Load location history when member or date range changes
   useEffect(() => {
@@ -74,13 +120,8 @@ const LocationHistoryDetailed = ({ selectedFamily }) => {
       return;
     }
 
-    // Get available dates for this member
-    const unsubscribeDates = getAvailableDates(selectedMember, (dates) => {
-      setAvailableDates(dates);
-    });
-
-    // Calculate date range
-    const endDate = new Date().toISOString().split('T')[0];
+    // Calculate date range based on selected option
+    const endDate = customEndDate || new Date().toISOString().split('T')[0];
     let startDate;
     
     switch (selectedDateRange) {
@@ -94,42 +135,174 @@ const LocationHistoryDetailed = ({ selectedFamily }) => {
         startDate = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
         break;
       case 'custom':
-        startDate = customStartDate || endDate;
+        startDate = customStartDate || new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
         break;
       default:
         startDate = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
     }
 
-    // Get location history
-    const unsubscribeHistory = getLocationHistory(
-      selectedMember, 
-      startDate, 
-      customEndDate || endDate,
-      (history) => {
-        setLocationHistory(history);
-        fetchAddressesForLocations(history);
+    // Get real location history from locationHistory database node
+    const historyRef = ref(database, `locationHistory/${selectedMember}`);
+    const unsubscribeHistory = onValue(historyRef, (snapshot) => {
+      const historyData = snapshot.val();
+      const allHistory = [];
+      const availableDatesSet = new Set();
+
+      if (historyData) {
+        // Process each date's locations
+        Object.entries(historyData).forEach(([date, dayLocations]) => {
+          // Filter by date range
+          if (date >= startDate && date <= endDate) {
+            availableDatesSet.add(date);
+            
+            // Process locations for this date
+            if (dayLocations && typeof dayLocations === 'object') {
+              Object.entries(dayLocations).forEach(([locationId, location]) => {
+                if (location && location.latitude && location.longitude) {
+                  allHistory.push({
+                    ...location,
+                    id: locationId,
+                    date: date,
+                    // Ensure timestamp exists
+                    timestamp: location.timestamp || location.timeStamp || Date.now(),
+                    // Ensure gpsStatus exists
+                    gpsStatus: location.gpsStatus || location.gpsInfo || 'Unknown'
+                  });
+                }
+              });
+            }
+          }
+        });
       }
-    );
+
+      // If no historical data exists, try to get current location as fallback
+      if (allHistory.length === 0) {
+        const currentLocationRef = ref(database, `locationList/${selectedMember}`);
+        onValue(currentLocationRef, (currentSnapshot) => {
+          const currentLocation = currentSnapshot.val();
+          if (currentLocation && currentLocation.latitude && currentLocation.longitude) {
+            const todayDate = new Date().toISOString().split('T')[0];
+            const currentLocationEntry = {
+              ...currentLocation,
+              timestamp: currentLocation.timeStamp || currentLocation.timestamp || Date.now(),
+              id: `${selectedMember}_current`,
+              date: todayDate,
+              gpsStatus: currentLocation.gpsStatus || currentLocation.gpsInfo || 'Enabled'
+            };
+            
+            setLocationHistory([currentLocationEntry]);
+            setAvailableDates([todayDate]);
+            fetchAddressesForLocations([currentLocationEntry]);
+          } else {
+            setLocationHistory([]);
+            setAvailableDates([]);
+          }
+        });
+      } else {
+        // Sort by timestamp (newest first)
+        allHistory.sort((a, b) => b.timestamp - a.timestamp);
+        
+        setLocationHistory(allHistory);
+        setAvailableDates([...availableDatesSet].sort().reverse());
+        fetchAddressesForLocations(allHistory);
+      }
+    });
 
     return () => {
-      unsubscribeDates();
       unsubscribeHistory();
     };
   }, [selectedMember, selectedDateRange, customStartDate, customEndDate, fetchAddressesForLocations]);
 
+  // Auto-expand all dates when location history changes
+  useEffect(() => {
+    if (locationHistory.length > 0) {
+      const dates = [...new Set(locationHistory.map(location => {
+        const dateObj = new Date(location.timestamp);
+        return dateObj.toISOString().split('T')[0];
+      }))];
+      setExpandedDates(new Set(dates));
+    }
+  }, [locationHistory]);
+
+  // Function to populate test historical data
+  const handlePopulateTestData = async () => {
+    if (!selectedMember) {
+      alert('Please select a member first');
+      return;
+    }
+
+    setIsPopulatingTestData(true);
+    
+    try {
+      // Get current location as base for test data
+      const currentLocationRef = ref(database, `locationList/${selectedMember}`);
+      const snapshot = await new Promise((resolve) => {
+        onValue(currentLocationRef, resolve, { onlyOnce: true });
+      });
+      
+      const currentLocation = snapshot.val();
+      if (!currentLocation || !currentLocation.latitude || !currentLocation.longitude) {
+        alert('No current location found for this member. Please ensure they have shared their location first.');
+        setIsPopulatingTestData(false);
+        return;
+      }
+
+      const success = await populateTestHistoricalData(selectedMember, currentLocation);
+      
+      if (success) {
+        alert('Test historical data populated successfully! Refresh will show the new data.');
+      } else {
+        alert('Failed to populate test data. Check console for errors.');
+      }
+    } catch (error) {
+      console.error('Error populating test data:', error);
+      alert('Error populating test data: ' + error.message);
+    }
+    
+    setIsPopulatingTestData(false);
+  };
+
   // Group locations by date
   const locationsByDate = locationHistory.reduce((acc, location) => {
-    const date = location.date ? location.date.split(',')[0] : new Date(location.timestamp).toISOString().split('T')[0];
+    let date;
+    if (location.timestamp) {
+      // Create date from timestamp
+      const dateObj = new Date(location.timestamp);
+      date = dateObj.toISOString().split('T')[0]; // YYYY-MM-DD format
+    } else if (location.date) {
+      // If date exists, try to parse it
+      const dateObj = new Date(location.date);
+      if (!isNaN(dateObj.getTime())) {
+        date = dateObj.toISOString().split('T')[0];
+      } else {
+        date = new Date().toISOString().split('T')[0]; // Fallback to today
+      }
+    } else {
+      date = new Date().toISOString().split('T')[0]; // Fallback to today
+    }
+    
     if (!acc[date]) acc[date] = [];
     acc[date].push(location);
     return acc;
   }, {});
 
   const getFilteredMembers = () => {
-    if (!selectedFamily) return Object.entries(familyMembers);
+    if (!localSelectedFamily) return Object.entries(familyMembers);
     return Object.entries(familyMembers).filter(([_, member]) => 
-      member.familyName === selectedFamily
+      member.familyName === localSelectedFamily
     );
+  };
+
+  const handleFamilyChange = (familyName) => {
+    setLocalSelectedFamily(familyName);
+    setSelectedMember(''); // Reset member selection when family changes
+    // Clear location history when changing families
+    setLocationHistory([]);
+    setAvailableDates([]);
+  };
+
+  const getFamilyNames = () => {
+    return Object.keys(familyList);
   };
 
   const toggleDateExpansion = (date) => {
@@ -150,16 +323,42 @@ const LocationHistoryDetailed = ({ selectedFamily }) => {
   };
 
   const formatTime = (timestamp) => {
-    return new Date(timestamp).toLocaleTimeString();
+    return new Date(timestamp).toLocaleTimeString('en-US', {
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: true
+    });
   };
 
   const formatDate = (dateString) => {
-    return new Date(dateString).toLocaleDateString('en-US', {
-      weekday: 'long',
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric'
-    });
+    const date = new Date(dateString + 'T00:00:00'); // Add time to avoid timezone issues
+    if (isNaN(date.getTime())) {
+      return 'Invalid Date';
+    }
+    
+    const today = new Date().toISOString().split('T')[0];
+    const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+    
+    if (dateString === today) {
+      return 'Today - ' + date.toLocaleDateString('en-US', { 
+        weekday: 'long', 
+        month: 'long', 
+        day: 'numeric' 
+      });
+    } else if (dateString === yesterday) {
+      return 'Yesterday - ' + date.toLocaleDateString('en-US', { 
+        weekday: 'long', 
+        month: 'long', 
+        day: 'numeric' 
+      });
+    } else {
+      return date.toLocaleDateString('en-US', {
+        weekday: 'long',
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric'
+      });
+    }
   };
 
   if (loading) {
@@ -180,12 +379,38 @@ const LocationHistoryDetailed = ({ selectedFamily }) => {
       <div className="card-header">
         <FaHistory className="mr-2" />
         Detailed Location History
-        {selectedFamily && <span className="ml-2">- {selectedFamily}</span>}
+        {localSelectedFamily && <span className="ml-2">- {localSelectedFamily}</span>}
+        {selectedMember && filteredMembers.length > 0 && (
+          <span className="ml-2">
+            ({filteredMembers.find(([_, member]) => member.mobile === selectedMember)?.[1]?.name || 'Member'})
+          </span>
+        )}
       </div>
       <div className="card-content">
         {/* Filters */}
         <div style={{ marginBottom: '2rem' }}>
           <div className="grid grid-3">
+            {/* Family Selection */}
+            <div className="form-group">
+              <label className="form-label">
+                <FaUsers className="mr-1" />
+                Select Family
+              </label>
+              <select 
+                className="form-select"
+                value={localSelectedFamily}
+                onChange={(e) => handleFamilyChange(e.target.value)}
+              >
+                <option value="">All Families</option>
+                {getFamilyNames().map(familyName => (
+                  <option key={familyName} value={familyName}>
+                    {familyName}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Member Selection */}
             <div className="form-group">
               <label className="form-label">
                 <FaPhoneAlt className="mr-1" />
@@ -195,8 +420,13 @@ const LocationHistoryDetailed = ({ selectedFamily }) => {
                 className="form-select"
                 value={selectedMember}
                 onChange={(e) => setSelectedMember(e.target.value)}
+                disabled={!localSelectedFamily && getFamilyNames().length > 1}
               >
-                <option value="">Choose a member</option>
+                <option value="">
+                  {!localSelectedFamily && getFamilyNames().length > 1 
+                    ? 'Select a family first' 
+                    : 'Choose a member'}
+                </option>
                 {filteredMembers.map(([_, member]) => (
                   <option key={member.mobile} value={member.mobile}>
                     {member.name || 'Unnamed'} ({member.mobile})
@@ -205,6 +435,7 @@ const LocationHistoryDetailed = ({ selectedFamily }) => {
               </select>
             </div>
             
+            {/* Time Period Selection */}
             <div className="form-group">
               <label className="form-label">
                 <FaCalendarAlt className="mr-1" />
@@ -221,43 +452,102 @@ const LocationHistoryDetailed = ({ selectedFamily }) => {
                 <option value="custom">Custom Range</option>
               </select>
             </div>
+          </div>
 
-            {selectedDateRange === 'custom' && (
-              <div className="form-group">
-                <label className="form-label">Date Range</label>
-                <div style={{ display: 'flex', gap: '0.5rem' }}>
+          {/* Custom Date Range */}
+          {selectedDateRange === 'custom' && (
+            <div style={{ marginTop: '1rem' }}>
+              <div className="grid grid-2">
+                <div className="form-group">
+                  <label className="form-label">Start Date</label>
                   <input
                     type="date"
                     className="form-input"
                     value={customStartDate}
                     onChange={(e) => setCustomStartDate(e.target.value)}
-                    style={{ flex: 1 }}
                   />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">End Date</label>
                   <input
                     type="date"
                     className="form-input"
                     value={customEndDate}
                     onChange={(e) => setCustomEndDate(e.target.value)}
-                    style={{ flex: 1 }}
                   />
                 </div>
               </div>
+            </div>
+          )}
+        </div>
+
+
+
+        {/* Selection Info */}
+        {(localSelectedFamily || selectedMember) && (
+          <div style={{ 
+            marginBottom: '1rem', 
+            padding: '0.75rem', 
+            backgroundColor: '#f8f9ff', 
+            border: '1px solid #e3f2fd', 
+            borderRadius: '6px',
+            fontSize: '0.9rem',
+            color: '#1976d2'
+          }}>
+            <strong>Current Selection:</strong>{' '}
+            {localSelectedFamily && <span>Family: {localSelectedFamily}</span>}
+            {localSelectedFamily && selectedMember && <span> | </span>}
+            {selectedMember && (
+              <span>
+                Member: {filteredMembers.find(([_, member]) => member.mobile === selectedMember)?.[1]?.name || 'Unknown'} 
+                ({selectedMember})
+              </span>
+            )}
+            {localSelectedFamily && !selectedMember && (
+              <span> | {filteredMembers.length} member{filteredMembers.length !== 1 ? 's' : ''} available</span>
             )}
           </div>
-        </div>
+        )}
 
         {/* Results */}
         {!selectedMember ? (
           <div className="text-center" style={{ padding: '3rem', color: '#666' }}>
             <FaPhoneAlt size={48} style={{ marginBottom: '1rem', opacity: 0.3 }} />
-            <p>Please select a member to view their location history</p>
+            <p>
+              {getFamilyNames().length > 1 && !localSelectedFamily 
+                ? 'Please select a family and then a member to view location history'
+                : 'Please select a member to view their location history'}
+            </p>
+            {localSelectedFamily && filteredMembers.length > 0 && (
+              <div style={{ marginTop: '1rem', fontSize: '0.9rem' }}>
+                Available members in {localSelectedFamily}: {filteredMembers.length}
+              </div>
+            )}
           </div>
         ) : Object.keys(locationsByDate).length === 0 ? (
           <div className="text-center" style={{ padding: '3rem', color: '#666' }}>
             <FaMapMarkerAlt size={48} style={{ marginBottom: '1rem', opacity: 0.3 }} />
             <p>No location history found for the selected period</p>
-            {availableDates.length > 0 && (
+            {availableDates.length > 0 ? (
               <small>Available dates: {availableDates.slice(0, 5).join(', ')}{availableDates.length > 5 ? '...' : ''}</small>
+            ) : (
+              <div style={{ marginTop: '1rem' }}>
+                <p style={{ fontSize: '0.9rem', marginBottom: '1rem' }}>
+                  To see historical data here, your location submission should store data in:<br />
+                  <code style={{ backgroundColor: '#f5f5f5', padding: '0.25rem' }}>
+                    locationHistory/{`{phoneNumber}`}/{`{date}`}/[locations]
+                  </code>
+                </p>
+                {selectedMember && (
+                  <button
+                    className="btn btn-small"
+                    onClick={handlePopulateTestData}
+                    disabled={isPopulatingTestData}
+                  >
+                    {isPopulatingTestData ? 'Creating Test Data...' : '📊 Generate Sample Data for Testing'}
+                  </button>
+                )}
+              </div>
             )}
           </div>
         ) : (

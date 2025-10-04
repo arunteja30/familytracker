@@ -14,7 +14,8 @@ import {
   FaHistory, 
   FaBars,
   FaTimes,
-  FaWifi
+  FaWifi,
+  FaCalendarAlt
 } from 'react-icons/fa';
 
 // Component wrapper to access useNavigate hook
@@ -231,6 +232,13 @@ function AppContent() {
               <FaHistory className="bottom-nav-icon" />
               <span className="bottom-nav-label">History</span>
             </Link>
+            <Link 
+              to="/detailed-history" 
+              className={`bottom-nav-item ${location.pathname === '/detailed-history' ? 'active' : ''}`}
+            >
+              <FaCalendarAlt className="bottom-nav-icon" />
+              <span className="bottom-nav-label">Details</span>
+            </Link>
             {isAdmin && (
               <Link 
                 to="/admin" 
@@ -277,6 +285,8 @@ function AppContent() {
             padding: 0.5rem;
             transition: color 0.2s ease;
             min-width: 60px;
+            flex: 1;
+            max-width: 80px;
           }
           
           .bottom-nav-item.active {
@@ -291,6 +301,8 @@ function AppContent() {
           .bottom-nav-label {
             font-size: 0.75rem;
             font-weight: 500;
+            text-align: center;
+            line-height: 1;
           }
           
           /* Mobile Styles */
@@ -352,6 +364,23 @@ function AppContent() {
           @supports (padding: max(0px)) {
             .bottom-nav {
               padding-bottom: max(0.5rem, env(safe-area-inset-bottom));
+            }
+          }
+          
+          /* Extra small screens - make navigation more compact */
+          @media (max-width: 480px) {
+            .bottom-nav-item {
+              padding: 0.25rem;
+              min-width: 50px;
+            }
+            
+            .bottom-nav-icon {
+              font-size: 1rem;
+              margin-bottom: 0.15rem;
+            }
+            
+            .bottom-nav-label {
+              font-size: 0.65rem;
             }
           }
         `}</style>
