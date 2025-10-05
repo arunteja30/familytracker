@@ -42,6 +42,7 @@ import {
 } from 'react-icons/fa';
 import { getCachedAddress } from '../utils/geocoding';
 import { populateTestHistoricalData } from '../utils/locationHistory';
+import { formatFamilyNameForDisplay } from '../utils/familyName';
 
 const LocationHistoryDetailed = ({ selectedFamily, user }) => {
   const [familyMembers, setFamilyMembers] = useState({});
@@ -402,7 +403,7 @@ const LocationHistoryDetailed = ({ selectedFamily, user }) => {
       <div className="card-header">
         <FaHistory className="mr-2" />
         Detailed Location History
-        {localSelectedFamily && <span className="ml-2">- {localSelectedFamily}</span>}
+        {localSelectedFamily && <span className="ml-2">- {formatFamilyNameForDisplay(localSelectedFamily)}</span>}
         {selectedMember && filteredMembers.length > 0 && (
           <span className="ml-2">
             ({filteredMembers.find(([_, member]) => member.mobile === selectedMember)?.[1]?.name || 'Member'})
@@ -427,7 +428,7 @@ const LocationHistoryDetailed = ({ selectedFamily, user }) => {
                 <option value="">All Families</option>
                 {getFamilyNames().map(familyName => (
                   <option key={familyName} value={familyName}>
-                    {familyName}
+                    {formatFamilyNameForDisplay(familyName)}
                   </option>
                 ))}
               </select>
@@ -518,7 +519,7 @@ const LocationHistoryDetailed = ({ selectedFamily, user }) => {
             color: '#1976d2'
           }}>
             <strong>Current Selection:</strong>{' '}
-            {localSelectedFamily && <span>Family: {localSelectedFamily}</span>}
+            {localSelectedFamily && <span>Family: {formatFamilyNameForDisplay(localSelectedFamily)}</span>}
             {localSelectedFamily && selectedMember && <span> | </span>}
             {selectedMember && (
               <span>
@@ -543,7 +544,7 @@ const LocationHistoryDetailed = ({ selectedFamily, user }) => {
             </p>
             {localSelectedFamily && filteredMembers.length > 0 && (
               <div style={{ marginTop: '1rem', fontSize: '0.9rem' }}>
-                Available members in {localSelectedFamily}: {filteredMembers.length}
+                Available members in {formatFamilyNameForDisplay(localSelectedFamily)}: {filteredMembers.length}
               </div>
             )}
           </div>

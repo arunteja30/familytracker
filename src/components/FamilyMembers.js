@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { database } from '../firebase';
 import { ref, onValue } from 'firebase/database';
+import { formatFamilyNameForDisplay } from '../utils/familyName';
 import { 
   FaUsers, 
   FaBatteryFull, 
@@ -183,7 +184,7 @@ const FamilyMembers = ({ selectedFamily, selectedMember, onFamilyChange, onMembe
                   >
                     <div className="member-name" style={{ fontSize: '1.2rem', fontWeight: '600' }}>
                       <FaUsers style={{ marginRight: '0.5rem', color: '#667eea' }} />
-                      {familyName}
+                      {formatFamilyNameForDisplay(familyName)}
                     </div>
                     
                     <div className="member-info">
@@ -252,7 +253,7 @@ const FamilyMembers = ({ selectedFamily, selectedMember, onFamilyChange, onMembe
         </div>
         <div style={{ marginTop: '0.5rem' }}>
           <FaUsers className="mr-2" />
-          {selectedFamily} - {filteredMembers.length} member{filteredMembers.length !== 1 ? 's' : ''}
+          {formatFamilyNameForDisplay(selectedFamily)} - {filteredMembers.length} member{filteredMembers.length !== 1 ? 's' : ''}
         </div>
       </div>
       <div className="card-content">

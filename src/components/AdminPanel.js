@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { database } from '../firebase';
 import { ref, onValue, set, remove } from 'firebase/database';
+import { formatFamilyNameForDisplay } from '../utils/familyName';
 import { 
   FaUserShield, 
   FaPlus, 
@@ -195,7 +196,7 @@ const AdminPanel = () => {
   };
 
   const deleteFamily = async (familyName) => {
-    if (!window.confirm(`Are you sure you want to delete the family "${familyName}" and all its members?`)) {
+    if (!window.confirm(`Are you sure you want to delete the family "${formatFamilyNameForDisplay(familyName)}" and all its members?`)) {
       return;
     }
 
@@ -308,7 +309,7 @@ const AdminPanel = () => {
                   >
                     <div className="member-name" style={{ fontSize: '1.2rem', fontWeight: '600' }}>
                       <FaUsers style={{ marginRight: '0.5rem', color: '#667eea' }} />
-                      {familyName}
+                      {formatFamilyNameForDisplay(familyName)}
                     </div>
                     
                     <div className="member-info">
@@ -392,7 +393,7 @@ const AdminPanel = () => {
         </div>
         <div style={{ marginTop: '0.5rem' }}>
           <FaUserShield className="mr-2" />
-          Admin Panel - {selectedFamily} ({filteredMembers.length} member{filteredMembers.length !== 1 ? 's' : ''})
+          Admin Panel - {formatFamilyNameForDisplay(selectedFamily)} ({filteredMembers.length} member{filteredMembers.length !== 1 ? 's' : ''})
         </div>
       </div>
       <div className="card-content">
@@ -434,7 +435,7 @@ const AdminPanel = () => {
                 >
                   <option value="">Select Family</option>
                   {familyNames.map(family => (
-                    <option key={family} value={family}>{family}</option>
+                    <option key={family} value={family}>{formatFamilyNameForDisplay(family)}</option>
                   ))}
                 </select>
               </div>

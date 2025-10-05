@@ -14,6 +14,7 @@ import {
   FaMapPin
 } from 'react-icons/fa';
 import { getCachedAddress } from '../utils/geocoding';
+import { formatFamilyNameForDisplay } from '../utils/familyName';
 
 const LocationHistory = ({ selectedFamily, user }) => {
   const [locations, setLocations] = useState({});
@@ -203,7 +204,7 @@ const LocationHistory = ({ selectedFamily, user }) => {
       <div className="card-header">
         <FaHistory className="mr-2" />
         Location History
-        {selectedFamily && <span className="ml-2">- {selectedFamily}</span>}
+        {selectedFamily && <span className="ml-2">- {formatFamilyNameForDisplay(selectedFamily)}</span>}
       </div>
       <div className="card-content">
         {/* Filters */}

@@ -5,6 +5,7 @@ import { database } from '../firebase';
 import { ref, onValue, query, orderByChild, limitToLast } from 'firebase/database';
 import { FaBatteryFull, FaBatteryHalf, FaBatteryEmpty, FaMapMarkerAlt, FaClock, FaEye, FaTimes, FaRoute, FaMapPin, FaExpand, FaCompress } from 'react-icons/fa';
 import { getCachedAddress, getShortAddressFromCoordinates } from '../utils/geocoding';
+import { formatFamilyNameForDisplay } from '../utils/familyName';
 
 // Fix for default markers in react-leaflet
 delete L.Icon.Default.prototype._getIconUrl;
@@ -346,7 +347,7 @@ const LocationMap = ({ selectedFamily, selectedMember, onMemberSelect, user }) =
       <div className="card-header">
         <FaMapMarkerAlt className="mr-2" />
         Real-time Location Map
-        {selectedFamily && <span className="ml-2">- {selectedFamily}</span>}
+        {selectedFamily && <span className="ml-2">- {formatFamilyNameForDisplay(selectedFamily)}</span>}
       </div>
       <div className="card-content">
         {/* Selected Member Tracking Panel */}
