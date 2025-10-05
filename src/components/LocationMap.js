@@ -62,7 +62,7 @@ const MapController = ({ selectedMember, locations, familyMembers }) => {
   return null;
 };
 
-const LocationMap = ({ selectedFamily, selectedMember, onMemberSelect }) => {
+const LocationMap = ({ selectedFamily, selectedMember, onMemberSelect, user }) => {
   const [locations, setLocations] = useState({});
   const [familyMembers, setFamilyMembers] = useState({});
   const [loading, setLoading] = useState(true);
@@ -75,6 +75,8 @@ const LocationMap = ({ selectedFamily, selectedMember, onMemberSelect }) => {
   const [showGestureHelp, setShowGestureHelp] = useState(false);
   const mapRef = useRef();
   const mapContainerRef = useRef();
+
+  const isAdmin = user?.role === 'admin';
 
   // Function to fetch addresses for locations
   const fetchAddressesForLocations = useCallback(async (locationsData) => {
@@ -240,18 +242,38 @@ const LocationMap = ({ selectedFamily, selectedMember, onMemberSelect }) => {
   }, [selectedMember]);
 
   const getFilteredLocations = () => {
-    if (!selectedFamily) return locations;
-    
     const filteredLocations = {};
+    
     Object.entries(familyMembers).forEach(([memberId, member]) => {
-      if (member.familyName === selectedFamily) {
-        const phone = member.mobile;
-        if (locations[phone]) {
-          filteredLocations[phone] = locations[phone];
-        }
+      // Non-admin users can only see their own family
+      if (!isAdmin && user?.familyName && member.familyName !== user.familyName) {
+        return;
+      }
+      
+      // Apply family filter if selected
+      if (selectedFamily && member.familyName !== selectedFamily) {
+        return;
+      }
+      
+      const phone = member.mobile;
+      if (locations[phone]) {
+        filteredLocations[phone] = locations[phone];
       }
     });
-    return filteredLocations;
+    
+    // If no family filter and not admin, show all members from user's family
+    if (!selectedFamily && !isAdmin && user?.familyName) {
+      Object.entries(familyMembers).forEach(([memberId, member]) => {
+        if (member.familyName === user.familyName) {
+          const phone = member.mobile;
+          if (locations[phone]) {
+            filteredLocations[phone] = locations[phone];
+          }
+        }
+      });
+    }
+    
+    return Object.keys(filteredLocations).length > 0 ? filteredLocations : (isAdmin ? locations : {});
   };
 
   const getMemberInfo = (phoneNumber) => {

@@ -15,7 +15,7 @@ import {
 } from 'react-icons/fa';
 import { getCachedAddress } from '../utils/geocoding';
 
-const LocationHistory = ({ selectedFamily }) => {
+const LocationHistory = ({ selectedFamily, user }) => {
   const [locations, setLocations] = useState({});
   const [familyMembers, setFamilyMembers] = useState({});
   const [selectedMember, setSelectedMember] = useState('');
@@ -23,6 +23,8 @@ const LocationHistory = ({ selectedFamily }) => {
   const [loading, setLoading] = useState(true);
   const [addresses, setAddresses] = useState({});
   const [loadingAddresses, setLoadingAddresses] = useState({});
+
+  const isAdmin = user?.role === 'admin';
 
   // Function to fetch addresses for locations
   const fetchAddressesForLocations = useCallback(async (locationsData) => {
@@ -81,11 +83,19 @@ const LocationHistory = ({ selectedFamily }) => {
   }, [fetchAddressesForLocations]);
 
   const getFilteredMembers = () => {
-    if (!selectedFamily) return Object.entries(familyMembers);
+    let members = Object.entries(familyMembers);
     
-    return Object.entries(familyMembers).filter(([_, member]) => 
-      member.familyName === selectedFamily
-    );
+    // Non-admin users can only see their own family
+    if (!isAdmin && user?.familyName) {
+      members = members.filter(([_, member]) => member.familyName === user.familyName);
+    }
+    
+    // Apply family filter if selected
+    if (selectedFamily) {
+      members = members.filter(([_, member]) => member.familyName === selectedFamily);
+    }
+    
+    return members;
   };
 
   const getMemberByPhone = (phoneNumber) => {

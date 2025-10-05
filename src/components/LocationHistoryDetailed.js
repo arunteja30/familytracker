@@ -43,7 +43,7 @@ import {
 import { getCachedAddress } from '../utils/geocoding';
 import { populateTestHistoricalData } from '../utils/locationHistory';
 
-const LocationHistoryDetailed = ({ selectedFamily }) => {
+const LocationHistoryDetailed = ({ selectedFamily, user }) => {
   const [familyMembers, setFamilyMembers] = useState({});
   const [familyList, setFamilyList] = useState({});
   const [localSelectedFamily, setLocalSelectedFamily] = useState(selectedFamily || '');
@@ -58,6 +58,8 @@ const LocationHistoryDetailed = ({ selectedFamily }) => {
   const [loadingAddresses, setLoadingAddresses] = useState({});
   const [expandedDates, setExpandedDates] = useState(new Set());
   const [isPopulatingTestData, setIsPopulatingTestData] = useState(false);
+
+  const isAdmin = user?.role === 'admin';
 
   // Fetch addresses for locations
   const fetchAddressesForLocations = useCallback(async (locations) => {
@@ -111,6 +113,13 @@ const LocationHistoryDetailed = ({ selectedFamily }) => {
       setSelectedMember(''); // Reset member selection when family changes
     }
   }, [selectedFamily, localSelectedFamily]);
+
+  // Auto-select family for non-admin users
+  useEffect(() => {
+    if (!isAdmin && user?.familyName && !localSelectedFamily && Object.keys(familyList).length > 0) {
+      setLocalSelectedFamily(user.familyName);
+    }
+  }, [isAdmin, user, localSelectedFamily, familyList]);
 
   // Load location history when member or date range changes
   useEffect(() => {
@@ -287,10 +296,19 @@ const LocationHistoryDetailed = ({ selectedFamily }) => {
   }, {});
 
   const getFilteredMembers = () => {
-    if (!localSelectedFamily) return Object.entries(familyMembers);
-    return Object.entries(familyMembers).filter(([_, member]) => 
-      member.familyName === localSelectedFamily
-    );
+    let members = Object.entries(familyMembers);
+    
+    // Non-admin users can only see their own family
+    if (!isAdmin && user?.familyName) {
+      members = members.filter(([_, member]) => member.familyName === user.familyName);
+    }
+    
+    // Apply family filter if selected
+    if (localSelectedFamily) {
+      members = members.filter(([_, member]) => member.familyName === localSelectedFamily);
+    }
+    
+    return members;
   };
 
   const handleFamilyChange = (familyName) => {
@@ -302,6 +320,11 @@ const LocationHistoryDetailed = ({ selectedFamily }) => {
   };
 
   const getFamilyNames = () => {
+    // Non-admin users can only see their own family
+    if (!isAdmin && user?.familyName) {
+      return user.familyName in familyList ? [user.familyName] : [];
+    }
+    
     return Object.keys(familyList);
   };
 

@@ -6,6 +6,7 @@ import AdminPanel from './components/AdminPanel';
 import LocationHistory from './components/LocationHistory';
 import LocationHistoryDetailed from './components/LocationHistoryDetailed';
 import PWAInstallPrompt from './components/PWAInstallPrompt';
+import Login from './components/Login';
 
 import { 
   FaMapMarkerAlt, 
@@ -15,18 +16,39 @@ import {
   FaBars,
   FaTimes,
   FaWifi,
-  FaCalendarAlt
+  FaCalendarAlt,
+  FaSignOutAlt
 } from 'react-icons/fa';
 
 // Component wrapper to access useNavigate hook
 function AppContent() {
   const [selectedFamily, setSelectedFamily] = useState(null);
   const [selectedMember, setSelectedMember] = useState(null);
-  const [isAdmin, setIsAdmin] = useState(true);
+  const [user, setUser] = useState(null);
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const navigate = useNavigate();
   const location = useLocation();
+
+  // Check for saved user session on app load
+  useEffect(() => {
+    const savedUser = localStorage.getItem('familyTracker_user');
+    if (savedUser) {
+      try {
+        const userData = JSON.parse(savedUser);
+        setUser(userData);
+        setIsLoggedIn(true);
+        // Set selected family based on user's family
+        if (userData.familyName) {
+          setSelectedFamily(userData.familyName);
+        }
+      } catch (error) {
+        console.error('Error parsing saved user data:', error);
+        localStorage.removeItem('familyTracker_user');
+      }
+    }
+  }, []);
 
   useEffect(() => {
     const handleOnlineStatus = () => {
@@ -59,12 +81,52 @@ function AppContent() {
     setMobileMenuOpen(!mobileMenuOpen);
   };
 
+  const handleLogin = (userData) => {
+    setUser(userData);
+    setIsLoggedIn(true);
+    localStorage.setItem('familyTracker_user', JSON.stringify(userData));
+    
+    // Set selected family based on user's family
+    if (userData.familyName) {
+      setSelectedFamily(userData.familyName);
+    }
+    
+    // Navigate to appropriate default page based on role
+    if (userData.role === 'admin') {
+      navigate('/admin');
+    } else {
+      navigate('/map');
+    }
+  };
+
+  const handleLogout = () => {
+    setUser(null);
+    setIsLoggedIn(false);
+    setSelectedFamily(null);
+    setSelectedMember(null);
+    localStorage.removeItem('familyTracker_user');
+    navigate('/');
+  };
+
+  // If not logged in, show login page
+  if (!isLoggedIn) {
+    return <Login onLogin={handleLogin} />;
+  }
+
+  // Get user role for navigation
+  const isAdmin = user?.role === 'admin';
+
   return (
       <div className="App">
         {/* Header */}
         <header className="header">
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <h1>Family Tracker</h1>
+            <div>
+              <h1>Family Tracker</h1>
+              <div style={{ fontSize: '0.85rem', opacity: 0.9, marginTop: '2px' }}>
+                Welcome, {user?.name || 'User'} ({user?.role === 'admin' ? 'Admin' : 'Member'})
+              </div>
+            </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
               {/* Online Status */}
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
@@ -73,6 +135,27 @@ function AppContent() {
                   {isOnline ? 'Online' : 'Offline'}
                 </span>
               </div>
+
+              {/* Logout Button */}
+              <button
+                onClick={handleLogout}
+                style={{
+                  background: 'rgba(255,255,255,0.2)',
+                  border: '1px solid rgba(255,255,255,0.3)',
+                  color: 'white',
+                  padding: '6px 12px',
+                  borderRadius: '6px',
+                  cursor: 'pointer',
+                  fontSize: '0.85rem',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px'
+                }}
+                title="Sign Out"
+              >
+                <FaSignOutAlt />
+                Sign Out
+              </button>
               
               {/* Mobile Menu Toggle - Hidden on mobile, shown on small tablets */}
               <button
@@ -161,7 +244,7 @@ function AppContent() {
           )}
 
           <Routes>
-            <Route path="/" element={<Navigate to="/map" replace />} />
+            <Route path="/" element={<Navigate to={isAdmin ? "/admin" : "/map"} replace />} />
             <Route 
               path="/map" 
               element={
@@ -169,6 +252,7 @@ function AppContent() {
                   selectedFamily={selectedFamily}
                   selectedMember={selectedMember}
                   onMemberSelect={handleMemberSelect}
+                  user={user}
                 />
               } 
             />
@@ -180,6 +264,7 @@ function AppContent() {
                   selectedMember={selectedMember}
                   onFamilyChange={handleFamilyChange}
                   onMemberSelect={handleMemberSelect}
+                  user={user}
                 />
               } 
             />
@@ -188,6 +273,7 @@ function AppContent() {
               element={
                 <LocationHistory 
                   selectedFamily={selectedFamily}
+                  user={user}
                 />
               } 
             />
@@ -196,15 +282,35 @@ function AppContent() {
               element={
                 <LocationHistoryDetailed 
                   selectedFamily={selectedFamily}
+                  user={user}
                 />
               } 
             />
-            {isAdmin && (
-              <Route 
-                path="/admin" 
-                element={<AdminPanel />} 
-              />
-            )}
+            <Route 
+              path="/admin" 
+              element={
+                isAdmin ? (
+                  <AdminPanel user={user} />
+                ) : (
+                  <div className="card">
+                    <div className="card-content">
+                      <div style={{ textAlign: 'center', padding: '2rem' }}>
+                        <FaUserShield size={48} style={{ color: '#f56565', marginBottom: '1rem' }} />
+                        <h3>Access Denied</h3>
+                        <p>You don't have administrator privileges to access this page.</p>
+                        <button 
+                          className="btn"
+                          onClick={() => navigate('/map')}
+                          style={{ marginTop: '1rem' }}
+                        >
+                          Go to Map
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )
+              } 
+            />
           </Routes>
         </main>
 

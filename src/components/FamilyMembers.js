@@ -14,12 +14,14 @@ import {
   FaTimesCircle
 } from 'react-icons/fa';
 
-const FamilyMembers = ({ selectedFamily, selectedMember, onFamilyChange, onMemberSelect }) => {
+const FamilyMembers = ({ selectedFamily, selectedMember, onFamilyChange, onMemberSelect, user }) => {
   const [familyMembers, setFamilyMembers] = useState({});
   const [familyList, setFamilyList] = useState({});
   const [locations, setLocations] = useState({});
   const [loading, setLoading] = useState(true);
   const [viewMode, setViewMode] = useState('families'); // 'families' or 'members'
+
+  const isAdmin = user?.role === 'admin';
 
   useEffect(() => {
     const membersRef = ref(database, 'familyMembersList');
@@ -49,12 +51,37 @@ const FamilyMembers = ({ selectedFamily, selectedMember, onFamilyChange, onMembe
     };
   }, []);
 
+  // Auto-select family for non-admin users
+  useEffect(() => {
+    if (!isAdmin && user?.familyName && !selectedFamily && !loading) {
+      onFamilyChange(user.familyName);
+      setViewMode('members');
+    }
+  }, [isAdmin, user, selectedFamily, loading, onFamilyChange]);
+
   const getFilteredMembers = () => {
-    if (!selectedFamily) return Object.entries(familyMembers);
+    let members = Object.entries(familyMembers);
     
-    return Object.entries(familyMembers).filter(([_, member]) => 
-      member.familyName === selectedFamily
-    );
+    // Non-admin users can only see their own family
+    if (!isAdmin && user?.familyName) {
+      members = members.filter(([_, member]) => member.familyName === user.familyName);
+    }
+    
+    // Apply family filter if selected
+    if (selectedFamily) {
+      members = members.filter(([_, member]) => member.familyName === selectedFamily);
+    }
+    
+    return members;
+  };
+
+  const getVisibleFamilies = () => {
+    // Non-admin users can only see their own family
+    if (!isAdmin && user?.familyName) {
+      return { [user.familyName]: familyList[user.familyName] };
+    }
+    
+    return familyList;
   };
 
   const getFamilyMemberCount = (familyName) => {
@@ -122,7 +149,8 @@ const FamilyMembers = ({ selectedFamily, selectedMember, onFamilyChange, onMembe
   }
 
   const filteredMembers = getFilteredMembers();
-  const familyNames = Object.keys(familyList);
+  const visibleFamilies = getVisibleFamilies();
+  const familyNames = Object.keys(visibleFamilies);
 
   // Show families list when no family is selected
   if (!selectedFamily || viewMode === 'families') {
