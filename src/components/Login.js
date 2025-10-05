@@ -130,8 +130,17 @@ const Login = ({ onLogin }) => {
     <div className="login-container">
       <div className="login-card">
         <div className="login-header">
-          <div className="login-icon">
-            <FaPhoneAlt />
+          <div className="login-logo">
+            <img 
+              src="/logo512.png" 
+              alt="Family Tracker Logo" 
+              loading="eager"
+              onError={(e) => {
+                // Fallback if logo fails to load
+                e.target.style.display = 'none';
+                e.target.parentNode.innerHTML = '<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:#667eea;border-radius:12px;color:white;font-size:2rem;"><i class="fa fa-map-marker-alt"></i></div>';
+              }}
+            />
           </div>
           <h1>Family Tracker</h1>
           <p>Sign in with your registered phone number</p>
@@ -152,8 +161,13 @@ const Login = ({ onLogin }) => {
               disabled={isLoading}
               autoComplete="tel"
               maxLength={15}
+              autoFocus
+              inputMode="tel"
+              pattern="[+]*[0-9\s]*"
+              aria-describedby="phone-hint"
+              required
             />
-            <small className="form-hint">
+            <small className="form-hint" id="phone-hint">
               Enter your registered mobile number (with or without country code)
             </small>
           </div>

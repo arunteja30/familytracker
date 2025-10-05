@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { BrowserRouter as Router, Routes, Route, Link, Navigate, useNavigate, useLocation } from 'react-router-dom';
 import LocationMap from './components/LocationMap';
 import FamilyMembers from './components/FamilyMembers';
@@ -7,6 +7,7 @@ import LocationHistory from './components/LocationHistory';
 import LocationHistoryDetailed from './components/LocationHistoryDetailed';
 import PWAInstallPrompt from './components/PWAInstallPrompt';
 import Login from './components/Login';
+import { getCurrentPosition, sendLocationToServer, startLocationTracking as startPeriodicTracking } from './utils/locationService';
 
 import { 
   FaMapMarkerAlt, 
@@ -28,6 +29,9 @@ function AppContent() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [isOnline, setIsOnline] = useState(navigator.onLine);
+  const [locationStatus, setLocationStatus] = useState('idle'); // 'idle', 'requesting', 'granted', 'denied', 'error'
+  const [locationError, setLocationError] = useState('');
+  const locationTrackingCleanup = useRef(null);
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -43,6 +47,8 @@ function AppContent() {
         if (userData.familyName) {
           setSelectedFamily(userData.familyName);
         }
+        // Start location tracking for existing session
+        setTimeout(() => startLocationTracking(userData), 1000); // Small delay to ensure everything is loaded
       } catch (error) {
         console.error('Error parsing saved user data:', error);
         localStorage.removeItem('familyTracker_user');
@@ -64,6 +70,15 @@ function AppContent() {
     };
   }, []);
 
+  // Cleanup location tracking on component unmount
+  useEffect(() => {
+    return () => {
+      if (locationTrackingCleanup.current) {
+        locationTrackingCleanup.current();
+      }
+    };
+  }, []);
+
   const handleFamilyChange = (family) => {
     setSelectedFamily(family);
     setSelectedMember(null);
@@ -81,7 +96,7 @@ function AppContent() {
     setMobileMenuOpen(!mobileMenuOpen);
   };
 
-  const handleLogin = (userData) => {
+  const handleLogin = async (userData) => {
     setUser(userData);
     setIsLoggedIn(true);
     localStorage.setItem('familyTracker_user', JSON.stringify(userData));
@@ -90,6 +105,9 @@ function AppContent() {
     if (userData.familyName) {
       setSelectedFamily(userData.familyName);
     }
+
+    // Start location tracking for the logged-in user
+    startLocationTracking(userData);
     
     // Navigate to appropriate default page based on role
     if (userData.role === 'admin') {
@@ -99,11 +117,45 @@ function AppContent() {
     }
   };
 
+  const startLocationTracking = async (userData) => {
+    try {
+      setLocationStatus('requesting');
+      setLocationError('');
+
+      // Get user's current location and send to server
+      const locationData = await getCurrentPosition();
+      await sendLocationToServer(userData, locationData);
+      
+      setLocationStatus('granted');
+
+      // Start periodic location updates (every 5 minutes)
+      const cleanup = startPeriodicTracking(userData, 5);
+      locationTrackingCleanup.current = cleanup;
+
+      console.log('Location tracking started successfully');
+    } catch (error) {
+      console.error('Location tracking failed:', error);
+      setLocationStatus('error');
+      setLocationError(error.message);
+      
+      // Still allow the user to use the app even if location fails
+      // Show a notification but don't block the login
+    }
+  };
+
   const handleLogout = () => {
+    // Stop location tracking
+    if (locationTrackingCleanup.current) {
+      locationTrackingCleanup.current();
+      locationTrackingCleanup.current = null;
+    }
+
     setUser(null);
     setIsLoggedIn(false);
     setSelectedFamily(null);
     setSelectedMember(null);
+    setLocationStatus('idle');
+    setLocationError('');
     localStorage.removeItem('familyTracker_user');
     navigate('/');
   };
@@ -133,6 +185,20 @@ function AppContent() {
                 <FaWifi style={{ color: isOnline ? '#38a169' : '#f56565' }} />
                 <span style={{ fontSize: '0.85rem' }}>
                   {isOnline ? 'Online' : 'Offline'}
+                </span>
+              </div>
+
+              {/* Location Status */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <FaMapMarkerAlt style={{ 
+                  color: locationStatus === 'granted' ? '#38a169' : 
+                         locationStatus === 'error' ? '#f56565' : 
+                         locationStatus === 'requesting' ? '#ecc94b' : '#ccc'
+                }} />
+                <span style={{ fontSize: '0.85rem' }}>
+                  {locationStatus === 'granted' ? 'Sharing' : 
+                   locationStatus === 'requesting' ? 'Getting...' : 
+                   locationStatus === 'error' ? 'Failed' : 'Location'}
                 </span>
               </div>
 
@@ -240,6 +306,14 @@ function AppContent() {
             <div className="error" style={{ marginBottom: '1rem' }}>
               <FaWifi style={{ marginRight: '0.5rem' }} />
               You are currently offline. Some features may not work properly.
+            </div>
+          )}
+
+          {/* Location error notification */}
+          {locationStatus === 'error' && locationError && (
+            <div className="error" style={{ marginBottom: '1rem' }}>
+              <FaMapMarkerAlt style={{ marginRight: '0.5rem' }} />
+              Location Error: {locationError}. Your location won't be shared with family members.
             </div>
           )}
 
