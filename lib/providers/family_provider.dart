@@ -6,6 +6,7 @@ import '../services/database_service.dart';
 import '../services/preferences_service.dart';
 import '../services/location_service.dart';
 import '../services/native_service.dart';
+import '../services/contacts_service.dart';
 
 class FamilyProvider extends ChangeNotifier {
   final DatabaseService _dbService = DatabaseService();
@@ -29,6 +30,31 @@ class FamilyProvider extends ChangeNotifier {
   bool get isLoading => _isLoading;
   String? get errorMessage => _errorMessage;
 
+  // Enrich member names with device contact book names
+  List<FamilyMemberModel> _enrichWithContactNames(
+      List<FamilyMemberModel> members) {
+    return members.map((m) {
+      final contactName = ContactsService.getContactDisplayName(m.mobile, m.name);
+      if (contactName.isNotEmpty && contactName != m.name) {
+        return FamilyMemberModel(
+          name: contactName,
+          mobile: m.mobile,
+          relationship: m.relationship,
+          memberId: m.memberId,
+          familyName: m.familyName,
+          pushNofityToken: m.pushNofityToken,
+          adminName: m.adminName,
+          password: m.password,
+          message: m.message,
+          gpsInfo: m.gpsInfo,
+          uid: m.uid,
+          isRegistered: m.isRegistered,
+        );
+      }
+      return m;
+    }).toList();
+  }
+
   // Initialize and Load Data
   Future<void> init(String userPhone) async {
     _isLoading = true;
@@ -37,15 +63,17 @@ class FamilyProvider extends ChangeNotifier {
     try {
       debugPrint('[FamilyTracker] Initializing FamilyProvider for: $userPhone');
 
-      // 1. Fetch all groups on Firebase that this phone is added to
+      // 1. Sync device contacts
+      await ContactsService.syncDeviceContacts();
+
+      // 2. Fetch all groups on Firebase that this phone is added to
       _userFamilyGroups = await _dbService.getFamilyNamesForPhone(userPhone);
       debugPrint('[FamilyTracker] Detected groups for user: $_userFamilyGroups');
 
-      // 2. Determine best family group to load
+      // 3. Determine best family group to load
       String? savedFamily = PreferencesService.getUserFamilyName();
 
       if (_userFamilyGroups.isNotEmpty) {
-        // If saved group is in the user's groups, use it, otherwise use the first discovered group
         if (savedFamily != null && _userFamilyGroups.contains(savedFamily)) {
           _currentFamilyName = savedFamily;
         } else {
@@ -61,15 +89,15 @@ class FamilyProvider extends ChangeNotifier {
 
       debugPrint('[FamilyTracker] Selected active group: $_currentFamilyName');
 
-      // 3. Fetch initial snapshot directly
+      // 4. Fetch initial snapshot directly and enrich with contacts
       final initialMembers = await _dbService.getFamilyMembers(_currentFamilyName);
-      _familyMembers = initialMembers;
+      _familyMembers = _enrichWithContactNames(initialMembers);
       debugPrint('[FamilyTracker] Initial snapshot loaded: ${_familyMembers.length} members');
 
-      // 4. Subscribe to real-time updates for the active family group
+      // 5. Subscribe to real-time updates for the active family group
       _subscribeToMembers(_currentFamilyName);
 
-      // 5. Start continuous background location tracking with foreground notification
+      // 6. Start continuous background location tracking
       _locationService.startContinuousBackgroundLocationTracking(userPhone);
       await NativeService.startNativeStickyService();
     } catch (e) {
@@ -86,7 +114,7 @@ class FamilyProvider extends ChangeNotifier {
     _membersSubscription?.cancel();
     _membersSubscription =
         _dbService.streamFamilyMembers(familyName).listen((members) {
-      _familyMembers = members;
+      _familyMembers = _enrichWithContactNames(members);
       _subscribeToLocations(members);
       notifyListeners();
     });
@@ -117,10 +145,9 @@ class FamilyProvider extends ChangeNotifier {
   Future<void> switchFamilyGroup(String newFamilyName) async {
     _currentFamilyName = newFamilyName;
     await PreferencesService.saveUserFamilyName(newFamilyName);
-    
-    // Fetch immediately then subscribe
+
     final members = await _dbService.getFamilyMembers(newFamilyName);
-    _familyMembers = members;
+    _familyMembers = _enrichWithContactNames(members);
     _subscribeToMembers(newFamilyName);
     _subscribeToLocations(members);
     notifyListeners();
@@ -144,11 +171,12 @@ class FamilyProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
+      await ContactsService.syncDeviceContacts();
       if (userPhone.isNotEmpty) {
         await _locationService.updateAndPushLocation(userPhone);
       }
       final members = await _dbService.getFamilyMembers(_currentFamilyName);
-      _familyMembers = members;
+      _familyMembers = _enrichWithContactNames(members);
       _subscribeToLocations(members);
     } catch (e) {
       debugPrint('[FamilyTracker] Refresh error: $e');

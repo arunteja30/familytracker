@@ -22,4 +22,17 @@ class NativeService {
       } catch (_) {}
     }
   }
+
+  // Read device contacts from phonebook
+  static Future<Map<dynamic, dynamic>?> getDeviceContacts() async {
+    if (Platform.isAndroid) {
+      try {
+        final result = await _channel.invokeMethod('getDeviceContacts');
+        if (result is Map) {
+          return result;
+        }
+      } catch (_) {}
+    }
+    return null;
+  }
 }

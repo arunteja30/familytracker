@@ -1,10 +1,14 @@
 package com.mat.familytrack
 
+import android.Manifest
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.database.Cursor
 import android.net.Uri
 import android.os.Build
 import android.os.PowerManager
+import android.provider.ContactsContract
 import android.provider.Settings
 import androidx.core.content.ContextCompat
 import io.flutter.embedding.android.FlutterActivity
@@ -27,6 +31,10 @@ class MainActivity : FlutterActivity() {
                 "requestBatteryOptimizationExemption" -> {
                     requestBatteryOptimizationExemption()
                     result.success(true)
+                }
+                "getDeviceContacts" -> {
+                    val contactsMap = getDeviceContacts()
+                    result.success(contactsMap)
                 }
                 else -> result.notImplemented()
             }
@@ -57,5 +65,51 @@ class MainActivity : FlutterActivity() {
                 }
             }
         }
+    }
+
+    private fun getDeviceContacts(): HashMap<String, String> {
+        val contactsMap = HashMap<String, String>()
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_CONTACTS) == PackageManager.PERMISSION_GRANTED) {
+            var cursor: Cursor? = null
+            try {
+                cursor = contentResolver.query(
+                    ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
+                    arrayOf(
+                        ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME,
+                        ContactsContract.CommonDataKinds.Phone.NUMBER
+                    ),
+                    null,
+                    null,
+                    null
+                )
+
+                if (cursor != null) {
+                    val nameIndex = cursor.getColumnIndex(ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME)
+                    val numberIndex = cursor.getColumnIndex(ContactsContract.CommonDataKinds.Phone.NUMBER)
+
+                    while (cursor.moveToNext()) {
+                        val name = cursor.getString(nameIndex)
+                        val number = cursor.getString(numberIndex)
+                        if (!number.isNullOrEmpty() && !name.isNullOrEmpty()) {
+                            // Strip spaces, dashes, etc.
+                            val cleanNumber = number.replace(Regex("[^0-9+]"), "")
+                            contactsMap[cleanNumber] = name
+
+                            // Also index last 10 digits
+                            val digitsOnly = number.replace(Regex("[^0-9]"), "")
+                            if (digitsOnly.length >= 10) {
+                                val last10 = digitsOnly.substring(digitsOnly.length - 10)
+                                contactsMap[last10] = name
+                            }
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            } finally {
+                cursor?.close()
+            }
+        }
+        return contactsMap
     }
 }
