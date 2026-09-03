@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../../constants/app_colors.dart';
 import '../../providers/family_provider.dart';
 import '../../services/preferences_service.dart';
+import '../../services/permission_service.dart';
 import '../widgets/gradient_header.dart';
 import '../widgets/member_card.dart';
 import '../widgets/add_member_dialog.dart';
@@ -30,8 +31,26 @@ class _FamilyDashboardScreenState extends State<FamilyDashboardScreen> {
 
   Future<void> _loadData() async {
     _userPhone = PreferencesService.getUserPhone() ?? '';
-    final familyProvider = Provider.of<FamilyProvider>(context, listen: false);
-    await familyProvider.init(_userPhone);
+    final hasPerm = await PermissionService.hasLocationPermission();
+    if (!hasPerm && mounted) {
+      await PermissionService.showPermissionRequestDialog(
+        context: context,
+        onProceed: () async {
+          await PermissionService.requestEssentialPermissions(context);
+          if (mounted) {
+            final familyProvider =
+                Provider.of<FamilyProvider>(context, listen: false);
+            await familyProvider.init(_userPhone);
+          }
+        },
+      );
+    } else {
+      if (mounted) {
+        final familyProvider =
+            Provider.of<FamilyProvider>(context, listen: false);
+        await familyProvider.init(_userPhone);
+      }
+    }
   }
 
   void _showAddMemberDialog(String familyName) {
