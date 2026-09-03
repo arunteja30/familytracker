@@ -35,6 +35,23 @@ migrate_working_dir/
 /build/ios/
 /build/app/
 /build/flutter_assets/
+/build/.cxx/
+/build/*.cache.dill.track.dill
+/build/battery_plus/
+/build/firebase_auth/
+/build/firebase_core/
+/build/firebase_database/
+/build/flutter_plugin_android_lifecycle/
+/build/geocoding_android/
+/build/geolocator_android/
+/build/google_maps_flutter_android/
+/build/image_picker_android/
+/build/jni/
+/build/jni_flutter/
+/build/permission_handler_android/
+/build/reports/
+/build/shared_preferences_android/
+/build/url_launcher_android/
 # Allow build/web so Render Docker can serve pre-built static files
 !/build/web/
 /coverage/
