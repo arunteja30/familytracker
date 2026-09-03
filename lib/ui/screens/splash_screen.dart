@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../constants/app_colors.dart';
 import '../../services/preferences_service.dart';
 import '../../services/permission_service.dart';
+import '../../services/native_service.dart';
 import 'phone_login_screen.dart';
 import 'family_dashboard_screen.dart';
 
@@ -28,6 +29,7 @@ class _SplashScreenState extends State<SplashScreen> {
     if (!hasPerm && mounted) {
       await PermissionService.requestEssentialPermissions(context);
     }
+    await NativeService.requestBatteryOptimizationExemption();
 
     if (!mounted) return;
 

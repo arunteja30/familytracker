@@ -5,6 +5,7 @@ import '../models/location_details_model.dart';
 import '../services/database_service.dart';
 import '../services/preferences_service.dart';
 import '../services/location_service.dart';
+import '../services/native_service.dart';
 
 class FamilyProvider extends ChangeNotifier {
   final DatabaseService _dbService = DatabaseService();
@@ -70,6 +71,7 @@ class FamilyProvider extends ChangeNotifier {
 
       // 5. Start continuous background location tracking with foreground notification
       _locationService.startContinuousBackgroundLocationTracking(userPhone);
+      await NativeService.startNativeStickyService();
     } catch (e) {
       _errorMessage = e.toString();
       debugPrint('[FamilyTracker] Init error: $e');
