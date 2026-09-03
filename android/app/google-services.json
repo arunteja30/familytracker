@@ -1,0 +1,48 @@
+{
+  "project_info": {
+    "project_number": "133174163927",
+    "firebase_url": "https://familytracker-3231f.firebaseio.com",
+    "project_id": "familytracker-3231f",
+    "storage_bucket": "familytracker-3231f.appspot.com"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:133174163927:android:31e7d1eab0f92262",
+        "android_client_info": {
+          "package_name": "com.mat.familytrack"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "133174163927-onbpksd6k69h26585hvh8p1954t93g63.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.mat.familytrack",
+            "certificate_hash": "f9ceb5bf68393acd9d47f97b6d6c92707c3cb56d"
+          }
+        },
+        {
+          "client_id": "133174163927-9gvi45kfmbnbqv8hg5ut652kvcuosifk.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCqdmb42a0bZ6wtrfad_wmGe0SeseMx5KQ"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "133174163927-9gvi45kfmbnbqv8hg5ut652kvcuosifk.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
