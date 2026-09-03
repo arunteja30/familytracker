@@ -29,12 +29,28 @@ class FamilyMemberModel {
 
   factory FamilyMemberModel.fromJson(Map<dynamic, dynamic> json) {
     return FamilyMemberModel(
-      name: json['name']?.toString() ?? '',
-      mobile: json['mobile']?.toString() ?? '',
-      relationship: json['relationship']?.toString() ?? '',
-      memberId: json['memberId']?.toString() ?? '',
-      familyName: json['familyName']?.toString() ?? '',
-      pushNofityToken: json['pushNofityToken']?.toString(),
+      name: json['name']?.toString() ??
+          json['userName']?.toString() ??
+          json['adminName']?.toString() ??
+          'Member',
+      mobile: json['mobile']?.toString() ??
+          json['mobileNo']?.toString() ??
+          json['phone']?.toString() ??
+          json['phoneNumber']?.toString() ??
+          '',
+      relationship: json['relationship']?.toString() ??
+          json['relation']?.toString() ??
+          '',
+      memberId: json['memberId']?.toString() ??
+          json['id']?.toString() ??
+          json['uid']?.toString() ??
+          '',
+      familyName: json['familyName']?.toString() ??
+          json['family']?.toString() ??
+          json['group']?.toString() ??
+          '',
+      pushNofityToken: json['pushNofityToken']?.toString() ??
+          json['fcmToken']?.toString(),
       adminName: json['adminName']?.toString(),
       password: json['password']?.toString(),
       message: json['message']?.toString(),

@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:firebase_database/firebase_database.dart';
 import '../constants/app_constants.dart';
 import '../models/family_member_model.dart';
@@ -20,117 +21,155 @@ class DatabaseService {
     return s1 == s2;
   }
 
-  // Stream of Family Members for a given Group Name
+  // Parse generic snapshot into list of FamilyMemberModel
+  static List<FamilyMemberModel> parseMembersFromSnapshot(
+      dynamic data, [String? fallbackFamilyName]) {
+    final List<FamilyMemberModel> result = [];
+    if (data == null) return result;
+
+    void processItem(dynamic val, [String? key]) {
+      if (val is Map) {
+        final model = FamilyMemberModel.fromJson(val);
+        if (model.memberId.isEmpty && key != null) {
+          model.memberId = key;
+        }
+        if (model.familyName.isEmpty && fallbackFamilyName != null) {
+          model.familyName = fallbackFamilyName;
+        }
+        result.add(model);
+      }
+    }
+
+    if (data is Map) {
+      data.forEach((k, v) {
+        if (v is Map && (v.containsKey('name') || v.containsKey('mobile') || v.containsKey('mobileNo'))) {
+          processItem(v, k.toString());
+        } else if (v is Map) {
+          // Nested group like { "MyFamily": { "member1": {...} } }
+          v.forEach((nestedK, nestedV) {
+            processItem(nestedV, nestedK.toString());
+          });
+        }
+      });
+    } else if (data is List) {
+      for (int i = 0; i < data.length; i++) {
+        if (data[i] != null) processItem(data[i], i.toString());
+      }
+    }
+
+    return result;
+  }
+
+  // Stream of Family Members for a given Group Name (listening to multiple nodes)
   Stream<List<FamilyMemberModel>> streamFamilyMembers(String familyName) {
     return _db.ref(AppConstants.familyMemberList).onValue.map((event) {
-      final data = event.snapshot.value;
-      if (data == null) return [];
+      final members = parseMembersFromSnapshot(event.snapshot.value, familyName);
+      final target = familyName.trim().toLowerCase();
 
-      final List<FamilyMemberModel> members = [];
-      final targetFamily = familyName.trim().toLowerCase();
+      final filtered = members.where((m) {
+        if (target.isEmpty) return true;
+        return m.familyName.trim().toLowerCase() == target;
+      }).toList();
 
-      void processItem(dynamic val, [String? key]) {
-        if (val is Map) {
-          final model = FamilyMemberModel.fromJson(val);
-          if (model.memberId.isEmpty && key != null) {
-            model.memberId = key;
-          }
-          if (targetFamily.isEmpty ||
-              model.familyName.trim().toLowerCase() == targetFamily) {
-            members.add(model);
-          }
-        }
-      }
-
-      if (data is Map) {
-        data.forEach((k, v) => processItem(v, k.toString()));
-      } else if (data is List) {
-        for (int i = 0; i < data.length; i++) {
-          if (data[i] != null) processItem(data[i], i.toString());
-        }
-      }
-
-      return members;
+      debugPrint('[FamilyTracker] Streamed ${filtered.length} members for $familyName');
+      return filtered;
     });
   }
 
-  // Get Family Members Once
-  Future<List<FamilyMemberModel>> getFamilyMembers(String familyName) async {
-    try {
-      final snapshot = await _db.ref(AppConstants.familyMemberList).get();
-      if (!snapshot.exists || snapshot.value == null) return [];
+  // Get All Members Across All Known DB Nodes
+  Future<List<FamilyMemberModel>> getAllDatabaseMembers() async {
+    final List<FamilyMemberModel> all = [];
+    final seen = <String>{};
 
-      final data = snapshot.value;
-      final List<FamilyMemberModel> members = [];
-      final targetFamily = familyName.trim().toLowerCase();
-
-      void processItem(dynamic val, [String? key]) {
-        if (val is Map) {
-          final model = FamilyMemberModel.fromJson(val);
-          if (model.memberId.isEmpty && key != null) {
-            model.memberId = key;
-          }
-          if (targetFamily.isEmpty ||
-              model.familyName.trim().toLowerCase() == targetFamily) {
-            members.add(model);
-          }
+    void addUnique(List<FamilyMemberModel> list) {
+      for (var m in list) {
+        final key = '${m.mobile}_${m.familyName}';
+        if (!seen.contains(key) && m.mobile.isNotEmpty) {
+          seen.add(key);
+          all.add(m);
         }
       }
-
-      if (data is Map) {
-        data.forEach((k, v) => processItem(v, k.toString()));
-      } else if (data is List) {
-        for (int i = 0; i < data.length; i++) {
-          if (data[i] != null) processItem(data[i], i.toString());
-        }
-      }
-
-      return members;
-    } catch (e) {
-      return [];
     }
+
+    try {
+      // 1. Check familyMembersList
+      final snap1 = await _db.ref(AppConstants.familyMemberList).get();
+      if (snap1.exists && snap1.value != null) {
+        addUnique(parseMembersFromSnapshot(snap1.value));
+      }
+
+      // 2. Check familyNames
+      final snap2 = await _db.ref(AppConstants.familyDbName).get();
+      if (snap2.exists && snap2.value != null) {
+        addUnique(parseMembersFromSnapshot(snap2.value));
+      }
+
+      // 3. Check legacy FamilyDetails
+      final snap3 = await _db.ref(AppConstants.legacyFamilyDb).get();
+      if (snap3.exists && snap3.value != null) {
+        addUnique(parseMembersFromSnapshot(snap3.value));
+      }
+    } catch (e) {
+      debugPrint('[FamilyTracker] Error fetching all members: $e');
+    }
+
+    return all;
+  }
+
+  // Get Family Members for a Specific Group
+  Future<List<FamilyMemberModel>> getFamilyMembers(String familyName) async {
+    final allMembers = await getAllDatabaseMembers();
+    final target = familyName.trim().toLowerCase();
+
+    if (target.isEmpty) return allMembers;
+
+    final filtered = allMembers.where((m) {
+      return m.familyName.trim().toLowerCase() == target;
+    }).toList();
+
+    debugPrint('[FamilyTracker] Found ${filtered.length} members for family $familyName');
+    return filtered;
   }
 
   // Find all Family Groups associated with a Phone Number
   Future<List<String>> getFamilyNamesForPhone(String mobile) async {
-    try {
-      final snapshot = await _db.ref(AppConstants.familyMemberList).get();
-      final Set<String> groups = {};
+    final allMembers = await getAllDatabaseMembers();
+    final Set<String> groups = {};
 
-      if (snapshot.exists && snapshot.value != null) {
-        final data = snapshot.value;
-        void checkItem(dynamic val) {
-          if (val is Map) {
-            final model = FamilyMemberModel.fromJson(val);
-            if (matchPhones(model.mobile, mobile) &&
-                model.familyName.trim().isNotEmpty) {
-              groups.add(model.familyName.trim());
-            }
-          }
-        }
+    debugPrint('[FamilyTracker] Searching groups for phone: $mobile among ${allMembers.length} members');
 
-        if (data is Map) {
-          data.forEach((k, v) => checkItem(v));
-        } else if (data is List) {
-          for (var item in data) {
-            if (item != null) checkItem(item);
-          }
-        }
+    for (var member in allMembers) {
+      if (matchPhones(member.mobile, mobile) && member.familyName.trim().isNotEmpty) {
+        groups.add(member.familyName.trim());
       }
-
-      // Check UserFamilyName node fallback
-      if (groups.isEmpty) {
-        final userFamilySnap =
-            await _db.ref(AppConstants.userFamilyName).child(mobile).get();
-        if (userFamilySnap.exists && userFamilySnap.value != null) {
-          groups.add(userFamilySnap.value.toString().trim());
-        }
-      }
-
-      return groups.toList();
-    } catch (e) {
-      return [];
     }
+
+    // Check UserFamilyName node fallback
+    if (groups.isEmpty) {
+      try {
+        final snap = await _db.ref(AppConstants.userFamilyName).child(mobile).get();
+        if (snap.exists && snap.value != null) {
+          groups.add(snap.value.toString().trim());
+        }
+      } catch (_) {}
+    }
+
+    // Check all group names in familyList / familyNames
+    if (groups.isEmpty) {
+      try {
+        final snap = await _db.ref(AppConstants.familyList).get();
+        if (snap.exists && snap.value is Map) {
+          (snap.value as Map).forEach((k, v) {
+            if (k != null && k.toString().trim().isNotEmpty) {
+              groups.add(k.toString().trim());
+            }
+          });
+        }
+      } catch (_) {}
+    }
+
+    debugPrint('[FamilyTracker] Groups found for $mobile: $groups');
+    return groups.toList();
   }
 
   // Stream of Real-time Location for a Specific Mobile Number
@@ -234,15 +273,27 @@ class DatabaseService {
           : DateTime.now().millisecondsSinceEpoch.toString();
       member.memberId = memberId;
 
-      await _db
-          .ref(AppConstants.familyMemberList)
-          .child(memberId)
-          .set(member.toJson());
+      final json = member.toJson();
 
+      // Save to familyMembersList/{memberId}
+      await _db.ref(AppConstants.familyMemberList).child(memberId).set(json);
+
+      // Save to familyNames/{familyName}/{memberId}
       if (member.familyName.isNotEmpty) {
+        await _db
+            .ref(AppConstants.familyDbName)
+            .child(member.familyName)
+            .child(memberId)
+            .set(json);
+
         await _db
             .ref(AppConstants.familyList)
             .child(member.familyName)
+            .set(member.familyName);
+
+        await _db
+            .ref(AppConstants.userFamilyName)
+            .child(member.mobile)
             .set(member.familyName);
       }
     } catch (e) {

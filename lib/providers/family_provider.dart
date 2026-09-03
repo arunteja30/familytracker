@@ -34,41 +34,45 @@ class FamilyProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
-      // 1. Fetch all groups this user belongs to on Firebase
-      _userFamilyGroups = await _dbService.getFamilyNamesForPhone(userPhone);
+      debugPrint('[FamilyTracker] Initializing FamilyProvider for: $userPhone');
 
-      // 2. Check local preference
+      // 1. Fetch all groups on Firebase that this phone is added to
+      _userFamilyGroups = await _dbService.getFamilyNamesForPhone(userPhone);
+      debugPrint('[FamilyTracker] Detected groups for user: $_userFamilyGroups');
+
+      // 2. Determine best family group to load
       String? savedFamily = PreferencesService.getUserFamilyName();
 
-      if (savedFamily != null && savedFamily.isNotEmpty) {
+      if (_userFamilyGroups.isNotEmpty) {
+        // If saved group is in the user's groups, use it, otherwise use the first discovered group
+        if (savedFamily != null && _userFamilyGroups.contains(savedFamily)) {
+          _currentFamilyName = savedFamily;
+        } else {
+          _currentFamilyName = _userFamilyGroups.first;
+          await PreferencesService.saveUserFamilyName(_currentFamilyName);
+        }
+      } else if (savedFamily != null && savedFamily.isNotEmpty) {
         _currentFamilyName = savedFamily;
-      } else if (_userFamilyGroups.isNotEmpty) {
-        _currentFamilyName = _userFamilyGroups.first;
-        await PreferencesService.saveUserFamilyName(_currentFamilyName);
       } else {
         _currentFamilyName = 'MyFamily';
         await PreferencesService.saveUserFamilyName(_currentFamilyName);
-
-        // Auto-register self as member in MyFamily if no members exist
-        final selfName = PreferencesService.getUserName() ?? 'Me';
-        final selfMember = FamilyMemberModel(
-          name: selfName,
-          mobile: userPhone,
-          relationship: 'Self',
-          familyName: _currentFamilyName,
-          memberId: DateTime.now().millisecondsSinceEpoch.toString(),
-          isRegistered: true,
-        );
-        await _dbService.addFamilyMember(selfMember);
       }
 
-      // 3. Subscribe to real-time updates for the active family group
+      debugPrint('[FamilyTracker] Selected active group: $_currentFamilyName');
+
+      // 3. Fetch initial snapshot directly
+      final initialMembers = await _dbService.getFamilyMembers(_currentFamilyName);
+      _familyMembers = initialMembers;
+      debugPrint('[FamilyTracker] Initial snapshot loaded: ${_familyMembers.length} members');
+
+      // 4. Subscribe to real-time updates for the active family group
       _subscribeToMembers(_currentFamilyName);
 
-      // 4. Update and push current device location
+      // 5. Update and push current device location
       await _locationService.updateAndPushLocation(userPhone);
     } catch (e) {
       _errorMessage = e.toString();
+      debugPrint('[FamilyTracker] Init error: $e');
     } finally {
       _isLoading = false;
       notifyListeners();
@@ -111,29 +115,45 @@ class FamilyProvider extends ChangeNotifier {
   Future<void> switchFamilyGroup(String newFamilyName) async {
     _currentFamilyName = newFamilyName;
     await PreferencesService.saveUserFamilyName(newFamilyName);
+    
+    // Fetch immediately then subscribe
+    final members = await _dbService.getFamilyMembers(newFamilyName);
+    _familyMembers = members;
     _subscribeToMembers(newFamilyName);
+    _subscribeToLocations(members);
     notifyListeners();
   }
 
   // Add Family Member
   Future<void> addMember(FamilyMemberModel member) async {
     await _dbService.addFamilyMember(member);
-    notifyListeners();
+    await refresh(PreferencesService.getUserPhone() ?? '');
   }
 
   // Delete Member
   Future<void> deleteMember(String memberId, String mobile) async {
     await _dbService.deleteFamilyMember(memberId, mobile);
-    notifyListeners();
+    await refresh(PreferencesService.getUserPhone() ?? '');
   }
 
   // Refresh All
   Future<void> refresh(String userPhone) async {
-    await _locationService.updateAndPushLocation(userPhone);
-    final members = await _dbService.getFamilyMembers(_currentFamilyName);
-    _familyMembers = members;
-    _subscribeToLocations(members);
+    _isLoading = true;
     notifyListeners();
+
+    try {
+      if (userPhone.isNotEmpty) {
+        await _locationService.updateAndPushLocation(userPhone);
+      }
+      final members = await _dbService.getFamilyMembers(_currentFamilyName);
+      _familyMembers = members;
+      _subscribeToLocations(members);
+    } catch (e) {
+      debugPrint('[FamilyTracker] Refresh error: $e');
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
   }
 
   @override
