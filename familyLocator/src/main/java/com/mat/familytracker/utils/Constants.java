@@ -1,0 +1,58 @@
+package com.mat.familytracker.utils;
+
+public class Constants {
+    public static final String LONGITUDE = "LONGITUDE";
+    public static final String LATITUDE = "LATITUDE";
+    public static final String LAST_SMS_SENT_TIME = "LAST_SMS_SENT_TIME";
+    public static final String PUSH_NOTIFY_TOKEN = "PUSH_NOTIFY_TOKEN";
+    public static final String IS_FROM_RECEIVER = "IS_FROM_RECEIVER";
+    public static final String ADDRESS = "ADDRESS";
+    public static final String SMS_CONTENT = "TEST";
+    public static final String SMS_SENDER = "856";
+    public static final String MAP_URL = "MAP_URL";
+    public static final String LOCATION_ALERT = "LOCATION_ALERT";
+    public static final String SIM_CHANGE_ALERT = "SIM_CHANGE_ALERT";
+    public static final String ALERT_TYPE = "ALERT_TYPE";
+    public static final long SIM_DETAILS_FETCH_INTERVAL = 2 * 60 * 1000;
+    public static final String WHICH_SIM_CHANGED = "WHICH_SIM_CHANGED";
+    public static final String GOOGLE_MAP_API_KEY = "AIzaSyA-dmHNnmCl_1pakfDqHT3rhKt7mIlK4AE";
+    public static final String RESULT_RECIEVER = "RESULT_RECIEVER";
+    public static final String SMS_LOCATION_MSG = "My Current Location:\n";
+    public static final String FAMILY_NAME = "FAMILY_NAME";
+    public static final String FAMILY_NAMES_LIST = "FAMILY_NAMES_LIST";
+    public static final String FAMILY_DB_NAME = "familyNames";
+    public static final String FAMILY_MEM_MODEL = "FAMILY_MEM_MODEL";
+    public static final String FAMILY_MEM_DATA = "FAMILY_MEM_DATA";
+    public static final int GET_DATA_INTENT = 1908;
+    public static final String SHARED_PREF = "SHARED_PREF";
+    public static final String NAME_SEPERATOR = "_";
+    public static final String USERNAME = "USERNAME";
+    public static final String LOCATION_LIST = "locationList";
+    public static final int MY_PERMISSIONS_REQUEST_LOCATION = 1165;
+    public static final String FIRST_LAUNCH = "first_launch";
+    public static final String FAMILY_MEMBER = "familyMembers";
+    public static final String FAMILY_MEMBER_LIST = "familyMembersList";
+    public static final String USERS_LIST = "userList";
+    public static final int UPDATE_FAMILY_MEMBER = 4521;
+    public static final String UPDATE_DATA = "UpdateData";
+    public static final String DATE_FORMAT = "dd/MM/yyyy HH:mm:ss a";
+    public static final int NOTIFICATION_ID = 344;
+    public static final int MIN_TIME_OF_TRACKING = 120000;// milliseconds - 30 sec
+    public static final int FASTEST_INTERVAL_OF_TRACKING = 40000;// milliseconds - 30 sec
+    public static final int MIN_DISTANCE_OF_TRACKING = 40;//meters
+    public static final long SMS_TIME_GAP = 1 * 60 * 60;//hours
+    public static final String ENCRYPTED_KEY = "arunkey";
+    public static final String RESTART_SERVICE = "restartservice";
+    public static final String URL = "URL";
+    public static final String POST_DATA = "POST_DATA";
+    public static final String REQUEST_TYPE = "REQUEST_TYPE";
+    public static final String REQUEST_TYPE_POST = "POST";
+    public static final String REQUEST_TYPE_GET = "GET";
+    public static final String FIREBASE_PUSH_NOTIFY_SERVER_KEY = "key=AAAAHwHMedc:APA91bGkAKpJjSxEwq48z7GbV5b57ug3_HfjezaoIZlAOgYvbytfm1AqxCzPGeYo3evgf5gILFjVGlCOcdSmHRCvHWN0DoCyyBrvQnmj35mY0sVfoGh8fIr4FiU6E_L0QXQEFTAEBXMV";
+    public static final String FCM_PUSH_URL = "https://fcm.googleapis.com/fcm/send";
+    public static final int PICK_IMAGE = 5055;
+    public static final String PROFILE_PIC_EXT = "_profile_pic.jpg";
+    public static final String PROFILE_PIC_DIR = "ProfileImages";
+    public static final String CONTACTS_LIST = "CONTACTS_LIST";
+    public static final String ALERT_EMAIL_ID = "ALERT_EMAIL_ID";
+}

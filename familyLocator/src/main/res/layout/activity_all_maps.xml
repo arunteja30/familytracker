@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    tools:context=".activity.AllMapsActivity">
+
+
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/map_list_members"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_margin="3dp"></androidx.recyclerview.widget.RecyclerView>
+
+    <Button
+        android:id="@+id/refreshMap"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_below="@+id/map_list_members"
+        android:backgroundTint="@color/colorPrimary"
+        android:text="Show All"
+        android:textAllCaps="false"
+        android:textColor="@android:color/white" />
+
+    <fragment
+        android:id="@+id/all_map_activity"
+        android:name="com.google.android.gms.maps.MapFragment"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:layout_below="@+id/refreshMap" />
+</RelativeLayout>

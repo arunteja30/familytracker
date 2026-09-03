@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+
+<menu xmlns:android="http://schemas.android.com/apk/res/android">
+    <item
+        android:id="@+id/switch_change_group"
+        android:title="Switch Groups"
+        android:visible="false" />
+
+    <item
+        android:id="@+id/profile_image"
+        android:title="Add Profile Image"
+        android:visible="false" />
+    <item
+        android:id="@+id/show_intruders"
+        android:title="Show Intruders"
+        android:visible="true" />
+    <item
+        android:id="@+id/enable_admin"
+        android:title="Enable Device Admin"
+        android:visible="true" />
+    <item
+        android:id="@+id/settings"
+        android:title="Settings"
+        android:visible="true" />
+
+    <item
+        android:id="@+id/logout"
+        android:title="Logout"
+        android:visible="true" />
+    <!--<item-->
+    <!--android:id="@+id/download_link"-->
+    <!--android:title="update" />-->
+
+
+</menu>

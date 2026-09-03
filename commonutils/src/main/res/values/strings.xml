@@ -1,0 +1,46 @@
+<resources>
+    <string name="app_name">Family Tracker</string>
+    <string name="navigation_drawer_open">Open navigation drawer</string>
+    <string name="navigation_drawer_close">Close navigation drawer</string>
+    <string name="nav_header_title">Android Studio</string>
+    <string name="nav_header_subtitle">android.studio@android.com</string>
+    <string name="nav_header_desc">Navigation header</string>
+    <string name="action_settings">Settings</string>
+    <string name="enter_family_name">Enter group Name</string>
+    <string name="family_name">Group Name</string>
+    <string name="add_family_member">Add a Member</string>
+    <string name="enter_member_name">Enter Member Name</string>
+    <string name="enter_member_relation">Enter member relationship</string>
+    <string name="enter_member_phone">Ener member mobile</string>
+    <string name="delete_family_member">delete</string>
+    <string name="edit_family_member">Edit</string>
+    <string name="save">Save</string>
+    <string name="no_account">not registered..? SignUp</string>
+    <string name="enter_email">Enter mobile No</string>
+    <string name="enter_password">enter your name</string>
+    <string name="re_enter_password">Re-enter password</string>
+    <string name="login">login</string>
+    <string name="signup">signup</string>
+    <string name="add_family">ADD</string>
+    <string name="cancel">Cancel</string>
+    <string name="join_family">Join</string>
+    <string name="icon_contact">add</string>
+    <string name="user_gps_disable"> has disabled GPS , You cannot track him now...! 😟</string>
+    <string name="topicName">findBuddy</string>
+    <string name="location_updated">location Updated</string>
+    <string name="isRunning"> is Running.. ☺</string>
+    <string name="admin_explanation">Family Locator -  Device Admin helps the user to get special privileges, Please Activite</string>
+    <string name="no_avalaible_connection">NO AVALAIBLE CONNECTION</string>
+    <string name="error_connection_message">Connection could not be established.</string>
+    <string name="error">error</string>
+    <string name="success">success</string>
+    <string name="connection_found">Connection found</string>
+    <string name="success_connection_message">You have successfully reconnected</string>
+    <string name="error_cannot_write">Cannot write image captured by camera.</string>
+    <string name="error_cannot_open">Cannot open camera.</string>
+    <string name="error_cannot_get_permission">Camera permission not available.</string>
+    <string name="error_not_having_camera">Your device does not have front camera.</string>
+    <string name="error_camera_permission_denied">Camera permission denied.</string>
+    <string name="btn_tittle_capture_image">Capture image</string>
+
+</resources>

@@ -1,0 +1,140 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    tools:context=".activity.SettingsActivity">
+
+    <androidx.cardview.widget.CardView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="2dp">
+
+        <RelativeLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_margin="10dp"
+            android:gravity="center">
+
+            <android.support.v7.widget.SwitchCompat
+                android:id="@+id/switch_email_alerts"
+                android:layout_width="50dp"
+                android:layout_height="wrap_content"
+                android:layout_alignParentRight="true" />
+
+            <TextView
+                android:id="@+id/txt_email_alert"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/email_address_header"
+                android:textColor="@color/colorAccent"
+                android:textSize="@dimen/Header_label_size"
+                android:textStyle="normal" />
+
+            <TextView
+                android:id="@+id/txt_email_desc"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_below="@+id/txt_email_alert"
+                android:layout_marginRight="0dp"
+                android:text="@string/email_address_description"
+                android:textSize="@dimen/label_value_size" />
+
+            <androidx.appcompat.widget.AppCompatEditText
+                android:id="@+id/et_change_email"
+                style="@style/Widget.AppCompat.EditText"
+                android:layout_width="match_parent"
+                android:layout_height="40dp"
+                android:layout_below="@+id/txt_email_desc"
+                android:hint="username@xyz.com" />
+
+            <Button
+                android:id="@+id/btn_save_email"
+                android:layout_width="wrap_content"
+                android:layout_height="35dp"
+                android:layout_below="@+id/et_change_email"
+                android:layout_marginTop="2dp"
+                android:background="@drawable/third_button_background"
+                android:gravity="center"
+                android:text="save"
+                android:textColor="@color/white"
+                android:textSize="@dimen/label_size" />
+        </RelativeLayout>
+    </androidx.cardview.widget.CardView>
+
+    <androidx.cardview.widget.CardView
+        android:id="@+id/ll_name_change"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="2dp">
+
+        <RelativeLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_margin="10dp"
+            android:gravity="start">
+
+
+            <TextView
+                android:id="@+id/txt_name_change"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/name_change_header"
+                android:textColor="@color/colorAccent"
+                android:textSize="@dimen/Header_label_size"
+                android:textStyle="normal" />
+
+            <TextView
+                android:id="@+id/txt_name_change_description"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_below="@+id/txt_name_change"
+                android:layout_marginRight="0dp"
+                android:text="@string/name_change_desc"
+                android:textSize="@dimen/label_value_size" />
+
+
+        </RelativeLayout>
+    </androidx.cardview.widget.CardView>
+
+    <androidx.cardview.widget.CardView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="2dp">
+
+        <RelativeLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_margin="10dp"
+            android:gravity="center">
+
+            <android.support.v7.widget.SwitchCompat
+                android:id="@+id/switch_admin"
+                android:layout_width="50dp"
+                android:layout_height="wrap_content"
+                android:layout_alignParentRight="true" />
+
+            <TextView
+                android:id="@+id/txt_admin_settings"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/admin_settings"
+                android:textColor="@color/colorAccent"
+                android:textSize="@dimen/Header_label_size"
+                android:textStyle="normal" />
+
+            <TextView
+                android:id="@+id/txt_admin_settings_desc"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_below="@+id/txt_admin_settings"
+                android:layout_marginRight="0dp"
+                android:text="@string/admin_explanation"
+                android:textSize="@dimen/label_value_size" />
+
+
+        </RelativeLayout>
+    </androidx.cardview.widget.CardView>
+
+</LinearLayout>

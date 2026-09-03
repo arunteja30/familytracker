@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+
+<menu xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+    <item
+        android:id="@+id/map_terrain"
+        android:title="Terrain" />
+    <item
+        android:id="@+id/map_satellite"
+        android:title="satellite" />
+    <item
+        android:id="@+id/map_normal"
+        android:title="Normal" />
+    <item
+        android:id="@+id/map_hybrid"
+        android:title="Hybrid" />
+    <item
+        android:id="@+id/map_traffic"
+        android:title="Show Traffic" />
+    <item
+        android:id="@+id/location_history"
+        android:title="Show History" />
+    <item
+        android:id="@+id/map_search"
+        android:icon="@android:drawable/ic_menu_search"
+        android:title="search"
+        app:showAsAction="always" />
+</menu>

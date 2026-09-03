@@ -1,0 +1,51 @@
+<resources>
+    <string name="app_name">Family Tracker</string>
+    <string name="navigation_drawer_open">Open navigation drawer</string>
+    <string name="navigation_drawer_close">Close navigation drawer</string>
+    <string name="nav_header_title">Android Studio</string>
+    <string name="nav_header_subtitle">android.studio@android.com</string>
+    <string name="nav_header_desc">Navigation header</string>
+    <string name="action_settings">Settings</string>
+    <string name="enter_family_name">Enter group Name</string>
+    <string name="family_name">Group Name</string>
+    <string name="add_family_member">Add a Member</string>
+    <string name="enter_member_name">Enter Member Name</string>
+    <string name="enter_member_relation">Enter member relationship</string>
+    <string name="enter_member_phone">Ener member mobile</string>
+    <string name="delete_family_member">delete</string>
+    <string name="edit_family_member">Edit</string>
+    <string name="save">Save</string>
+    <string name="no_account">not registered..? SignUp</string>
+    <string name="enter_email">Enter mobile No</string>
+    <string name="enter_password">enter your name</string>
+    <string name="re_enter_password">Re-enter password</string>
+    <string name="login">login</string>
+    <string name="signup">signup</string>
+    <string name="add_family">ADD</string>
+    <string name="cancel">Cancel</string>
+    <string name="join_family">Join</string>
+    <string name="icon_contact">add</string>
+    <string name="user_gps_disable"> has disabled GPS , You cannot track now...! 😟</string>
+    <string name="topicName">findBuddy</string>
+    <string name="location_updated">location Updated</string>
+    <string name="isRunning">\ is Running.. ☺</string>
+    <string name="admin_explanation">Device Admin helps the user to get special privileges to access/check password attempts. This setting is required for security</string>
+    <string name="app_dont_work">App don\'t work without neccesary permissions, Please grant all Permissions</string>
+    <string name="title_activity_phone_login">PhoneLoginActivity</string>
+    <!-- Strings used for fragments for navigation -->
+    <string name="first_fragment_label">First Fragment</string>
+    <string name="second_fragment_label">Second Fragment</string>
+    <string name="next">Next</string>
+    <string name="previous">Previous</string>
+
+    <string name="hello_first_fragment">Hello first fragment</string>
+    <string name="hello_second_fragment">Hello second fragment. Arg: %1$s</string>
+    <string name="select_family_name">Select any Group to Switch</string>
+    <string name="email_address_header">Enable Email Alerts</string>
+    <string name="email_address_description">Enabling this will give you the email alerts of the intruder with Photo and Location</string>
+    <string name="name_change_header">Change Profile Name</string>
+    <string name="name_change_desc">Change name of your Profile</string>
+    <string name="admin_settings">Enable Device Admin Settings</string>
+    <string name="disable_admin_msg">Do you want to disable the Device Admin, Which will disable the Security features of the application, Intruder photos are not taken and Email will not send to you</string>
+    <!--    <string name="app_dont_work">App don\'t work without neccesary permissions, Please grant LOCATION and CONTACTS Permission to work with basic features.</string>-->
+</resources>
