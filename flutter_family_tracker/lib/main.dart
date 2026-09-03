@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:provider/provider.dart';
@@ -9,15 +10,28 @@ import 'ui/screens/splash_screen.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  
+
   // Initialize Local Preferences
   await PreferencesService.init();
 
-  // Initialize Firebase
+  // Initialize Firebase (Cross-Platform / Web / Mobile)
   try {
-    await Firebase.initializeApp();
+    if (kIsWeb) {
+      await Firebase.initializeApp(
+        options: const FirebaseOptions(
+          apiKey: 'AIzaSyCqdmb42a0bZ6wtrfad_wmGe0SeseMx5KQ',
+          appId: '1:133174163927:web:31e7d1eab0f92262',
+          messagingSenderId: '133174163927',
+          projectId: 'familytracker-3231f',
+          databaseURL: 'https://familytracker-3231f.firebaseio.com',
+          storageBucket: 'familytracker-3231f.appspot.com',
+        ),
+      );
+    } else {
+      await Firebase.initializeApp();
+    }
   } catch (e) {
-    debugPrint('Firebase initialization error: $e');
+    debugPrint('Firebase initialization notice: $e');
   }
 
   runApp(const FamilyTrackerApp());
