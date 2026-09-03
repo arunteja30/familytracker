@@ -30,41 +30,55 @@ class FamilyProvider extends ChangeNotifier {
   bool get isLoading => _isLoading;
   String? get errorMessage => _errorMessage;
 
+  void _safeNotifyListeners() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      notifyListeners();
+    });
+  }
+
   // Enrich member names with device contact book names
   List<FamilyMemberModel> _enrichWithContactNames(
       List<FamilyMemberModel> members) {
-    return members.map((m) {
-      final contactName = ContactsService.getContactDisplayName(m.mobile, m.name);
-      if (contactName.isNotEmpty && contactName != m.name) {
-        return FamilyMemberModel(
-          name: contactName,
-          mobile: m.mobile,
-          relationship: m.relationship,
-          memberId: m.memberId,
-          familyName: m.familyName,
-          pushNofityToken: m.pushNofityToken,
-          adminName: m.adminName,
-          password: m.password,
-          message: m.message,
-          gpsInfo: m.gpsInfo,
-          uid: m.uid,
-          isRegistered: m.isRegistered,
-        );
-      }
-      return m;
-    }).toList();
+    try {
+      return members.map((m) {
+        final contactName = ContactsService.getContactDisplayName(m.mobile, m.name);
+        if (contactName.isNotEmpty && contactName != m.name) {
+          return FamilyMemberModel(
+            name: contactName,
+            mobile: m.mobile,
+            relationship: m.relationship,
+            memberId: m.memberId,
+            familyName: m.familyName,
+            pushNofityToken: m.pushNofityToken,
+            adminName: m.adminName,
+            password: m.password,
+            message: m.message,
+            gpsInfo: m.gpsInfo,
+            uid: m.uid,
+            isRegistered: m.isRegistered,
+          );
+        }
+        return m;
+      }).toList();
+    } catch (_) {
+      return members;
+    }
   }
 
   // Initialize and Load Data
   Future<void> init(String userPhone) async {
     _isLoading = true;
-    notifyListeners();
+    _safeNotifyListeners();
 
     try {
       debugPrint('[FamilyTracker] Initializing FamilyProvider for: $userPhone');
 
-      // 1. Sync device contacts
-      await ContactsService.syncDeviceContacts();
+      // 1. Sync device contacts safely
+      try {
+        await ContactsService.syncDeviceContacts();
+      } catch (e) {
+        debugPrint('[FamilyTracker] Contacts error: $e');
+      }
 
       // 2. Fetch all groups on Firebase that this phone is added to
       _userFamilyGroups = await _dbService.getFamilyNamesForPhone(userPhone);
@@ -98,14 +112,18 @@ class FamilyProvider extends ChangeNotifier {
       _subscribeToMembers(_currentFamilyName);
 
       // 6. Start continuous background location tracking
-      _locationService.startContinuousBackgroundLocationTracking(userPhone);
-      await NativeService.startNativeStickyService();
+      try {
+        _locationService.startContinuousBackgroundLocationTracking(userPhone);
+        await NativeService.startNativeStickyService();
+      } catch (e) {
+        debugPrint('[FamilyTracker] Location start error: $e');
+      }
     } catch (e) {
       _errorMessage = e.toString();
       debugPrint('[FamilyTracker] Init error: $e');
     } finally {
       _isLoading = false;
-      notifyListeners();
+      _safeNotifyListeners();
     }
   }
 
@@ -116,7 +134,9 @@ class FamilyProvider extends ChangeNotifier {
         _dbService.streamFamilyMembers(familyName).listen((members) {
       _familyMembers = _enrichWithContactNames(members);
       _subscribeToLocations(members);
-      notifyListeners();
+      _safeNotifyListeners();
+    }, onError: (err) {
+      debugPrint('[FamilyTracker] Stream members error: $err');
     });
   }
 
@@ -134,8 +154,10 @@ class FamilyProvider extends ChangeNotifier {
             .listen((location) {
           if (location != null) {
             _memberLocations[member.mobile] = location;
-            notifyListeners();
+            _safeNotifyListeners();
           }
+        }, onError: (err) {
+          debugPrint('[FamilyTracker] Stream location error for ${member.mobile}: $err');
         });
       }
     }
@@ -146,32 +168,46 @@ class FamilyProvider extends ChangeNotifier {
     _currentFamilyName = newFamilyName;
     await PreferencesService.saveUserFamilyName(newFamilyName);
 
-    final members = await _dbService.getFamilyMembers(newFamilyName);
-    _familyMembers = _enrichWithContactNames(members);
-    _subscribeToMembers(newFamilyName);
-    _subscribeToLocations(members);
-    notifyListeners();
+    try {
+      final members = await _dbService.getFamilyMembers(newFamilyName);
+      _familyMembers = _enrichWithContactNames(members);
+      _subscribeToMembers(newFamilyName);
+      _subscribeToLocations(members);
+    } catch (e) {
+      debugPrint('[FamilyTracker] Switch group error: $e');
+    }
+    _safeNotifyListeners();
   }
 
   // Add Family Member
   Future<void> addMember(FamilyMemberModel member) async {
-    await _dbService.addFamilyMember(member);
-    await refresh(PreferencesService.getUserPhone() ?? '');
+    try {
+      await _dbService.addFamilyMember(member);
+      await refresh(PreferencesService.getUserPhone() ?? '');
+    } catch (e) {
+      debugPrint('[FamilyTracker] Add member error: $e');
+    }
   }
 
   // Delete Member
   Future<void> deleteMember(String memberId, String mobile) async {
-    await _dbService.deleteFamilyMember(memberId, mobile);
-    await refresh(PreferencesService.getUserPhone() ?? '');
+    try {
+      await _dbService.deleteFamilyMember(memberId, mobile);
+      await refresh(PreferencesService.getUserPhone() ?? '');
+    } catch (e) {
+      debugPrint('[FamilyTracker] Delete member error: $e');
+    }
   }
 
   // Refresh All
   Future<void> refresh(String userPhone) async {
     _isLoading = true;
-    notifyListeners();
+    _safeNotifyListeners();
 
     try {
-      await ContactsService.syncDeviceContacts();
+      try {
+        await ContactsService.syncDeviceContacts();
+      } catch (_) {}
       if (userPhone.isNotEmpty) {
         await _locationService.updateAndPushLocation(userPhone);
       }
@@ -182,7 +218,7 @@ class FamilyProvider extends ChangeNotifier {
       debugPrint('[FamilyTracker] Refresh error: $e');
     } finally {
       _isLoading = false;
-      notifyListeners();
+      _safeNotifyListeners();
     }
   }
 
