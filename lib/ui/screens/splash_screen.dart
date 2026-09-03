@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../constants/app_colors.dart';
 import '../../services/preferences_service.dart';
+import '../../services/permission_service.dart';
 import 'phone_login_screen.dart';
 import 'family_dashboard_screen.dart';
 
@@ -20,6 +21,14 @@ class _SplashScreenState extends State<SplashScreen> {
 
   Future<void> _checkAuth() async {
     await Future.delayed(const Duration(milliseconds: 1500));
+    if (!mounted) return;
+
+    // Check & request location permission explicitly
+    final hasPerm = await PermissionService.hasLocationPermission();
+    if (!hasPerm && mounted) {
+      await PermissionService.requestEssentialPermissions(context);
+    }
+
     if (!mounted) return;
 
     final isLoggedIn = PreferencesService.isLoggedIn();
