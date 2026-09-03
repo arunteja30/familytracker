@@ -11,6 +11,7 @@ import '../../services/database_service.dart';
 import '../../services/geocoding_service.dart';
 import '../../services/profile_image_service.dart';
 import '../../utils/marker_generator.dart';
+import '../widgets/adaptive_map_view.dart';
 import 'location_history_screen.dart';
 
 class MemberMapScreen extends StatefulWidget {
@@ -178,15 +179,24 @@ class _MemberMapScreenState extends State<MemberMapScreen> {
       ),
       body: Stack(
         children: [
-          GoogleMap(
-            initialCameraPosition: CameraPosition(
-              target: pos,
-              zoom: 15,
-            ),
-            markers: markers,
-            myLocationEnabled: true,
-            myLocationButtonEnabled: true,
-            onMapCreated: (controller) => _controller.complete(controller),
+          AdaptiveMapView(
+            initialLat: pos.latitude,
+            initialLng: pos.longitude,
+            initialZoom: 15,
+            points: [
+              AdaptiveMapPoint(
+                id: widget.member.mobile,
+                latitude: pos.latitude,
+                longitude: pos.longitude,
+                title: widget.member.name,
+                snippet: _resolvedAddress.isNotEmpty
+                    ? _resolvedAddress
+                    : (_currentLocation?.address ?? ''),
+                pinColor: AppColors.primary,
+              ),
+            ],
+            googleMarkers: markers,
+            onGoogleMapCreated: (controller) => _controller.complete(controller),
           ),
 
           // Top Live Badge

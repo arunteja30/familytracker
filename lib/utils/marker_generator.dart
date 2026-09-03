@@ -193,4 +193,27 @@ class MarkerGenerator {
     final Uint8List uint8list = byteData.buffer.asUint8List();
     return BitmapDescriptor.bytes(uint8list);
   }
+
+  static Color getMarkerColor(String relationship) {
+    switch (relationship.toLowerCase()) {
+      case 'father':
+      case 'dad':
+        return const Color(0xFF1E88E5);
+      case 'mother':
+      case 'mom':
+        return const Color(0xFFE91E63);
+      case 'brother':
+      case 'son':
+        return const Color(0xFF43A047);
+      case 'sister':
+      case 'daughter':
+        return const Color(0xFFFF9800);
+      case 'spouse':
+      case 'wife':
+      case 'husband':
+        return const Color(0xFF8E24AA);
+      default:
+        return AppColors.primary;
+    }
+  }
 }
