@@ -395,8 +395,13 @@ public class FirebaseHandler {
             @Override
             public void onDataChange(DataSnapshot dataSnapshot) {
                 if (userName != null && dataSnapshot.getValue() != null) {
-                    LocationDetailsModel locationDetailsModel = dataSnapshot.getValue(LocationDetailsModel.class);
-                    listener.onTaskCompleted(locationDetailsModel);
+                    try {
+                        LocationDetailsModel locationDetailsModel = dataSnapshot.getValue(LocationDetailsModel.class);
+                        listener.onTaskCompleted(locationDetailsModel);
+                    } catch (Exception e) {
+                        Log.e(TAG, "Error parsing location details for " + userName, e);
+                        listener.onTaskCompleted(null);
+                    }
                 } else {
                     listener.onTaskCompleted(null);
                 }
@@ -417,8 +422,13 @@ public class FirebaseHandler {
             @Override
             public void onDataChange(DataSnapshot dataSnapshot) {
                 if (userName != null && dataSnapshot.getValue() != null) {
-                    LocationDetailsModel locationDetailsModel = dataSnapshot.getValue(LocationDetailsModel.class);
-                    listener.onTaskCompleted(locationDetailsModel);
+                    try {
+                        LocationDetailsModel locationDetailsModel = dataSnapshot.getValue(LocationDetailsModel.class);
+                        listener.onTaskCompleted(locationDetailsModel);
+                    } catch (Exception e) {
+                        Log.e(TAG, "Error parsing location details for " + userName, e);
+                        listener.onTaskCompleted(null);
+                    }
                 } else {
                     listener.onTaskCompleted(null);
                 }
