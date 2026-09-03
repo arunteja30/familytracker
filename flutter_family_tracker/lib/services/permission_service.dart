@@ -1,4 +1,4 @@
-import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
 import '../constants/app_colors.dart';
@@ -6,43 +6,55 @@ import '../constants/app_colors.dart';
 class PermissionService {
   // Check if location permission is granted
   static Future<bool> hasLocationPermission() async {
-    final status = await Permission.location.status;
-    return status.isGranted;
+    if (kIsWeb) return true;
+    try {
+      final status = await Permission.location.status;
+      return status.isGranted;
+    } catch (_) {
+      return true;
+    }
   }
 
   // Request all essential permissions sequentially with proper handling
   static Future<bool> requestEssentialPermissions(BuildContext? context) async {
-    // 1. Request Foreground Location (Fine & Coarse)
-    PermissionStatus locationStatus = await Permission.location.status;
-    if (!locationStatus.isGranted) {
-      locationStatus = await Permission.location.request();
-    }
+    if (kIsWeb) return true;
 
-    // 2. Request Notification Permission (Android 13+ & iOS)
-    if (await Permission.notification.status.isDenied) {
-      await Permission.notification.request();
-    }
-
-    // 3. Request Phone Call Permission (for instant emergency call)
-    if (Platform.isAndroid && await Permission.phone.status.isDenied) {
-      await Permission.phone.request();
-    }
-
-    // 4. Request Background Location (if Foreground is already granted)
-    if (locationStatus.isGranted) {
-      final bgStatus = await Permission.locationAlways.status;
-      if (!bgStatus.isGranted) {
-        await Permission.locationAlways.request();
+    try {
+      // 1. Request Foreground Location (Fine & Coarse)
+      PermissionStatus locationStatus = await Permission.location.status;
+      if (!locationStatus.isGranted) {
+        locationStatus = await Permission.location.request();
       }
-    }
 
-    // If permanently denied, show explanation dialog directing to Settings
-    if (locationStatus.isPermanentlyDenied && context != null && context.mounted) {
-      showSettingsDialog(context);
-      return false;
-    }
+      // 2. Request Notification Permission (Android 13+ & iOS)
+      if (await Permission.notification.status.isDenied) {
+        await Permission.notification.request();
+      }
 
-    return locationStatus.isGranted;
+      // 3. Request Phone Call Permission (for instant emergency call)
+      if (defaultTargetPlatform == TargetPlatform.android &&
+          await Permission.phone.status.isDenied) {
+        await Permission.phone.request();
+      }
+
+      // 4. Request Background Location (if Foreground is already granted)
+      if (locationStatus.isGranted) {
+        final bgStatus = await Permission.locationAlways.status;
+        if (!bgStatus.isGranted) {
+          await Permission.locationAlways.request();
+        }
+      }
+
+      // If permanently denied, show explanation dialog directing to Settings
+      if (locationStatus.isPermanentlyDenied && context != null && context.mounted) {
+        showSettingsDialog(context);
+        return false;
+      }
+
+      return locationStatus.isGranted;
+    } catch (_) {
+      return true;
+    }
   }
 
   // Show friendly dialog explaining why permissions are needed
@@ -50,6 +62,11 @@ class PermissionService {
     required BuildContext context,
     required VoidCallback onProceed,
   }) async {
+    if (kIsWeb) {
+      onProceed();
+      return;
+    }
+
     return showDialog(
       context: context,
       barrierDismissible: false,
@@ -134,6 +151,7 @@ class PermissionService {
 
   // Show dialog to open system settings
   static void showSettingsDialog(BuildContext context) {
+    if (kIsWeb) return;
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(

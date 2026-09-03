@@ -15,28 +15,35 @@ class ProfileImageService {
   }
 
   // Get local directory for profile images
-  static Future<Directory> _getProfileDirectory() async {
-    Directory baseDir;
+  static Future<Directory?> _getProfileDirectory() async {
+    if (kIsWeb) return null;
     try {
-      final extDir = await getExternalStorageDirectory();
-      baseDir = extDir ?? await getApplicationDocumentsDirectory();
-    } catch (_) {
-      baseDir = await getApplicationDocumentsDirectory();
-    }
+      Directory baseDir;
+      try {
+        final extDir = await getExternalStorageDirectory();
+        baseDir = extDir ?? await getApplicationDocumentsDirectory();
+      } catch (_) {
+        baseDir = await getApplicationDocumentsDirectory();
+      }
 
-    final profileDir = Directory('${baseDir.path}/$profileDirName');
-    if (!await profileDir.exists()) {
-      await profileDir.create(recursive: true);
+      final profileDir = Directory('${baseDir.path}/$profileDirName');
+      if (!await profileDir.exists()) {
+        await profileDir.create(recursive: true);
+      }
+      return profileDir;
+    } catch (_) {
+      return null;
     }
-    return profileDir;
   }
 
   // Get File object for a member's profile picture
   static Future<File?> getProfileImageFile(String mobile) async {
-    if (mobile.isEmpty) return null;
+    if (kIsWeb || mobile.isEmpty) return null;
     try {
       final clean = _cleanPhone(mobile);
       final dir = await _getProfileDirectory();
+      if (dir == null) return null;
+
       final file = File('${dir.path}/$clean$profileExt');
       if (await file.exists()) {
         return file;
@@ -55,7 +62,7 @@ class ProfileImageService {
   // Pick and Save Profile Picture (Camera or Gallery)
   static Future<File?> pickAndSaveProfileImage(
       String mobile, ImageSource source) async {
-    if (mobile.isEmpty) return null;
+    if (kIsWeb || mobile.isEmpty) return null;
     try {
       final pickedFile = await _picker.pickImage(
         source: source,
@@ -68,6 +75,8 @@ class ProfileImageService {
 
       final clean = _cleanPhone(mobile);
       final dir = await _getProfileDirectory();
+      if (dir == null) return null;
+
       final targetPath = '${dir.path}/$clean$profileExt';
 
       final savedFile = await File(pickedFile.path).copy(targetPath);
@@ -81,6 +90,7 @@ class ProfileImageService {
 
   // Delete profile picture
   static Future<void> deleteProfileImage(String mobile) async {
+    if (kIsWeb) return;
     try {
       final file = await getProfileImageFile(mobile);
       if (file != null && await file.exists()) {
