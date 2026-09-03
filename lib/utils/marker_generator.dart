@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import '../constants/app_colors.dart';
@@ -54,7 +55,7 @@ class MarkerGenerator {
 
     // 2. Check if local photo exists
     bool photoDrawn = false;
-    if (localPhotoPath != null && localPhotoPath.isNotEmpty) {
+    if (!kIsWeb && localPhotoPath != null && localPhotoPath.isNotEmpty) {
       final file = File(localPhotoPath);
       if (file.existsSync()) {
         try {

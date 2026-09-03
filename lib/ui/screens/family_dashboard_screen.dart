@@ -26,12 +26,16 @@ class _FamilyDashboardScreenState extends State<FamilyDashboardScreen> {
   @override
   void initState() {
     super.initState();
-    _loadData();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _loadData();
+    });
   }
 
   Future<void> _loadData() async {
+    if (!mounted) return;
     _userPhone = PreferencesService.getUserPhone() ?? '';
     final hasPerm = await PermissionService.hasLocationPermission();
+
     if (!hasPerm && mounted) {
       await PermissionService.showPermissionRequestDialog(
         context: context,
