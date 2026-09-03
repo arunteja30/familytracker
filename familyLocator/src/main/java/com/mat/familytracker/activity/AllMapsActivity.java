@@ -258,8 +258,10 @@ public class AllMapsActivity extends AppCompatActivity implements GoogleMap.OnPo
     }
 
     private void setupActionBar() {
-        getSupportActionBar().setDisplayHomeAsUpEnabled(true);
-        getSupportActionBar().setDisplayShowHomeEnabled(true);
+        if (getSupportActionBar() != null) {
+            getSupportActionBar().setDisplayHomeAsUpEnabled(true);
+            getSupportActionBar().setDisplayShowHomeEnabled(true);
+        }
     }
 
     public boolean onOptionsItemSelected(MenuItem item) {
