@@ -7,26 +7,49 @@ import '../models/registration_model.dart';
 class DatabaseService {
   final FirebaseDatabase _db = FirebaseDatabase.instance;
 
-  // Stream of Family Members in a Group
+  // Helper: Normalize & Match Phone Numbers (e.g. +919876543210 vs 9876543210)
+  static bool matchPhones(String p1, String p2) {
+    if (p1.isEmpty || p2.isEmpty) return false;
+    if (p1.trim() == p2.trim()) return true;
+    final d1 = p1.replaceAll(RegExp(r'\D'), '');
+    final d2 = p2.replaceAll(RegExp(r'\D'), '');
+    if (d1.isEmpty || d2.isEmpty) return false;
+    if (d1 == d2) return true;
+    final s1 = d1.length >= 10 ? d1.substring(d1.length - 10) : d1;
+    final s2 = d2.length >= 10 ? d2.substring(d2.length - 10) : d2;
+    return s1 == s2;
+  }
+
+  // Stream of Family Members for a given Group Name
   Stream<List<FamilyMemberModel>> streamFamilyMembers(String familyName) {
-    return _db.ref(AppConstants.familyDbName).child(familyName).onValue.map((event) {
+    return _db.ref(AppConstants.familyMemberList).onValue.map((event) {
       final data = event.snapshot.value;
       if (data == null) return [];
 
       final List<FamilyMemberModel> members = [];
-      if (data is List) {
-        for (var item in data) {
-          if (item != null && item is Map) {
-            members.add(FamilyMemberModel.fromJson(item));
+      final targetFamily = familyName.trim().toLowerCase();
+
+      void processItem(dynamic val, [String? key]) {
+        if (val is Map) {
+          final model = FamilyMemberModel.fromJson(val);
+          if (model.memberId.isEmpty && key != null) {
+            model.memberId = key;
+          }
+          if (targetFamily.isEmpty ||
+              model.familyName.trim().toLowerCase() == targetFamily) {
+            members.add(model);
           }
         }
-      } else if (data is Map) {
-        data.forEach((key, value) {
-          if (value is Map) {
-            members.add(FamilyMemberModel.fromJson(value));
-          }
-        });
       }
+
+      if (data is Map) {
+        data.forEach((k, v) => processItem(v, k.toString()));
+      } else if (data is List) {
+        for (int i = 0; i < data.length; i++) {
+          if (data[i] != null) processItem(data[i], i.toString());
+        }
+      }
+
       return members;
     });
   }
@@ -34,25 +57,77 @@ class DatabaseService {
   // Get Family Members Once
   Future<List<FamilyMemberModel>> getFamilyMembers(String familyName) async {
     try {
-      final snapshot = await _db.ref(AppConstants.familyDbName).child(familyName).get();
+      final snapshot = await _db.ref(AppConstants.familyMemberList).get();
       if (!snapshot.exists || snapshot.value == null) return [];
 
       final data = snapshot.value;
       final List<FamilyMemberModel> members = [];
-      if (data is List) {
-        for (var item in data) {
-          if (item != null && item is Map) {
-            members.add(FamilyMemberModel.fromJson(item));
+      final targetFamily = familyName.trim().toLowerCase();
+
+      void processItem(dynamic val, [String? key]) {
+        if (val is Map) {
+          final model = FamilyMemberModel.fromJson(val);
+          if (model.memberId.isEmpty && key != null) {
+            model.memberId = key;
+          }
+          if (targetFamily.isEmpty ||
+              model.familyName.trim().toLowerCase() == targetFamily) {
+            members.add(model);
           }
         }
-      } else if (data is Map) {
-        data.forEach((key, value) {
-          if (value is Map) {
-            members.add(FamilyMemberModel.fromJson(value));
-          }
-        });
       }
+
+      if (data is Map) {
+        data.forEach((k, v) => processItem(v, k.toString()));
+      } else if (data is List) {
+        for (int i = 0; i < data.length; i++) {
+          if (data[i] != null) processItem(data[i], i.toString());
+        }
+      }
+
       return members;
+    } catch (e) {
+      return [];
+    }
+  }
+
+  // Find all Family Groups associated with a Phone Number
+  Future<List<String>> getFamilyNamesForPhone(String mobile) async {
+    try {
+      final snapshot = await _db.ref(AppConstants.familyMemberList).get();
+      final Set<String> groups = {};
+
+      if (snapshot.exists && snapshot.value != null) {
+        final data = snapshot.value;
+        void checkItem(dynamic val) {
+          if (val is Map) {
+            final model = FamilyMemberModel.fromJson(val);
+            if (matchPhones(model.mobile, mobile) &&
+                model.familyName.trim().isNotEmpty) {
+              groups.add(model.familyName.trim());
+            }
+          }
+        }
+
+        if (data is Map) {
+          data.forEach((k, v) => checkItem(v));
+        } else if (data is List) {
+          for (var item in data) {
+            if (item != null) checkItem(item);
+          }
+        }
+      }
+
+      // Check UserFamilyName node fallback
+      if (groups.isEmpty) {
+        final userFamilySnap =
+            await _db.ref(AppConstants.userFamilyName).child(mobile).get();
+        if (userFamilySnap.exists && userFamilySnap.value != null) {
+          groups.add(userFamilySnap.value.toString().trim());
+        }
+      }
+
+      return groups.toList();
     } catch (e) {
       return [];
     }
@@ -70,7 +145,14 @@ class DatabaseService {
   // Get Location Details Once
   Future<LocationDetailsModel?> getLocationDetails(String mobile) async {
     try {
-      final snapshot = await _db.ref(AppConstants.locationList).child(mobile).get();
+      var snapshot =
+          await _db.ref(AppConstants.locationList).child(mobile).get();
+      if (!snapshot.exists || snapshot.value == null) {
+        snapshot = await _db
+            .ref(AppConstants.legacyLocationList)
+            .child(mobile)
+            .get();
+      }
       if (!snapshot.exists || snapshot.value == null || snapshot.value is! Map) {
         return null;
       }
@@ -81,11 +163,14 @@ class DatabaseService {
   }
 
   // Save/Update Live Location
-  Future<void> saveLocation(String mobile, LocationDetailsModel location) async {
+  Future<void> saveLocation(
+      String mobile, LocationDetailsModel location) async {
     try {
-      await _db.ref(AppConstants.locationList).child(mobile).set(location.toJson());
-      
-      // Also log to Location History
+      final json = location.toJson();
+      await _db.ref(AppConstants.locationList).child(mobile).set(json);
+      await _db.ref(AppConstants.legacyLocationList).child(mobile).set(json);
+
+      // Save to Location History
       if (location.date.isNotEmpty) {
         final timeKey = location.timeStamp > 0
             ? location.timeStamp.toString()
@@ -95,15 +180,14 @@ class DatabaseService {
             .child(mobile)
             .child(location.date)
             .child(timeKey)
-            .set(location.toJson());
+            .set(json);
       }
-    } catch (e) {
-      // Ignore background network transient errors
-    }
+    } catch (_) {}
   }
 
-  // Get Location History for a Date Range
-  Future<List<LocationDetailsModel>> getLocationHistory(String mobile, String date) async {
+  // Get Location History for a Date
+  Future<List<LocationDetailsModel>> getLocationHistory(
+      String mobile, String date) async {
     try {
       final snapshot = await _db
           .ref(AppConstants.locationHistory)
@@ -129,19 +213,6 @@ class DatabaseService {
     }
   }
 
-  // Get Family Name Associated with a Mobile Number
-  Future<String?> getFamilyNameFromMobile(String mobile) async {
-    try {
-      final snapshot = await _db.ref(AppConstants.userFamilyName).child(mobile).get();
-      if (snapshot.exists && snapshot.value != null) {
-        return snapshot.value.toString();
-      }
-      return null;
-    } catch (e) {
-      return null;
-    }
-  }
-
   // Register Phone Profile
   Future<void> registerPhone(RegistrationModel model) async {
     try {
@@ -149,52 +220,45 @@ class DatabaseService {
           .ref(AppConstants.registrationDetails)
           .child(model.phone)
           .set(model.toJson());
+      await _db.ref(AppConstants.userList).child(model.phone).set(model.toJson());
     } catch (e) {
       rethrow;
     }
   }
 
-  // Save User Family Name Mapping
-  Future<void> saveUserFamilyNameMapping(String mobile, String familyName) async {
+  // Add or Update Family Member
+  Future<void> addFamilyMember(FamilyMemberModel member) async {
     try {
-      await _db.ref(AppConstants.userFamilyName).child(mobile).set(familyName);
-    } catch (e) {
-      rethrow;
-    }
-  }
+      final memberId = member.memberId.isNotEmpty
+          ? member.memberId
+          : DateTime.now().millisecondsSinceEpoch.toString();
+      member.memberId = memberId;
 
-  // Add Family Member
-  Future<void> addFamilyMember(String familyName, FamilyMemberModel member) async {
-    try {
-      final members = await getFamilyMembers(familyName);
-      
-      // Update existing or add new
-      final index = members.indexWhere((m) => m.mobile == member.mobile);
-      if (index >= 0) {
-        members[index] = member;
-      } else {
-        members.add(member);
+      await _db
+          .ref(AppConstants.familyMemberList)
+          .child(memberId)
+          .set(member.toJson());
+
+      if (member.familyName.isNotEmpty) {
+        await _db
+            .ref(AppConstants.familyList)
+            .child(member.familyName)
+            .set(member.familyName);
       }
-
-      await _db.ref(AppConstants.familyDbName).child(familyName).set(
-        members.map((m) => m.toJson()).toList(),
-      );
-
-      // Save user-to-family mapping
-      await saveUserFamilyNameMapping(member.mobile, familyName);
     } catch (e) {
       rethrow;
     }
   }
 
   // Delete Family Member
-  Future<void> deleteFamilyMember(String familyName, String mobile) async {
+  Future<void> deleteFamilyMember(String memberId, String mobile) async {
     try {
-      final members = await getFamilyMembers(familyName);
-      members.removeWhere((m) => m.mobile == mobile);
-      await _db.ref(AppConstants.familyDbName).child(familyName).set(
-        members.map((m) => m.toJson()).toList(),
-      );
+      if (memberId.isNotEmpty) {
+        await _db.ref(AppConstants.familyMemberList).child(memberId).remove();
+      }
+      if (mobile.isNotEmpty) {
+        await _db.ref(AppConstants.locationList).child(mobile).remove();
+      }
     } catch (e) {
       rethrow;
     }
