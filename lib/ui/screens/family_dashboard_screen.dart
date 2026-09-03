@@ -49,15 +49,46 @@ class _FamilyDashboardScreenState extends State<FamilyDashboardScreen> {
     );
   }
 
-  void _showGroupSwitcherDialog(String currentGroup) {
+  void _showGroupSwitcherDialog(String currentGroup, List<String> availableGroups) {
     showDialog(
       context: context,
       builder: (_) => GroupSwitcherDialog(
         currentGroup: currentGroup,
+        availableGroups: availableGroups,
         onSwitch: (newGroup) {
           Provider.of<FamilyProvider>(context, listen: false)
               .switchFamilyGroup(newGroup);
         },
+      ),
+    );
+  }
+
+  void _confirmDeleteMember(String memberId, String memberName, String mobile) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete Member'),
+        content: Text('Are you sure you want to remove $memberName from this family?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Provider.of<FamilyProvider>(context, listen: false)
+                  .deleteMember(memberId, mobile);
+              Navigator.pop(ctx);
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text('$memberName removed')),
+              );
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.danger,
+            ),
+            child: const Text('Delete'),
+          ),
+        ],
       ),
     );
   }
@@ -85,7 +116,10 @@ class _FamilyDashboardScreenState extends State<FamilyDashboardScreen> {
               },
             ),
             bottom: InkWell(
-              onTap: () => _showGroupSwitcherDialog(familyProvider.currentFamilyName),
+              onTap: () => _showGroupSwitcherDialog(
+                familyProvider.currentFamilyName,
+                familyProvider.userFamilyGroups,
+              ),
               borderRadius: BorderRadius.circular(12),
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
@@ -205,6 +239,11 @@ class _FamilyDashboardScreenState extends State<FamilyDashboardScreen> {
                                   ),
                                 );
                               },
+                              onDelete: () => _confirmDeleteMember(
+                                member.memberId,
+                                member.name,
+                                member.mobile,
+                              ),
                             );
                           },
                         ),

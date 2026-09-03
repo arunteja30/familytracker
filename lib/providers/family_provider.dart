@@ -10,7 +10,8 @@ class FamilyProvider extends ChangeNotifier {
   final DatabaseService _dbService = DatabaseService();
   final LocationService _locationService = LocationService();
 
-  String _currentFamilyName = 'MyFamily';
+  String _currentFamilyName = '';
+  List<String> _userFamilyGroups = [];
   List<FamilyMemberModel> _familyMembers = [];
   final Map<String, LocationDetailsModel> _memberLocations = {};
   bool _isLoading = false;
@@ -19,7 +20,9 @@ class FamilyProvider extends ChangeNotifier {
   StreamSubscription? _membersSubscription;
   final Map<String, StreamSubscription> _locationSubscriptions = {};
 
-  String get currentFamilyName => _currentFamilyName;
+  String get currentFamilyName =>
+      _currentFamilyName.isNotEmpty ? _currentFamilyName : 'MyFamily';
+  List<String> get userFamilyGroups => _userFamilyGroups;
   List<FamilyMemberModel> get familyMembers => _familyMembers;
   Map<String, LocationDetailsModel> get memberLocations => _memberLocations;
   bool get isLoading => _isLoading;
@@ -31,22 +34,38 @@ class FamilyProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
-      // Check saved family name or fetch from DB
-      String? familyName = PreferencesService.getUserFamilyName();
-      if (familyName == null || familyName.isEmpty) {
-        familyName = await _dbService.getFamilyNameFromMobile(userPhone);
-        if (familyName != null && familyName.isNotEmpty) {
-          await PreferencesService.saveUserFamilyName(familyName);
-        } else {
-          familyName = 'MyFamily';
-          await PreferencesService.saveUserFamilyName(familyName);
-        }
+      // 1. Fetch all groups this user belongs to on Firebase
+      _userFamilyGroups = await _dbService.getFamilyNamesForPhone(userPhone);
+
+      // 2. Check local preference
+      String? savedFamily = PreferencesService.getUserFamilyName();
+
+      if (savedFamily != null && savedFamily.isNotEmpty) {
+        _currentFamilyName = savedFamily;
+      } else if (_userFamilyGroups.isNotEmpty) {
+        _currentFamilyName = _userFamilyGroups.first;
+        await PreferencesService.saveUserFamilyName(_currentFamilyName);
+      } else {
+        _currentFamilyName = 'MyFamily';
+        await PreferencesService.saveUserFamilyName(_currentFamilyName);
+
+        // Auto-register self as member in MyFamily if no members exist
+        final selfName = PreferencesService.getUserName() ?? 'Me';
+        final selfMember = FamilyMemberModel(
+          name: selfName,
+          mobile: userPhone,
+          relationship: 'Self',
+          familyName: _currentFamilyName,
+          memberId: DateTime.now().millisecondsSinceEpoch.toString(),
+          isRegistered: true,
+        );
+        await _dbService.addFamilyMember(selfMember);
       }
 
-      _currentFamilyName = familyName;
+      // 3. Subscribe to real-time updates for the active family group
       _subscribeToMembers(_currentFamilyName);
 
-      // Trigger location update for self
+      // 4. Update and push current device location
       await _locationService.updateAndPushLocation(userPhone);
     } catch (e) {
       _errorMessage = e.toString();
@@ -59,7 +78,8 @@ class FamilyProvider extends ChangeNotifier {
   // Subscribe to Live Members
   void _subscribeToMembers(String familyName) {
     _membersSubscription?.cancel();
-    _membersSubscription = _dbService.streamFamilyMembers(familyName).listen((members) {
+    _membersSubscription =
+        _dbService.streamFamilyMembers(familyName).listen((members) {
       _familyMembers = members;
       _subscribeToLocations(members);
       notifyListeners();
@@ -97,13 +117,13 @@ class FamilyProvider extends ChangeNotifier {
 
   // Add Family Member
   Future<void> addMember(FamilyMemberModel member) async {
-    await _dbService.addFamilyMember(_currentFamilyName, member);
+    await _dbService.addFamilyMember(member);
     notifyListeners();
   }
 
   // Delete Member
-  Future<void> deleteMember(String mobile) async {
-    await _dbService.deleteFamilyMember(_currentFamilyName, mobile);
+  Future<void> deleteMember(String memberId, String mobile) async {
+    await _dbService.deleteFamilyMember(memberId, mobile);
     notifyListeners();
   }
 
@@ -112,6 +132,7 @@ class FamilyProvider extends ChangeNotifier {
     await _locationService.updateAndPushLocation(userPhone);
     final members = await _dbService.getFamilyMembers(_currentFamilyName);
     _familyMembers = members;
+    _subscribeToLocations(members);
     notifyListeners();
   }
 
