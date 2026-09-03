@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:intl/intl.dart';
@@ -6,6 +7,8 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../constants/app_colors.dart';
 import '../../models/family_member_model.dart';
 import '../../models/location_details_model.dart';
+import '../../services/geocoding_service.dart';
+import '../../services/profile_image_service.dart';
 import '../../utils/marker_generator.dart';
 import 'location_history_screen.dart';
 
@@ -30,6 +33,8 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
   MapType _currentMapType = MapType.normal;
   final Set<Marker> _markers = {};
   FamilyMemberModel? _selectedMember;
+  final Map<String, String> _resolvedAddresses = {};
+  final Map<String, File?> _memberPhotos = {};
 
   final List<Color> _markerColors = [
     const Color(0xFF4F46E5), // Indigo
@@ -46,10 +51,10 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
     if (widget.members.isNotEmpty) {
       _selectedMember = widget.members.first;
     }
-    _buildCustomMarkers();
+    _loadPhotosAndBuildMarkers();
   }
 
-  Future<void> _buildCustomMarkers() async {
+  Future<void> _loadPhotosAndBuildMarkers() async {
     final Set<Marker> newMarkers = {};
 
     for (int i = 0; i < widget.members.length; i++) {
@@ -57,10 +62,28 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
       final loc = widget.locations[member.mobile];
       final color = _markerColors[i % _markerColors.length];
 
+      // Load local photo
+      final photoFile =
+          await ProfileImageService.getProfileImageFile(member.mobile);
+      _memberPhotos[member.mobile] = photoFile;
+
       if (loc != null && (loc.latitude != 0.0 || loc.longitude != 0.0)) {
+        // Resolve address if missing or coordinate format
+        if (loc.address.isEmpty || loc.address.startsWith('Lat:')) {
+          GeocodingService.getAddressFromCoordinates(loc.latitude, loc.longitude)
+              .then((addr) {
+            if (mounted) {
+              setState(() => _resolvedAddresses[member.mobile] = addr);
+            }
+          });
+        } else {
+          _resolvedAddresses[member.mobile] = loc.address;
+        }
+
         final customIcon = await MarkerGenerator.createCustomMemberMarker(
           name: member.name,
           pinColor: color,
+          localPhotoPath: photoFile?.path,
         );
 
         final lastUpdated = loc.timeStamp > 0
@@ -69,6 +92,8 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
               )
             : (loc.date.isNotEmpty ? loc.date : 'Recently');
 
+        final displayAddr = _resolvedAddresses[member.mobile] ?? loc.address;
+
         newMarkers.add(
           Marker(
             markerId: MarkerId(member.mobile),
@@ -76,8 +101,7 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
             icon: customIcon,
             infoWindow: InfoWindow(
               title: member.name,
-              snippet:
-                  '⚡ ${loc.batteryPercentage}% • ${loc.address.isNotEmpty ? loc.address : "${loc.latitude}, ${loc.longitude}"}\n🕒 $lastUpdated',
+              snippet: '⚡ ${loc.batteryPercentage}% • $displayAddr\n🕒 $lastUpdated',
             ),
             onTap: () {
               setState(() => _selectedMember = member);
@@ -177,6 +201,10 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
         ? widget.locations[_selectedMember!.mobile]
         : null;
 
+    final selectedPhoto = _selectedMember != null
+        ? _memberPhotos[_selectedMember!.mobile]
+        : null;
+
     final formattedTime = selectedLoc != null && selectedLoc.timeStamp > 0
         ? DateFormat('MMM dd, yyyy • hh:mm:ss a').format(
             DateTime.fromMillisecondsSinceEpoch(selectedLoc.timeStamp),
@@ -184,6 +212,13 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
         : (selectedLoc?.date.isNotEmpty == true
             ? selectedLoc!.date
             : 'Pending sync...');
+
+    final currentAddress = _selectedMember != null
+        ? (_resolvedAddresses[_selectedMember!.mobile] ??
+            (selectedLoc?.address.isNotEmpty == true
+                ? selectedLoc!.address
+                : 'Fetching street address...'))
+        : 'Select a member';
 
     return Scaffold(
       appBar: AppBar(
@@ -256,19 +291,24 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
                       Row(
                         children: [
                           CircleAvatar(
-                            radius: 20,
+                            radius: 22,
                             backgroundColor:
                                 AppColors.primaryLight.withOpacity(0.2),
-                            child: Text(
-                              _selectedMember!.name.isNotEmpty
-                                  ? _selectedMember!.name[0].toUpperCase()
-                                  : 'M',
-                              style: const TextStyle(
-                                color: AppColors.primary,
-                                fontWeight: FontWeight.bold,
-                                fontSize: 16,
-                              ),
-                            ),
+                            backgroundImage: selectedPhoto != null
+                                ? FileImage(selectedPhoto)
+                                : null,
+                            child: selectedPhoto == null
+                                ? Text(
+                                    _selectedMember!.name.isNotEmpty
+                                        ? _selectedMember!.name[0].toUpperCase()
+                                        : 'M',
+                                    style: const TextStyle(
+                                      color: AppColors.primary,
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 18,
+                                    ),
+                                  )
+                                : null,
                           ),
                           const SizedBox(width: 12),
                           Expanded(
@@ -347,7 +387,7 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
                       const Divider(height: 1, color: AppColors.cardBorder),
                       const SizedBox(height: 8),
 
-                      // Full Address
+                      // Full Reverse Geocoded Street Address
                       Row(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
@@ -359,9 +399,7 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
                           const SizedBox(width: 6),
                           Expanded(
                             child: Text(
-                              selectedLoc?.address.isNotEmpty == true
-                                  ? selectedLoc!.address
-                                  : 'Fetching address details...',
+                              currentAddress,
                               style: const TextStyle(
                                 fontSize: 13,
                                 color: AppColors.textPrimary,
@@ -373,7 +411,7 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
                       ),
                       const SizedBox(height: 6),
 
-                      // Coordinates & Timestamp Row
+                      // Exact GPS Coordinates
                       Row(
                         children: [
                           const Icon(
@@ -495,6 +533,7 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
                 itemBuilder: (context, index) {
                   final member = widget.members[index];
                   final loc = widget.locations[member.mobile];
+                  final photo = _memberPhotos[member.mobile];
                   final isSelected = _selectedMember?.mobile == member.mobile;
 
                   return GestureDetector(
@@ -523,19 +562,23 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
                       child: Row(
                         children: [
                           CircleAvatar(
-                            radius: 16,
+                            radius: 18,
                             backgroundColor:
                                 AppColors.primaryLight.withOpacity(0.2),
-                            child: Text(
-                              member.name.isNotEmpty
-                                  ? member.name[0].toUpperCase()
-                                  : 'M',
-                              style: const TextStyle(
-                                fontSize: 13,
-                                fontWeight: FontWeight.bold,
-                                color: AppColors.primary,
-                              ),
-                            ),
+                            backgroundImage:
+                                photo != null ? FileImage(photo) : null,
+                            child: photo == null
+                                ? Text(
+                                    member.name.isNotEmpty
+                                        ? member.name[0].toUpperCase()
+                                        : 'M',
+                                    style: const TextStyle(
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.bold,
+                                      color: AppColors.primary,
+                                    ),
+                                  )
+                                : null,
                           ),
                           const SizedBox(width: 8),
                           Expanded(

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:intl/intl.dart';
@@ -7,6 +8,8 @@ import '../../constants/app_colors.dart';
 import '../../models/family_member_model.dart';
 import '../../models/location_details_model.dart';
 import '../../services/database_service.dart';
+import '../../services/geocoding_service.dart';
+import '../../services/profile_image_service.dart';
 import '../../utils/marker_generator.dart';
 import 'location_history_screen.dart';
 
@@ -30,22 +33,46 @@ class _MemberMapScreenState extends State<MemberMapScreen> {
   StreamSubscription? _locationSubscription;
   LocationDetailsModel? _currentLocation;
   BitmapDescriptor? _customMarkerIcon;
+  File? _profileImageFile;
+  String _resolvedAddress = '';
 
   @override
   void initState() {
     super.initState();
     _currentLocation = widget.initialLocation;
-    _generateCustomMarker();
+    _loadProfileAndMarker();
     _subscribeToLiveLocation();
   }
 
-  Future<void> _generateCustomMarker() async {
+  Future<void> _loadProfileAndMarker() async {
+    final photo =
+        await ProfileImageService.getProfileImageFile(widget.member.mobile);
+    if (mounted) {
+      setState(() => _profileImageFile = photo);
+    }
+
     final icon = await MarkerGenerator.createCustomMemberMarker(
       name: widget.member.name,
       pinColor: AppColors.primary,
+      localPhotoPath: photo?.path,
     );
+
     if (mounted) {
       setState(() => _customMarkerIcon = icon);
+    }
+
+    if (_currentLocation != null) {
+      _resolveAddress(_currentLocation!.latitude, _currentLocation!.longitude);
+    }
+  }
+
+  void _resolveAddress(double lat, double lng) {
+    if (lat != 0.0 || lng != 0.0) {
+      GeocodingService.getAddressFromCoordinates(lat, lng).then((addr) {
+        if (mounted) {
+          setState(() => _resolvedAddress = addr);
+        }
+      });
     }
   }
 
@@ -55,6 +82,7 @@ class _MemberMapScreenState extends State<MemberMapScreen> {
         .listen((loc) {
       if (loc != null && mounted) {
         setState(() => _currentLocation = loc);
+        _resolveAddress(loc.latitude, loc.longitude);
         _animateCamera(loc.latitude, loc.longitude);
       }
     });
@@ -109,6 +137,12 @@ class _MemberMapScreenState extends State<MemberMapScreen> {
             ? _currentLocation!.date
             : 'Recently');
 
+    final displayAddress = _resolvedAddress.isNotEmpty
+        ? _resolvedAddress
+        : (_currentLocation?.address.isNotEmpty == true
+            ? _currentLocation!.address
+            : 'Fetching street address...');
+
     final markers = <Marker>{
       if (_currentLocation != null)
         Marker(
@@ -118,7 +152,7 @@ class _MemberMapScreenState extends State<MemberMapScreen> {
           infoWindow: InfoWindow(
             title: widget.member.name,
             snippet:
-                '${_currentLocation?.address}\n⚡ ${_currentLocation?.batteryPercentage}%\n🕒 $formattedTime',
+                '$displayAddress\n⚡ ${_currentLocation?.batteryPercentage}%\n🕒 $formattedTime',
           ),
         ),
     };
@@ -209,19 +243,24 @@ class _MemberMapScreenState extends State<MemberMapScreen> {
                     Row(
                       children: [
                         CircleAvatar(
-                          radius: 22,
+                          radius: 24,
                           backgroundColor:
                               AppColors.primaryLight.withOpacity(0.2),
-                          child: Text(
-                            widget.member.name.isNotEmpty
-                                ? widget.member.name[0].toUpperCase()
-                                : 'M',
-                            style: const TextStyle(
-                              color: AppColors.primary,
-                              fontWeight: FontWeight.bold,
-                              fontSize: 18,
-                            ),
-                          ),
+                          backgroundImage: _profileImageFile != null
+                              ? FileImage(_profileImageFile!)
+                              : null,
+                          child: _profileImageFile == null
+                              ? Text(
+                                  widget.member.name.isNotEmpty
+                                      ? widget.member.name[0].toUpperCase()
+                                      : 'M',
+                                  style: const TextStyle(
+                                    color: AppColors.primary,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 18,
+                                  ),
+                                )
+                              : null,
                         ),
                         const SizedBox(width: 12),
                         Expanded(
@@ -290,7 +329,7 @@ class _MemberMapScreenState extends State<MemberMapScreen> {
                     const Divider(height: 1, color: AppColors.cardBorder),
                     const SizedBox(height: 10),
 
-                    // Full Address
+                    // Full Street Address
                     Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
@@ -302,9 +341,7 @@ class _MemberMapScreenState extends State<MemberMapScreen> {
                         const SizedBox(width: 6),
                         Expanded(
                           child: Text(
-                            _currentLocation?.address.isNotEmpty == true
-                                ? _currentLocation!.address
-                                : 'Fetching reverse-geocoded location...',
+                            displayAddress,
                             style: const TextStyle(
                               fontSize: 13,
                               fontWeight: FontWeight.w500,

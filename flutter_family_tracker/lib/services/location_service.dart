@@ -5,6 +5,7 @@ import 'package:battery_plus/battery_plus.dart';
 import 'package:intl/intl.dart';
 import '../models/location_details_model.dart';
 import 'database_service.dart';
+import 'geocoding_service.dart';
 
 class LocationService {
   final Battery _battery = Battery();
@@ -45,8 +46,10 @@ class LocationService {
       );
 
       final batteryLevel = await _battery.batteryLevel;
-      final address =
-          'Lat: ${position.latitude.toStringAsFixed(4)}, Lon: ${position.longitude.toStringAsFixed(4)}';
+      final address = await GeocodingService.getAddressFromCoordinates(
+        position.latitude,
+        position.longitude,
+      );
 
       final now = DateTime.now();
       final dateStr = DateFormat('yyyy-MM-dd').format(now);
@@ -117,8 +120,10 @@ class LocationService {
     ).listen((Position position) async {
       try {
         final batteryLevel = await _battery.batteryLevel;
-        final address =
-            'Lat: ${position.latitude.toStringAsFixed(4)}, Lon: ${position.longitude.toStringAsFixed(4)}';
+        final address = await GeocodingService.getAddressFromCoordinates(
+          position.latitude,
+          position.longitude,
+        );
         final now = DateTime.now();
         final dateStr = DateFormat('yyyy-MM-dd').format(now);
 
@@ -134,7 +139,7 @@ class LocationService {
 
         await _dbService.saveLocation(mobile, location);
         debugPrint(
-            '[FamilyTracker] Background location pushed: (${position.latitude}, ${position.longitude})');
+            '[FamilyTracker] Background location pushed: (${position.latitude}, ${position.longitude}) - $address');
       } catch (e) {
         debugPrint('[FamilyTracker] Background tracking error: $e');
       }
