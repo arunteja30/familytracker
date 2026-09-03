@@ -5,6 +5,7 @@ import '../../constants/app_colors.dart';
 import '../../models/family_member_model.dart';
 import '../../models/location_details_model.dart';
 import '../../services/database_service.dart';
+import '../../services/geocoding_service.dart';
 
 class LocationHistoryScreen extends StatefulWidget {
   final FamilyMemberModel member;
@@ -21,6 +22,7 @@ class _LocationHistoryScreenState extends State<LocationHistoryScreen> {
   List<LocationDetailsModel> _historyPoints = [];
   bool _isLoading = false;
 
+  GoogleMapController? _mapController;
   final Set<Marker> _markers = {};
   final Set<Polyline> _polylines = {};
 
@@ -46,19 +48,32 @@ class _LocationHistoryScreenState extends State<LocationHistoryScreen> {
         final pos = LatLng(p.latitude, p.longitude);
         polylineCoords.add(pos);
 
-        // Marker for start, end and key points
-        if (i == 0 || i == points.length - 1) {
-          final timeStr = p.timeStamp > 0
-              ? DateFormat('hh:mm a').format(
-                  DateTime.fromMillisecondsSinceEpoch(p.timeStamp),
-                )
-              : '';
+        final timeStr = p.timeStamp > 0
+            ? DateFormat('hh:mm a').format(
+                DateTime.fromMillisecondsSinceEpoch(p.timeStamp),
+              )
+            : '';
+
+        // Markers for start, intermediate (sampled), and end
+        if (i == 0 || i == points.length - 1 || points.length <= 10 || i % 5 == 0) {
+          final isStart = i == 0;
+          final isEnd = i == points.length - 1;
+
           _markers.add(
             Marker(
               markerId: MarkerId('point_$i'),
               position: pos,
+              icon: isStart
+                  ? BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen)
+                  : isEnd
+                      ? BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed)
+                      : BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure),
               infoWindow: InfoWindow(
-                title: i == 0 ? 'Start Location ($timeStr)' : 'Latest Location ($timeStr)',
+                title: isStart
+                    ? 'Start Location ($timeStr)'
+                    : isEnd
+                        ? 'Latest Location ($timeStr)'
+                        : 'Point #${i + 1} ($timeStr)',
                 snippet: p.address,
               ),
             ),
@@ -76,12 +91,64 @@ class _LocationHistoryScreenState extends State<LocationHistoryScreen> {
           width: 5,
         ),
       );
+
+      // Fit map to polyline bounds
+      _fitMapToBounds(polylineCoords);
     }
 
     setState(() {
       _historyPoints = points;
       _isLoading = false;
     });
+
+    // Asynchronously enrich missing street addresses
+    _resolveAddresses(points);
+  }
+
+  Future<void> _resolveAddresses(List<LocationDetailsModel> points) async {
+    bool updated = false;
+    for (int i = 0; i < points.length; i++) {
+      final p = points[i];
+      if (p.address.isEmpty || p.address.startsWith('Lat:')) {
+        final resolved = await GeocodingService.getAddressFromCoordinates(
+          p.latitude,
+          p.longitude,
+        );
+        if (resolved.isNotEmpty && !resolved.startsWith('Lat:')) {
+          p.address = resolved;
+          updated = true;
+        }
+      }
+    }
+    if (updated && mounted) {
+      setState(() {
+        _historyPoints = List.from(points);
+      });
+    }
+  }
+
+  void _fitMapToBounds(List<LatLng> coords) {
+    if (_mapController == null || coords.isEmpty) return;
+
+    double minLat = coords.first.latitude;
+    double maxLat = coords.first.latitude;
+    double minLng = coords.first.longitude;
+    double maxLng = coords.first.longitude;
+
+    for (var pos in coords) {
+      if (pos.latitude < minLat) minLat = pos.latitude;
+      if (pos.latitude > maxLat) maxLat = pos.latitude;
+      if (pos.longitude < minLng) minLng = pos.longitude;
+      if (pos.longitude > maxLng) maxLng = pos.longitude;
+    }
+
+    // Add slight padding to bounds
+    final bounds = LatLngBounds(
+      southwest: LatLng(minLat - 0.005, minLng - 0.005),
+      northeast: LatLng(maxLat + 0.005, maxLng + 0.005),
+    );
+
+    _mapController?.animateCamera(CameraUpdate.newLatLngBounds(bounds, 50));
   }
 
   Future<void> _selectDate() async {
@@ -97,12 +164,22 @@ class _LocationHistoryScreenState extends State<LocationHistoryScreen> {
     }
   }
 
+  void _changeDateByDays(int days) {
+    final newDate = _selectedDate.add(Duration(days: days));
+    if (newDate.isAfter(DateTime.now())) return;
+    setState(() => _selectedDate = newDate);
+    _fetchHistory();
+  }
+
   @override
   Widget build(BuildContext context) {
-    final formattedDate = DateFormat('MMM dd, yyyy').format(_selectedDate);
+    final formattedDate = DateFormat('EEE, MMM dd, yyyy').format(_selectedDate);
     final initialPos = _markers.isNotEmpty
         ? _markers.first.position
         : const LatLng(17.3850, 78.4867);
+
+    final isToday = DateFormat('yyyy-MM-dd').format(_selectedDate) ==
+        DateFormat('yyyy-MM-dd').format(DateTime.now());
 
     return Scaffold(
       appBar: AppBar(
@@ -112,38 +189,54 @@ class _LocationHistoryScreenState extends State<LocationHistoryScreen> {
             icon: const Icon(Icons.calendar_month_rounded),
             onPressed: _selectDate,
           ),
+          IconButton(
+            icon: const Icon(Icons.refresh_rounded),
+            onPressed: _fetchHistory,
+          ),
         ],
       ),
       body: Column(
         children: [
-          // Date Filter Banner
+          // Date Filter Banner with Quick Prev/Next Navigation
           Container(
             color: AppColors.bgSurface,
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Row(
-                  children: [
-                    const Icon(
-                      Icons.event_rounded,
-                      size: 18,
-                      color: AppColors.primary,
-                    ),
-                    const SizedBox(width: 8),
-                    Text(
-                      formattedDate,
-                      style: const TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.bold,
-                        color: AppColors.textPrimary,
-                      ),
-                    ),
-                  ],
+                IconButton(
+                  icon: const Icon(Icons.chevron_left_rounded, color: AppColors.primary),
+                  onPressed: () => _changeDateByDays(-1),
+                  tooltip: 'Previous Day',
                 ),
-                TextButton(
-                  onPressed: _selectDate,
-                  child: const Text('Change Date'),
+                InkWell(
+                  onTap: _selectDate,
+                  child: Row(
+                    children: [
+                      const Icon(
+                        Icons.event_rounded,
+                        size: 18,
+                        color: AppColors.primary,
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        formattedDate,
+                        style: const TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.bold,
+                          color: AppColors.textPrimary,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                IconButton(
+                  icon: Icon(
+                    Icons.chevron_right_rounded,
+                    color: isToday ? AppColors.textMuted : AppColors.primary,
+                  ),
+                  onPressed: isToday ? null : () => _changeDateByDays(1),
+                  tooltip: 'Next Day',
                 ),
               ],
             ),
@@ -161,6 +254,13 @@ class _LocationHistoryScreenState extends State<LocationHistoryScreen> {
                     ),
                     markers: _markers,
                     polylines: _polylines,
+                    onMapCreated: (ctrl) {
+                      _mapController = ctrl;
+                      if (_polylines.isNotEmpty) {
+                        final coords = _polylines.first.points;
+                        _fitMapToBounds(coords);
+                      }
+                    },
                   ),
           ),
 
@@ -173,21 +273,49 @@ class _LocationHistoryScreenState extends State<LocationHistoryScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    'Recorded Points (${_historyPoints.length})',
-                    style: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                      color: AppColors.textPrimary,
-                    ),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        'Recorded Points (${_historyPoints.length})',
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: AppColors.textPrimary,
+                        ),
+                      ),
+                      if (_historyPoints.isNotEmpty)
+                        Text(
+                          '${_historyPoints.first.timeStamp > 0 ? DateFormat('hh:mm a').format(DateTime.fromMillisecondsSinceEpoch(_historyPoints.first.timeStamp)) : ''} - ${_historyPoints.last.timeStamp > 0 ? DateFormat('hh:mm a').format(DateTime.fromMillisecondsSinceEpoch(_historyPoints.last.timeStamp)) : ''}',
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: AppColors.textSecondary,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                    ],
                   ),
                   const SizedBox(height: 8),
                   Expanded(
                     child: _historyPoints.isEmpty
-                        ? const Center(
-                            child: Text(
-                              'No location points recorded on this date.',
-                              style: TextStyle(color: AppColors.textSecondary),
+                        ? Center(
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(
+                                  Icons.location_off_rounded,
+                                  size: 40,
+                                  color: AppColors.textMuted.withOpacity(0.5),
+                                ),
+                                const SizedBox(height: 8),
+                                const Text(
+                                  'No location points recorded on this date.',
+                                  style: TextStyle(
+                                    color: AppColors.textSecondary,
+                                    fontSize: 13,
+                                  ),
+                                ),
+                              ],
                             ),
                           )
                         : ListView.builder(
@@ -200,7 +328,10 @@ class _LocationHistoryScreenState extends State<LocationHistoryScreen> {
                                         p.timeStamp,
                                       ),
                                     )
-                                  : 'Point $index';
+                                  : 'Point ${index + 1}';
+
+                              final isStart = index == 0;
+                              final isEnd = index == _historyPoints.length - 1;
 
                               return Card(
                                 margin: const EdgeInsets.only(bottom: 8),
@@ -208,19 +339,26 @@ class _LocationHistoryScreenState extends State<LocationHistoryScreen> {
                                   borderRadius: BorderRadius.circular(12),
                                 ),
                                 child: ListTile(
-                                  leading: const CircleAvatar(
+                                  leading: CircleAvatar(
                                     radius: 16,
-                                    backgroundColor: AppColors.primaryLight,
-                                    child: Icon(
-                                      Icons.navigation_rounded,
-                                      color: Colors.white,
-                                      size: 16,
+                                    backgroundColor: isStart
+                                        ? AppColors.success
+                                        : isEnd
+                                            ? AppColors.danger
+                                            : AppColors.primaryLight,
+                                    child: Text(
+                                      '${index + 1}',
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.bold,
+                                      ),
                                     ),
                                   ),
                                   title: Text(
                                     p.address.isNotEmpty
                                         ? p.address
-                                        : 'Lat: ${p.latitude}, Lon: ${p.longitude}',
+                                        : 'Lat: ${p.latitude.toStringAsFixed(4)}, Lon: ${p.longitude.toStringAsFixed(4)}',
                                     style: const TextStyle(
                                       fontSize: 13,
                                       fontWeight: FontWeight.bold,
@@ -233,6 +371,14 @@ class _LocationHistoryScreenState extends State<LocationHistoryScreen> {
                                       color: AppColors.textSecondary,
                                     ),
                                   ),
+                                  onTap: () {
+                                    _mapController?.animateCamera(
+                                      CameraUpdate.newLatLngZoom(
+                                        LatLng(p.latitude, p.longitude),
+                                        16,
+                                      ),
+                                    );
+                                  },
                                 ),
                               );
                             },

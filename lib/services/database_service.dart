@@ -202,54 +202,162 @@ class DatabaseService {
   }
 
   // Save/Update Live Location
+  // Save Location to Realtime DB & History
   Future<void> saveLocation(
       String mobile, LocationDetailsModel location) async {
     try {
       final json = location.toJson();
-      await _db.ref(AppConstants.locationList).child(mobile).set(json);
-      await _db.ref(AppConstants.legacyLocationList).child(mobile).set(json);
+      final clean = mobile.replaceAll(RegExp(r'[^0-9+]'), '');
 
-      // Save to Location History
+      await _db.ref('locationList').child(mobile).set(json);
+      await _db.ref('LocationDetails').child(mobile).set(json);
+      if (clean != mobile) {
+        await _db.ref('locationList').child(clean).set(json);
+        await _db.ref('LocationDetails').child(clean).set(json);
+      }
+
+      // Save to Location History under both case conventions
       if (location.date.isNotEmpty) {
         final timeKey = location.timeStamp > 0
             ? location.timeStamp.toString()
             : DateTime.now().millisecondsSinceEpoch.toString();
+
         await _db
-            .ref(AppConstants.locationHistory)
+            .ref('locationHistory')
             .child(mobile)
             .child(location.date)
             .child(timeKey)
             .set(json);
+
+        await _db
+            .ref('LocationHistory')
+            .child(mobile)
+            .child(location.date)
+            .child(timeKey)
+            .set(json);
+
+        if (clean != mobile) {
+          await _db
+              .ref('locationHistory')
+              .child(clean)
+              .child(location.date)
+              .child(timeKey)
+              .set(json);
+          await _db
+              .ref('LocationHistory')
+              .child(clean)
+              .child(location.date)
+              .child(timeKey)
+              .set(json);
+        }
       }
     } catch (_) {}
   }
 
-  // Get Location History for a Date
+  // Get Location History for a Date with deep multi-path and multi-format matching
   Future<List<LocationDetailsModel>> getLocationHistory(
       String mobile, String date) async {
-    try {
-      final snapshot = await _db
-          .ref(AppConstants.locationHistory)
-          .child(mobile)
-          .child(date)
-          .get();
+    final List<LocationDetailsModel> history = [];
+    final clean = mobile.replaceAll(RegExp(r'[^0-9]'), '');
+    final last10 = clean.length >= 10 ? clean.substring(clean.length - 10) : clean;
 
-      if (!snapshot.exists || snapshot.value == null) return [];
+    final phoneCandidates = {mobile, clean, if (last10.isNotEmpty) last10, '+$clean'};
+    final tableCandidates = ['locationHistory', 'LocationHistory', 'location_history'];
 
-      final data = snapshot.value;
-      final List<LocationDetailsModel> history = [];
+    void parseAndAdd(dynamic data) {
+      if (data == null) return;
       if (data is Map) {
-        data.forEach((key, value) {
-          if (value is Map) {
-            history.add(LocationDetailsModel.fromJson(value));
+        data.forEach((k, v) {
+          if (v is Map) {
+            // Check if v itself is a location or if it contains timestamped locations
+            if (v.containsKey('latitude') || v.containsKey('lat')) {
+              try {
+                history.add(LocationDetailsModel.fromJson(v));
+              } catch (_) {}
+            } else {
+              parseAndAdd(v);
+            }
+          } else if (v is List) {
+            parseAndAdd(v);
           }
         });
+      } else if (data is List) {
+        for (var item in data) {
+          if (item is Map) {
+            try {
+              history.add(LocationDetailsModel.fromJson(item));
+            } catch (_) {}
+          }
+        }
       }
-      history.sort((a, b) => a.timeStamp.compareTo(b.timeStamp));
-      return history;
+    }
+
+    try {
+      // 1. Direct query on date paths
+      for (var table in tableCandidates) {
+        for (var phone in phoneCandidates) {
+          if (phone.isEmpty) continue;
+          try {
+            final snapshot = await _db
+                .ref(table)
+                .child(phone)
+                .child(date)
+                .get();
+
+            if (snapshot.exists && snapshot.value != null) {
+              parseAndAdd(snapshot.value);
+            }
+          } catch (_) {}
+        }
+      }
+
+      // 2. If empty, query entire user history node and match date prefixes
+      if (history.isEmpty) {
+        for (var table in tableCandidates) {
+          for (var phone in phoneCandidates) {
+            if (phone.isEmpty) continue;
+            try {
+              final snapshot = await _db.ref(table).child(phone).get();
+              if (snapshot.exists && snapshot.value is Map) {
+                final userMap = snapshot.value as Map;
+                userMap.forEach((dateKey, dateVal) {
+                  final dk = dateKey.toString();
+                  // Check if date key matches YYYY-MM-DD or DD-MM-YYYY or contains the date
+                  if (dk == date ||
+                      dk.contains(date) ||
+                      date.contains(dk) ||
+                      _normalizeDate(dk) == _normalizeDate(date)) {
+                    parseAndAdd(dateVal);
+                  }
+                });
+              }
+            } catch (_) {}
+            if (history.isNotEmpty) break;
+          }
+          if (history.isNotEmpty) break;
+        }
+      }
+
+      // Deduplicate points by timestamp / coordinates
+      final Map<String, LocationDetailsModel> uniquePoints = {};
+      for (var p in history) {
+        if (p.latitude != 0.0 && p.longitude != 0.0) {
+          final key = '${p.timeStamp}_${p.latitude.toStringAsFixed(5)}_${p.longitude.toStringAsFixed(5)}';
+          uniquePoints[key] = p;
+        }
+      }
+
+      final sorted = uniquePoints.values.toList()
+        ..sort((a, b) => a.timeStamp.compareTo(b.timeStamp));
+      return sorted;
     } catch (e) {
+      debugPrint('[FamilyTracker] History fetch error: $e');
       return [];
     }
+  }
+
+  String _normalizeDate(String d) {
+    return d.replaceAll(RegExp(r'[^0-9]'), '');
   }
 
   // Register Phone Profile
