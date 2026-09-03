@@ -1,0 +1,9 @@
+services:
+  - type: web
+    name: family-tracker-web
+    runtime: docker
+    plan: free
+    region: oregon
+    dockerfilePath: ./Dockerfile
+    autoDeploy: true
+    healthCheckPath: /
