@@ -5,7 +5,9 @@ import '../../constants/app_colors.dart';
 import '../../models/family_member_model.dart';
 import '../../models/location_details_model.dart';
 import '../../services/database_service.dart';
+import 'package:latlong2/latlong.dart' as ll;
 import '../../services/geocoding_service.dart';
+import '../widgets/adaptive_map_view.dart';
 
 class LocationHistoryScreen extends StatefulWidget {
   final FamilyMemberModel member;
@@ -247,14 +249,46 @@ class _LocationHistoryScreenState extends State<LocationHistoryScreen> {
             flex: 3,
             child: _isLoading
                 ? const Center(child: CircularProgressIndicator())
-                : GoogleMap(
-                    initialCameraPosition: CameraPosition(
-                      target: initialPos,
-                      zoom: 14,
-                    ),
-                    markers: _markers,
-                    polylines: _polylines,
-                    onMapCreated: (ctrl) {
+                : AdaptiveMapView(
+                    initialLat: initialPos.latitude,
+                    initialLng: initialPos.longitude,
+                    initialZoom: 14,
+                    points: _historyPoints.asMap().entries.map((entry) {
+                      final i = entry.key;
+                      final p = entry.value;
+                      final isStart = i == 0;
+                      final isEnd = i == _historyPoints.length - 1;
+                      return AdaptiveMapPoint(
+                        id: 'point_$i',
+                        latitude: p.latitude,
+                        longitude: p.longitude,
+                        title: isStart
+                            ? 'Start (${p.timeStamp > 0 ? DateFormat('hh:mm a').format(DateTime.fromMillisecondsSinceEpoch(p.timeStamp)) : ''})'
+                            : isEnd
+                                ? 'Latest (${p.timeStamp > 0 ? DateFormat('hh:mm a').format(DateTime.fromMillisecondsSinceEpoch(p.timeStamp)) : ''})'
+                                : 'Point #${i + 1}',
+                        snippet: p.address,
+                        pinColor: isStart
+                            ? AppColors.success
+                            : isEnd
+                                ? AppColors.danger
+                                : AppColors.primary,
+                      );
+                    }).toList(),
+                    polylines: [
+                      AdaptivePolyline(
+                        id: 'history_route',
+                        points: _historyPoints
+                            .where((p) => p.latitude != 0.0 && p.longitude != 0.0)
+                            .map((p) => ll.LatLng(p.latitude, p.longitude))
+                            .toList(),
+                        color: AppColors.primary,
+                        strokeWidth: 4,
+                      ),
+                    ],
+                    googleMarkers: _markers,
+                    googlePolylines: _polylines,
+                    onGoogleMapCreated: (ctrl) {
                       _mapController = ctrl;
                       if (_polylines.isNotEmpty) {
                         final coords = _polylines.first.points;

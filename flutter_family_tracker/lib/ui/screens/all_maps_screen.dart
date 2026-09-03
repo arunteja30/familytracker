@@ -10,6 +10,7 @@ import '../../models/location_details_model.dart';
 import '../../services/geocoding_service.dart';
 import '../../services/profile_image_service.dart';
 import '../../utils/marker_generator.dart';
+import '../widgets/adaptive_map_view.dart';
 import 'location_history_screen.dart';
 
 class AllMapsScreen extends StatefulWidget {
@@ -254,16 +255,28 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
       ),
       body: Stack(
         children: [
-          GoogleMap(
-            initialCameraPosition: CameraPosition(
-              target: initialPos,
-              zoom: 12,
-            ),
-            mapType: _currentMapType,
-            markers: _markers,
-            myLocationEnabled: true,
-            myLocationButtonEnabled: true,
-            onMapCreated: (GoogleMapController controller) {
+          AdaptiveMapView(
+            initialLat: initialPos.latitude,
+            initialLng: initialPos.longitude,
+            initialZoom: 12,
+            points: widget.members.map((m) {
+              final loc = widget.locations[m.mobile];
+              return AdaptiveMapPoint(
+                id: m.mobile,
+                latitude: loc?.latitude ?? 0.0,
+                longitude: loc?.longitude ?? 0.0,
+                title: m.name,
+                snippet: loc?.address ?? '',
+                pinColor: MarkerGenerator.getMarkerColor(m.relationship),
+                onTap: () {
+                  setState(() {
+                    _selectedMember = m;
+                  });
+                },
+              );
+            }).where((p) => p.latitude != 0.0 && p.longitude != 0.0).toList(),
+            googleMarkers: _markers,
+            onGoogleMapCreated: (GoogleMapController controller) {
               _controller.complete(controller);
               Future.delayed(const Duration(milliseconds: 600), _fitAllBounds);
             },
