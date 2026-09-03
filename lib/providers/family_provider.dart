@@ -68,8 +68,8 @@ class FamilyProvider extends ChangeNotifier {
       // 4. Subscribe to real-time updates for the active family group
       _subscribeToMembers(_currentFamilyName);
 
-      // 5. Update and push current device location
-      await _locationService.updateAndPushLocation(userPhone);
+      // 5. Start continuous background location tracking with foreground notification
+      _locationService.startContinuousBackgroundLocationTracking(userPhone);
     } catch (e) {
       _errorMessage = e.toString();
       debugPrint('[FamilyTracker] Init error: $e');
@@ -158,6 +158,7 @@ class FamilyProvider extends ChangeNotifier {
 
   @override
   void dispose() {
+    _locationService.stopContinuousTracking();
     _membersSubscription?.cancel();
     for (var sub in _locationSubscriptions.values) {
       sub.cancel();
