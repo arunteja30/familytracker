@@ -1,101 +1,140 @@
 <?xml version="1.0" encoding="utf-8"?>
-<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
+    android:background="@color/bgApp"
     tools:context=".activity.VerifyPhoneActivity">
 
-    <RelativeLayout
-        android:id="@+id/relativeLayout"
+    <!-- Gradient Header Banner -->
+    <View
+        android:id="@+id/headerGradient"
         android:layout_width="match_parent"
-        android:layout_height="200dp">
+        android:layout_height="240dp"
+        android:background="@drawable/bg_gradient_header"
+        app:layout_constraintTop_toTopOf="parent" />
 
-        <ImageView
-            android:layout_width="120dp"
-            android:layout_height="120dp"
-            android:layout_centerHorizontal="true"
-            android:layout_centerVertical="true"
-            android:background="@drawable/family_logo" />
-
-    </RelativeLayout>
-
+    <!-- App Logo / Icon -->
     <ImageView
-        android:id="@+id/imageView"
-        android:layout_width="match_parent"
-        android:layout_height="120dp"
-        android:layout_below="@id/relativeLayout"
-        android:layout_marginTop="-50dp"
-        android:background="@drawable/waves" />
+        android:id="@+id/imgLogo"
+        android:layout_width="80dp"
+        android:layout_height="80dp"
+        android:layout_marginTop="40dp"
+        android:background="@drawable/family_logo"
+        android:contentDescription="@string/app_name"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="parent" />
 
     <TextView
-        android:id="@+id/textView"
+        android:id="@+id/txtHeaderTitle"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_below="@id/imageView"
-        android:layout_centerHorizontal="true"
-        android:layout_marginTop="20dp"
-        android:text="Wait for the code We sent you..."
-        android:textAppearance="@style/Base.TextAppearance.AppCompat.Large"
-        android:textColor="@color/colorPrimaryDark" />
+        android:layout_marginTop="10dp"
+        android:text="Verification Code"
+        android:textColor="@color/textWhite"
+        android:textSize="22sp"
+        android:textStyle="bold"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/imgLogo" />
 
-    <TextView
-        android:id="@+id/textView1"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_below="@id/textView"
-        android:layout_marginLeft="20dp"
-        android:layout_marginTop="5dp"
-        android:layout_marginRight="20dp"
-        android:text="We sent you a code, it will be detected automatically but if it is not detected you can put it below manually as well"
-        android:textAlignment="center"
-        android:textColor="@color/colorPrimary" />
-
-    <EditText
-        android:id="@+id/editTextCode"
-        android:layout_width="230dp"
-        android:layout_height="45dp"
-        android:layout_below="@id/textView1"
-        android:layout_centerHorizontal="true"
-        android:layout_marginTop="15dp"
-        android:background="@drawable/button_bg"
-        android:digits="0123456789"
-        android:gravity="center"
-        android:hint="enter code"
-        android:maxLength="6" />
-
-    <TextView
-        android:id="@+id/txt_resend_otp"
+    <!-- Verification Card -->
+    <com.google.android.material.card.MaterialCardView
+        android:id="@+id/cardVerify"
+        style="@style/ModernCard"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_below="@id/editTextCode"
-        android:layout_alignParentRight="true"
-        android:layout_marginTop="15dp"
-        android:layout_marginRight="20dp"
-        android:gravity="center"
-        android:text="Resend OTP"
-        android:textColor="@color/colorPrimary"
-        android:textSize="12sp"
-        android:visibility="gone" />
+        android:layout_marginStart="20dp"
+        android:layout_marginTop="-24dp"
+        android:layout_marginEnd="20dp"
+        app:cardElevation="8dp"
+        app:layout_constraintTop_toBottomOf="@id/headerGradient">
 
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_horizontal"
+            android:orientation="vertical"
+            android:padding="24dp">
 
-    <Button
-        android:id="@+id/buttonSignIn"
-        android:layout_width="150dp"
-        android:layout_height="40dp"
-        android:layout_below="@id/txt_resend_otp"
-        android:layout_centerHorizontal="true"
-        android:layout_marginTop="15dp"
-        android:background="@drawable/third_button_background"
-        android:text="Sign In"
-        android:textAllCaps="false"
-        android:textColor="#ffffff" />
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Enter 6-Digit OTP"
+                android:textColor="@color/textPrimary"
+                android:textSize="18sp"
+                android:textStyle="bold" />
 
-    <ProgressBar
-        android:id="@+id/progressbar"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_below="@id/buttonSignIn"
-        android:layout_centerHorizontal="true"
-        android:visibility="gone" />
+            <TextView
+                android:id="@+id/textView1"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:gravity="center"
+                android:text="We have sent an SMS with a 6-digit verification code to your mobile number."
+                android:textColor="@color/textSecondary"
+                android:textSize="13sp" />
 
-</RelativeLayout>
+            <!-- OTP Input Box -->
+            <EditText
+                android:id="@+id/editTextCode"
+                android:layout_width="match_parent"
+                android:layout_height="56dp"
+                android:layout_marginTop="22dp"
+                android:background="@drawable/bg_otp_box"
+                android:digits="0123456789"
+                android:gravity="center"
+                android:hint="• • • • • •"
+                android:inputType="number"
+                android:letterSpacing="0.4"
+                android:maxLength="6"
+                android:textColor="@color/colorPrimaryDark"
+                android:textColorHint="@color/textMuted"
+                android:textSize="22sp"
+                android:textStyle="bold" />
+
+            <!-- Resend OTP Timer / Action -->
+            <TextView
+                android:id="@+id/txt_resend_otp"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:background="@drawable/bg_status_active"
+                android:paddingStart="16dp"
+                android:paddingTop="6dp"
+                android:paddingEnd="16dp"
+                android:paddingBottom="6dp"
+                android:text="Resend OTP"
+                android:textColor="@color/colorSuccess"
+                android:textSize="13sp"
+                android:textStyle="bold"
+                android:visibility="gone" />
+
+            <!-- Sign In Button -->
+            <androidx.appcompat.widget.AppCompatButton
+                android:id="@+id/buttonSignIn"
+                android:layout_width="match_parent"
+                android:layout_height="52dp"
+                android:layout_marginTop="20dp"
+                android:background="@drawable/bg_gradient_button"
+                android:text="Verify &amp; Continue"
+                android:textAllCaps="false"
+                android:textColor="@color/textWhite"
+                android:textSize="16sp"
+                android:textStyle="bold" />
+
+            <!-- Loading Spinner -->
+            <ProgressBar
+                android:id="@+id/progressbar"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
+                android:layout_marginTop="16dp"
+                android:indeterminateTint="@color/colorPrimary"
+                android:visibility="gone" />
+
+        </LinearLayout>
+    </com.google.android.material.card.MaterialCardView>
+
+</androidx.constraintlayout.widget.ConstraintLayout>

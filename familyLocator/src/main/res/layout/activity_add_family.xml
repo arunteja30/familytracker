@@ -1,10 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
-
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@android:color/white"
+    android:background="@color/bgApp"
     android:orientation="vertical">
 
     <LinearLayout
@@ -12,90 +11,104 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:layout_above="@+id/ll_bottomLayout"
-        android:layout_marginBottom="10dp"
         android:orientation="vertical">
 
-
-        <androidx.appcompat.widget.AppCompatEditText
-            android:id="@+id/et_family_name"
+        <!-- Header Card -->
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:background="@null"
-            android:gravity="center"
-            android:hint=""
-            android:textColor="@android:color/holo_orange_dark"
-            android:textSize="20dp"
-            android:textStyle="bold" />
+            android:background="@drawable/bg_gradient_header"
+            android:orientation="vertical"
+            android:paddingStart="20dp"
+            android:paddingTop="28dp"
+            android:paddingEnd="20dp"
+            android:paddingBottom="20dp">
 
-        <androidx.appcompat.widget.AppCompatTextView
-            android:id="@+id/txt_loggedin_name"
+            <androidx.appcompat.widget.AppCompatEditText
+                android:id="@+id/et_family_name"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="@null"
+                android:gravity="center"
+                android:hint="My Family"
+                android:textColor="@color/textWhite"
+                android:textColorHint="#B3FFFFFF"
+                android:textSize="22sp"
+                android:textStyle="bold" />
+
+            <androidx.appcompat.widget.AppCompatTextView
+                android:id="@+id/txt_loggedin_name"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:gravity="center"
+                android:textColor="#D1D5DB"
+                android:textSize="14sp" />
+
+            <TextView
+                android:id="@+id/txt_group_name_label"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center"
+                android:layout_marginTop="12dp"
+                android:background="@drawable/bg_status_active"
+                android:onClick="onClick"
+                android:paddingStart="16dp"
+                android:paddingTop="6dp"
+                android:paddingEnd="16dp"
+                android:paddingBottom="6dp"
+                android:text="Switch Family Group"
+                android:textColor="@color/colorSuccess"
+                android:textSize="12sp"
+                android:textStyle="bold"
+                android:visibility="gone" />
+
+            <androidx.appcompat.widget.AppCompatSpinner
+                android:id="@+id/spr_groups"
+                android:layout_width="0dp"
+                android:layout_height="0dp"
+                android:gravity="center"
+                android:prompt="@string/select_family_name"
+                android:spinnerMode="dialog"
+                android:visibility="visible" />
+        </LinearLayout>
+
+        <!-- Members Section Header -->
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:gravity="center"
-            android:textColor="@color/colorPrimaryDark"
-            android:textSize="@dimen/label_value_size"
-            android:textStyle="bold|italic" />
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingStart="20dp"
+            android:paddingTop="16dp"
+            android:paddingEnd="20dp"
+            android:paddingBottom="8dp">
 
-        <TextView
-            android:id="@+id/txt_group_name_label"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="@dimen/margin_top"
-            android:background="@drawable/third_button_background"
-            android:gravity="center"
-            android:minHeight="30dp"
-            android:onClick="onClick"
-            android:text="Click here to Switch Groups"
-            android:textColor="@color/white"
-            android:textSize="@dimen/label_size"
-            android:visibility="gone" />
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Family Members"
+                android:textColor="@color/textPrimary"
+                android:textSize="18sp"
+                android:textStyle="bold" />
 
-        <androidx.appcompat.widget.AppCompatSpinner
-            android:id="@+id/spr_groups"
-            android:layout_width="0dp"
-            android:layout_height="0dp"
-            android:gravity="center"
-            android:prompt="@string/select_family_name"
-            android:spinnerMode="dialog"
-            android:visibility="visible" />
-
-        <RelativeLayout
-
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="@dimen/margin_top"
-            android:orientation="vertical"></RelativeLayout>
+        </LinearLayout>
 
         <FrameLayout
             android:id="@+id/ll_btns"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
-            android:background="@color/colorPrimaryDark"
-            android:gravity="end|bottom"
-            android:orientation="horizontal">
-
-            <TextView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginLeft="5dp"
-                android:layout_marginTop="10dp"
-                android:maxHeight="40dp"
-                android:padding="5dp"
-                android:text="Family Members"
-                android:textColor="@android:color/white"
-                android:textSize="@dimen/label_value_size"
-                android:textStyle="bold"
-                android:visibility="visible" />
+            android:background="@color/bgApp">
 
             <LinearLayout
                 android:id="@+id/no_perm_layout"
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"
                 android:layout_gravity="center"
-                android:layout_marginLeft="5dp"
-                android:layout_marginTop="45dp"
-                android:layout_marginRight="5dp"
+                android:gravity="center"
                 android:orientation="vertical"
+                android:padding="24dp"
                 android:visibility="gone">
 
                 <TextView
@@ -103,51 +116,50 @@
                     android:layout_height="wrap_content"
                     android:gravity="center"
                     android:text="@string/app_dont_work"
-                    android:textColor="@android:color/white"
-                    android:textSize="22sp"
+                    android:textColor="@color/colorDanger"
+                    android:textSize="18sp"
                     android:textStyle="bold" />
 
-                <Button
+                <androidx.appcompat.widget.AppCompatButton
                     android:id="@+id/btn_launch_perm"
                     android:layout_width="wrap_content"
                     android:layout_height="45dp"
                     android:layout_gravity="center"
-                    android:layout_marginTop="15dp"
-                    android:backgroundTint="@color/white"
+                    android:layout_marginTop="16dp"
+                    android:background="@drawable/bg_gradient_button"
+                    android:paddingStart="24dp"
+                    android:paddingEnd="24dp"
                     android:text="Launch Settings"
-                    android:textColor="@android:color/holo_red_dark" />
+                    android:textAllCaps="false"
+                    android:textColor="@color/textWhite" />
             </LinearLayout>
 
             <androidx.swiperefreshlayout.widget.SwipeRefreshLayout
                 android:id="@+id/swipe_refresh"
                 android:layout_width="match_parent"
-                android:layout_height="match_parent"
-                android:layout_marginLeft="10dp"
-                android:layout_marginTop="45dp"
-                android:layout_marginRight="10dp"
-                android:layout_marginBottom="10dp">
-
+                android:layout_height="match_parent">
 
                 <androidx.recyclerview.widget.RecyclerView
                     android:id="@+id/list_family_members"
                     android:layout_width="match_parent"
                     android:layout_height="match_parent"
-                    android:divider="@android:color/transparent"
-                    android:orientation="vertical">
-
-                </androidx.recyclerview.widget.RecyclerView>
+                    android:clipToPadding="false"
+                    android:orientation="vertical"
+                    android:paddingTop="4dp"
+                    android:paddingBottom="80dp" />
             </androidx.swiperefreshlayout.widget.SwipeRefreshLayout>
 
             <com.google.android.material.floatingactionbutton.FloatingActionButton
                 android:id="@+id/btn_add_member"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_gravity="center|bottom"
+                android:layout_gravity="end|bottom"
                 android:layout_margin="20dp"
+                android:contentDescription="@string/add_family_member"
                 android:src="@android:drawable/ic_input_add"
-                android:text="@string/add_family_member"
-                android:textAllCaps="false"
-                app:fabSize="normal" />
+                app:backgroundTint="@color/colorPrimary"
+                app:fabSize="normal"
+                app:tint="@color/textWhite" />
 
         </FrameLayout>
 
@@ -160,18 +172,27 @@
             android:visibility="gone" />
     </LinearLayout>
 
+    <!-- Bottom Action Bar -->
     <LinearLayout
         android:id="@+id/ll_bottomLayout"
         android:layout_width="match_parent"
-        android:layout_height="50dp"
-        android:layout_alignParentBottom="true">
+        android:layout_height="64dp"
+        android:layout_alignParentBottom="true"
+        android:background="@color/bgSurface"
+        android:elevation="8dp"
+        android:gravity="center"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp">
 
-        <Button
+        <androidx.appcompat.widget.AppCompatButton
             android:id="@+id/btn_showALL"
             android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:backgroundTint="@color/colorPrimary"
-            android:text="ShowAll"
-            android:textColor="@android:color/white" />
+            android:layout_height="48dp"
+            android:background="@drawable/bg_gradient_button"
+            android:text="View All on Map"
+            android:textAllCaps="false"
+            android:textColor="@color/textWhite"
+            android:textSize="15sp"
+            android:textStyle="bold" />
     </LinearLayout>
 </RelativeLayout>

@@ -1,53 +1,51 @@
 <?xml version="1.0" encoding="utf-8"?>
-
-<androidx.cardview.widget.CardView xmlns:android="http://schemas.android.com/apk/res/android"
+<com.google.android.material.card.MaterialCardView xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
+    style="@style/ModernCard"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:layout_margin="5dp"
-    app:cardCornerRadius="5dp">
+    android:layout_marginStart="12dp"
+    android:layout_marginTop="6dp"
+    android:layout_marginEnd="12dp"
+    android:layout_marginBottom="6dp"
+    app:cardElevation="2dp">
 
-    <RelativeLayout
+    <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:orientation="vertical">
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="14dp">
 
+        <!-- Top Profile Row -->
         <LinearLayout
             android:id="@+id/ll_txt"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:padding="2dp">
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
 
             <androidx.appcompat.widget.AppCompatImageView
                 android:id="@+id/family_mbr_list_profilepic"
-                android:layout_width="70dp"
-                android:layout_height="60dp"
-                android:layout_marginTop="2dp"
-                android:layout_gravity="center"
-                android:src="@drawable/blank_profile_picture"
-                android:visibility="visible" />
+                android:layout_width="56dp"
+                android:layout_height="56dp"
+                android:scaleType="centerCrop"
+                android:src="@drawable/blank_profile_picture" />
 
             <LinearLayout
-                android:layout_width="match_parent"
+                android:layout_width="0dp"
                 android:layout_height="wrap_content"
-                android:layout_marginLeft="3dp"
-                android:orientation="vertical"
-                android:padding="0dp">
+                android:layout_marginStart="14dp"
+                android:layout_weight="1"
+                android:orientation="vertical">
 
                 <TextView
                     android:id="@+id/family_mbr_list_name"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_gravity="top"
-                    android:layout_marginLeft="5dp"
-                    android:layout_marginTop="@dimen/margin_top"
-                    android:layout_weight="1"
-                    android:gravity="top"
-                    android:maxLength="25"
-                    android:text="chceckkkk"
-                    android:textAllCaps="true"
-                    android:textColor="@color/colorPrimaryDark"
+                    android:ellipsize="end"
+                    android:maxLines="1"
+                    android:text="Member Name"
+                    android:textColor="@color/textPrimary"
                     android:textSize="16sp"
                     android:textStyle="bold" />
 
@@ -55,90 +53,92 @@
                     android:id="@+id/family_mbr_list_mobile"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:layout_marginLeft="5dp"
-                    android:layout_weight="1"
-                    android:text="9700567735"
-                    android:textColor="@color/colorPrimary" />
-
+                    android:layout_marginTop="2dp"
+                    android:text="+91 9876543210"
+                    android:textColor="@color/textSecondary"
+                    android:textSize="13sp" />
 
                 <TextView
                     android:id="@+id/family_mbr_list_relation"
-                    android:layout_width="match_parent"
+                    android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:layout_below="@+id/family_mbr_list_mobile"
-                    android:layout_marginLeft="5dp"
-                    android:layout_marginTop="@dimen/margin_top"
-                    android:layout_weight="1"
-                    android:text="its me"
-                    android:textColor="@color/colorPrimaryDark"
+                    android:layout_marginTop="2dp"
+                    android:background="@drawable/bg_status_active"
+                    android:paddingStart="8dp"
+                    android:paddingTop="2dp"
+                    android:paddingEnd="8dp"
+                    android:paddingBottom="2dp"
+                    android:text="Admin"
+                    android:textColor="@color/colorSuccess"
+                    android:textSize="11sp"
+                    android:textStyle="bold"
                     android:visibility="gone" />
 
                 <TextView
                     android:id="@+id/family_mbr_list_gps_status"
-                    android:layout_width="match_parent"
+                    android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:layout_below="@+id/family_mbr_list_mobile"
-                    android:layout_marginTop="5dp"
-                    android:layout_marginRight="5dp"
-                    android:layout_weight="1"
-                    android:gravity="left"
-                    android:maxLines="2"
-                    android:text="hhhhhhh"
-                    android:textColor="@android:color/holo_red_dark"
-                    android:textSize="12dp"
+                    android:layout_marginTop="4dp"
+                    android:textColor="@color/colorDanger"
+                    android:textSize="12sp"
                     android:textStyle="bold"
                     android:visibility="gone" />
-
 
             </LinearLayout>
 
         </LinearLayout>
 
+        <!-- Action Buttons Row -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_below="@+id/ll_txt">
+            android:layout_marginTop="12dp"
+            android:orientation="horizontal">
 
             <androidx.appcompat.widget.AppCompatTextView
                 android:id="@+id/family_mbr_list_call"
-                android:layout_width="wrap_content"
-                android:layout_height="30dp"
-                android:layout_margin="3dp"
+                android:layout_width="0dp"
+                android:layout_height="36dp"
+                android:layout_marginEnd="6dp"
                 android:layout_weight="1"
-                android:background="@color/colorPrimary"
+                android:background="@drawable/bg_gradient_button"
                 android:gravity="center"
                 android:text="Call"
-                android:textColor="@color/white"
+                android:textColor="@color/textWhite"
+                android:textSize="13sp"
                 android:textStyle="bold"
-                android:visibility="visible"
-                app:srcCompat="@drawable/icon_call" />
+                android:visibility="visible" />
 
             <androidx.appcompat.widget.AppCompatTextView
                 android:id="@+id/family_mbr_list_msg"
-                android:layout_width="wrap_content"
-                android:layout_height="30dp"
-                android:layout_margin="3dp"
+                android:layout_width="0dp"
+                android:layout_height="36dp"
+                android:layout_marginStart="4dp"
+                android:layout_marginEnd="4dp"
                 android:layout_weight="1"
-                android:background="@color/colorPrimary"
+                android:background="@drawable/bg_input_field"
                 android:gravity="center"
                 android:text="Message"
-                android:textColor="@color/white"
+                android:textColor="@color/colorPrimary"
+                android:textSize="13sp"
                 android:textStyle="bold"
                 android:visibility="visible" />
 
             <TextView
                 android:id="@+id/family_mbr_list_invite"
-                android:layout_width="wrap_content"
-                android:layout_height="30dp"
-                android:layout_margin="3dp"
+                android:layout_width="0dp"
+                android:layout_height="36dp"
+                android:layout_marginStart="6dp"
                 android:layout_weight="1"
-                android:background="@color/colorPrimary"
+                android:background="@drawable/bg_gradient_button"
                 android:gravity="center"
                 android:text="Invite"
-                android:textColor="@color/white"
+                android:textColor="@color/textWhite"
+                android:textSize="13sp"
                 android:textStyle="bold"
                 android:visibility="visible" />
         </LinearLayout>
-    </RelativeLayout>
 
-</androidx.cardview.widget.CardView>
+    </LinearLayout>
+
+</com.google.android.material.card.MaterialCardView>
