@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Modern Vibrant Palette -->
+    <color name="colorPrimary">#4F46E5</color>
+    <color name="colorPrimaryDark">#3730A3</color>
+    <color name="colorPrimaryLight">#818CF8</color>
+    <color name="colorAccent">#06B6D4</color>
+
+    <!-- Backgrounds & Surfaces -->
+    <color name="bgApp">#F8FAFC</color>
+    <color name="bgSurface">#FFFFFF</color>
+    <color name="bgSurfaceElevated">#F1F5F9</color>
+    <color name="cardBorder">#E2E8F0</color>
+
+    <!-- Typography -->
+    <color name="textPrimary">#0F172A</color>
+    <color name="textSecondary">#64748B</color>
+    <color name="textMuted">#94A3B8</color>
+    <color name="textWhite">#FFFFFF</color>
+
+    <!-- Status & Badges -->
+    <color name="colorSuccess">#10B981</color>
+    <color name="colorSuccessBg">#D1FAE5</color>
+    <color name="colorWarning">#F59E0B</color>
+    <color name="colorWarningBg">#FEF3C7</color>
+    <color name="colorDanger">#EF4444</color>
+    <color name="colorDangerBg">#FEE2E2</color>
+
+    <!-- Gradients -->
+    <color name="gradStart">#4F46E5</color>
+    <color name="gradEnd">#7C3AED</color>
+    <color name="gradBtnStart">#4F46E5</color>
+    <color name="gradBtnEnd">#6366F1</color>
+
+    <!-- Legacy Compatibility -->
+    <color name="white">#FFFFFF</color>
+    <color name="black">#000000</color>
+    <color name="transparent">#00000000</color>
+</resources>
