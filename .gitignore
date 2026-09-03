@@ -30,7 +30,13 @@ migrate_working_dir/
 .flutter-plugins-dependencies
 .pub-cache/
 .pub/
-/build/
+# Exclude all build dirs except web output needed for Render deployment
+/build/android/
+/build/ios/
+/build/app/
+/build/flutter_assets/
+# Allow build/web so Render Docker can serve pre-built static files
+!/build/web/
 /coverage/
 
 # Symbolication related
