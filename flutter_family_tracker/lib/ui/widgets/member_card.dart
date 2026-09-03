@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -29,7 +30,6 @@ class MemberCard extends StatefulWidget {
 
 class _MemberCardState extends State<MemberCard> {
   File? _profileImageFile;
-  bool _isLoadingImage = true;
 
   @override
   void initState() {
@@ -46,17 +46,20 @@ class _MemberCardState extends State<MemberCard> {
   }
 
   Future<void> _loadProfileImage() async {
-    final file =
-        await ProfileImageService.getProfileImageFile(widget.member.mobile);
-    if (mounted) {
-      setState(() {
-        _profileImageFile = file;
-        _isLoadingImage = false;
-      });
-    }
+    if (kIsWeb) return;
+    try {
+      final file =
+          await ProfileImageService.getProfileImageFile(widget.member.mobile);
+      if (mounted) {
+        setState(() {
+          _profileImageFile = file;
+        });
+      }
+    } catch (_) {}
   }
 
   void _showImagePickerModal() {
+    if (kIsWeb) return;
     showModalBottomSheet(
       context: context,
       shape: const RoundedRectangleBorder(
@@ -125,14 +128,16 @@ class _MemberCardState extends State<MemberCard> {
   }
 
   Future<void> _makeCall(String phone) async {
-    final uri = Uri.parse('tel:$phone');
+    final clean = phone.replaceAll(RegExp(r'[^0-9+]'), '');
+    final uri = Uri.parse('tel:$clean');
     if (await canLaunchUrl(uri)) {
       await launchUrl(uri);
     }
   }
 
   Future<void> _sendSms(String phone) async {
-    final uri = Uri.parse('sms:$phone');
+    final clean = phone.replaceAll(RegExp(r'[^0-9+]'), '');
+    final uri = Uri.parse('sms:$clean');
     if (await canLaunchUrl(uri)) {
       await launchUrl(uri);
     }
@@ -144,34 +149,36 @@ class _MemberCardState extends State<MemberCard> {
     final address = widget.location?.address ?? 'Location pending...';
 
     return Card(
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+      elevation: 2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(12),
         child: Column(
           children: [
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Clickable Profile Image / Avatar with Camera Badge
+                // Clickable Profile Image / Avatar
                 GestureDetector(
                   onTap: _showImagePickerModal,
                   child: Stack(
                     children: [
                       CircleAvatar(
-                        radius: 28,
+                        radius: 26,
                         backgroundColor:
                             AppColors.primaryLight.withOpacity(0.2),
-                        backgroundImage: _profileImageFile != null
+                        backgroundImage: _profileImageFile != null && !kIsWeb
                             ? FileImage(_profileImageFile!)
                             : null,
-                        child: _profileImageFile == null
+                        child: _profileImageFile == null || kIsWeb
                             ? Text(
                                 widget.member.name.isNotEmpty
                                     ? widget.member.name[0].toUpperCase()
                                     : 'M',
                                 style: const TextStyle(
                                   color: AppColors.primary,
-                                  fontSize: 22,
+                                  fontSize: 20,
                                   fontWeight: FontWeight.bold,
                                 ),
                               )
@@ -181,14 +188,14 @@ class _MemberCardState extends State<MemberCard> {
                         right: 0,
                         bottom: 0,
                         child: Container(
-                          padding: const EdgeInsets.all(4),
+                          padding: const EdgeInsets.all(3),
                           decoration: const BoxDecoration(
                             color: AppColors.primary,
                             shape: BoxShape.circle,
                           ),
                           child: const Icon(
                             Icons.camera_alt_rounded,
-                            size: 11,
+                            size: 10,
                             color: Colors.white,
                           ),
                         ),
@@ -196,34 +203,38 @@ class _MemberCardState extends State<MemberCard> {
                     ],
                   ),
                 ),
-                const SizedBox(width: 14),
+                const SizedBox(width: 10),
 
-                // Details
+                // Details Area
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
+                      // Name & Relationship Row
                       Row(
                         children: [
                           Expanded(
                             child: Text(
                               widget.member.name,
                               style: const TextStyle(
-                                fontSize: 16,
+                                fontSize: 15,
                                 fontWeight: FontWeight.bold,
                                 color: AppColors.textPrimary,
                               ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
                             ),
                           ),
-                          if (widget.member.relationship.isNotEmpty)
+                          if (widget.member.relationship.isNotEmpty) ...[
+                            const SizedBox(width: 6),
                             Container(
                               padding: const EdgeInsets.symmetric(
-                                horizontal: 8,
+                                horizontal: 6,
                                 vertical: 2,
                               ),
                               decoration: BoxDecoration(
                                 color: AppColors.successBg,
-                                borderRadius: BorderRadius.circular(12),
+                                borderRadius: BorderRadius.circular(8),
                                 border: Border.all(
                                   color: AppColors.success.withOpacity(0.3),
                                 ),
@@ -232,123 +243,213 @@ class _MemberCardState extends State<MemberCard> {
                                 widget.member.relationship,
                                 style: const TextStyle(
                                   color: AppColors.success,
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w600,
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.bold,
                                 ),
                               ),
                             ),
-                          if (widget.onDelete != null)
-                            IconButton(
-                              icon: const Icon(Icons.close_rounded, size: 18),
-                              color: AppColors.textMuted,
-                              onPressed: widget.onDelete,
-                              padding: EdgeInsets.zero,
-                              constraints: const BoxConstraints(),
+                          ],
+                          if (widget.onDelete != null) ...[
+                            const SizedBox(width: 4),
+                            InkWell(
+                              onTap: widget.onDelete,
+                              borderRadius: BorderRadius.circular(12),
+                              child: const Padding(
+                                padding: EdgeInsets.all(2),
+                                child: Icon(
+                                  Icons.close_rounded,
+                                  size: 16,
+                                  color: AppColors.textMuted,
+                                ),
+                              ),
                             ),
+                          ],
                         ],
                       ),
-                      const SizedBox(height: 3),
+                      const SizedBox(height: 2),
+
+                      // Phone Number
                       Text(
                         widget.member.mobile,
                         style: const TextStyle(
-                          fontSize: 13,
+                          fontSize: 12,
                           color: AppColors.textSecondary,
                         ),
                       ),
-                      const SizedBox(height: 6),
+                      const SizedBox(height: 4),
 
                       // Location & Battery Info
                       Row(
                         children: [
                           const Icon(
                             Icons.location_on_rounded,
-                            size: 14,
+                            size: 13,
                             color: AppColors.primary,
                           ),
-                          const SizedBox(width: 4),
+                          const SizedBox(width: 3),
                           Expanded(
                             child: Text(
                               address,
                               style: const TextStyle(
-                                fontSize: 12,
+                                fontSize: 11,
                                 color: AppColors.textPrimary,
                               ),
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                             ),
                           ),
-                        ],
-                      ),
-                      if (battery > 0) ...[
-                        const SizedBox(height: 4),
-                        Row(
-                          children: [
+                          if (battery > 0) ...[
+                            const SizedBox(width: 6),
                             Icon(
                               battery > 20
                                   ? Icons.battery_full_rounded
                                   : Icons.battery_alert_rounded,
-                              size: 14,
+                              size: 13,
                               color: battery > 20
                                   ? AppColors.success
                                   : AppColors.danger,
                             ),
-                            const SizedBox(width: 4),
+                            const SizedBox(width: 2),
                             Text(
-                              'Battery: $battery%',
+                              '$battery%',
                               style: TextStyle(
-                                fontSize: 11,
-                                fontWeight: FontWeight.w500,
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
                                 color: battery > 20
                                     ? AppColors.success
                                     : AppColors.danger,
                               ),
                             ),
                           ],
-                        ),
-                      ],
+                        ],
+                      ),
                     ],
                   ),
                 ),
               ],
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 10),
             const Divider(height: 1, color: AppColors.cardBorder),
             const SizedBox(height: 8),
 
-            // Action Buttons
+            // Ultra-Mobile-Friendly 4-Button Grid / Row
             Row(
               children: [
+                // 1. Call Button
                 Expanded(
-                  child: OutlinedButton.icon(
+                  child: OutlinedButton(
                     onPressed: () => _makeCall(widget.member.mobile),
-                    icon: const Icon(Icons.call_rounded, size: 16),
-                    label: const Text('Call'),
                     style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
+                      minimumSize: const Size(0, 34),
+                      visualDensity: VisualDensity.compact,
                       foregroundColor: AppColors.primary,
                       side: const BorderSide(color: AppColors.primaryLight),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                    child: const Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.call_rounded, size: 14),
+                        SizedBox(width: 4),
+                        Text(
+                          'Call',
+                          style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+                        ),
+                      ],
                     ),
                   ),
                 ),
-                const SizedBox(width: 8),
+                const SizedBox(width: 6),
+
+                // 2. SMS Button
                 Expanded(
-                  child: OutlinedButton.icon(
+                  child: OutlinedButton(
                     onPressed: () => _sendSms(widget.member.mobile),
-                    icon: const Icon(Icons.message_rounded, size: 16),
-                    label: const Text('SMS'),
                     style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
+                      minimumSize: const Size(0, 34),
+                      visualDensity: VisualDensity.compact,
                       foregroundColor: AppColors.primary,
                       side: const BorderSide(color: AppColors.primaryLight),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                    child: const Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.message_rounded, size: 14),
+                        SizedBox(width: 4),
+                        Text(
+                          'SMS',
+                          style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+                        ),
+                      ],
                     ),
                   ),
                 ),
-                const SizedBox(width: 8),
+                const SizedBox(width: 6),
+
+                // 3. History Button
                 Expanded(
-                  child: ElevatedButton.icon(
+                  child: OutlinedButton(
+                    onPressed: widget.onHistory,
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
+                      minimumSize: const Size(0, 34),
+                      visualDensity: VisualDensity.compact,
+                      foregroundColor: AppColors.accent,
+                      side: const BorderSide(color: AppColors.accent),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                    child: const Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.history_rounded, size: 14),
+                        SizedBox(width: 4),
+                        Text(
+                          'History',
+                          style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 6),
+
+                // 4. Track Button
+                Expanded(
+                  child: ElevatedButton(
                     onPressed: widget.onTrackOnMap,
-                    icon: const Icon(Icons.navigation_rounded, size: 16),
-                    label: const Text('Track'),
                     style: ElevatedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
+                      minimumSize: const Size(0, 34),
+                      visualDensity: VisualDensity.compact,
                       backgroundColor: AppColors.primary,
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                    child: const Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.navigation_rounded, size: 14),
+                        SizedBox(width: 4),
+                        Text(
+                          'Track',
+                          style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+                        ),
+                      ],
                     ),
                   ),
                 ),
