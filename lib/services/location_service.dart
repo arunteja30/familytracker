@@ -90,13 +90,6 @@ class LocationService {
         distanceFilter: 10,
         forceLocationManager: true,
         intervalDuration: const Duration(seconds: 30),
-        // Persistent Foreground Notification for Background Tracking
-        foregroundNotificationConfig: const ForegroundNotificationConfig(
-          notificationTitle: "Live Location Active",
-          notificationText: "FamilyTracker is continuously sharing your safety location",
-          enableWakeLock: true,
-          setOngoing: true,
-        ),
       );
     } else if (defaultTargetPlatform == TargetPlatform.iOS ||
         defaultTargetPlatform == TargetPlatform.macOS) {

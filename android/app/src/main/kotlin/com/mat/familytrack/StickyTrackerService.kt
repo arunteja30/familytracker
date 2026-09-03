@@ -26,21 +26,21 @@ import java.util.Locale
 class StickyTrackerService : Service(), LocationListener {
 
     private val TAG = "StickyTrackerService"
-    private val CHANNEL_ID = "family_tracker_background_channel"
-    private val NOTIFICATION_ID = 4521
+    private val CHANNEL_ID = "family_tracker_single_channel"
+    private val NOTIFICATION_ID = 1001
     private var locationManager: LocationManager? = null
 
     override fun onCreate() {
         super.onCreate()
         Log.d(TAG, "StickyTrackerService onCreate called")
         createNotificationChannel()
-        startForeground(NOTIFICATION_ID, buildForegroundNotification())
+        startForeground(NOTIFICATION_ID, buildForegroundNotification("Live family safety tracking active"))
         initFirebaseAndLocation()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         Log.d(TAG, "StickyTrackerService onStartCommand called - START_STICKY")
-        startForeground(NOTIFICATION_ID, buildForegroundNotification())
+        startForeground(NOTIFICATION_ID, buildForegroundNotification("Live family safety tracking active"))
         return START_STICKY
     }
 
@@ -59,7 +59,7 @@ class StickyTrackerService : Service(), LocationListener {
         }
     }
 
-    private fun buildForegroundNotification(): Notification {
+    private fun buildForegroundNotification(statusText: String): Notification {
         val launchIntent = packageManager.getLaunchIntentForPackage(packageName)
         val pendingIntent = PendingIntent.getActivity(
             this, 0, launchIntent,
@@ -68,12 +68,18 @@ class StickyTrackerService : Service(), LocationListener {
 
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("FamilyTracker Active")
-            .setContentText("Continuous live family safety tracking running in background")
+            .setContentText(statusText)
             .setSmallIcon(R.mipmap.ic_launcher)
             .setOngoing(true)
             .setContentIntent(pendingIntent)
             .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setOnlyAlertOnce(true)
             .build()
+    }
+
+    private fun updateNotification(statusText: String) {
+        val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+        notificationManager?.notify(NOTIFICATION_ID, buildForegroundNotification(statusText))
     }
 
     private fun initFirebaseAndLocation() {
@@ -114,13 +120,17 @@ class StickyTrackerService : Service(), LocationListener {
         val prefs = getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
         val phone = prefs.getString("flutter.user_phone", null)
 
+        val batteryManager = getSystemService(Context.BATTERY_SERVICE) as? BatteryManager
+        val batteryLevel = batteryManager?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY) ?: 0
+
+        val now = System.currentTimeMillis()
+        val timeFormatted = SimpleDateFormat("hh:mm a", Locale.getDefault()).format(Date(now))
+        val dateStr = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date(now))
+
+        // Update single notification with latest status
+        updateNotification("Updated $timeFormatted • Battery $batteryLevel%")
+
         if (phone != null && phone.isNotEmpty()) {
-            val batteryManager = getSystemService(Context.BATTERY_SERVICE) as? BatteryManager
-            val batteryLevel = batteryManager?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY) ?: 0
-
-            val now = System.currentTimeMillis()
-            val dateStr = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date(now))
-
             val locationMap = hashMapOf<String, Any>(
                 "latitude" to location.latitude,
                 "longitude" to location.longitude,
