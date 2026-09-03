@@ -37,6 +37,7 @@ migrate_working_dir/
 /build/flutter_assets/
 /build/.cxx/
 /build/*.cache.dill.track.dill
+/build/[0-9a-f][0-9a-f]*/
 /build/battery_plus/
 /build/firebase_auth/
 /build/firebase_core/
