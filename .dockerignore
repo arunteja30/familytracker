@@ -1,0 +1,9 @@
+.git
+.gradle
+.idea
+**/build/
+**/.dart_tool/
+**/.gradle/
+**/android/.gradle/
+**/android/app/build/
+**/android/local.properties
