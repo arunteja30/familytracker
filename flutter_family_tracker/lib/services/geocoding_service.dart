@@ -210,6 +210,10 @@ class GeocodingService {
     }
   }
 
+  /// Alias for getAddressFromCoordinates
+  static Future<String> getAddress(double latitude, double longitude) =>
+      getAddressFromCoordinates(latitude, longitude);
+
   /// Reverse geocode latitude and longitude with smart multi-tier spatial & cloud caching
   static Future<String> getAddressFromCoordinates(
       double latitude, double longitude) async {

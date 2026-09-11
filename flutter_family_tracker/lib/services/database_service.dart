@@ -5,6 +5,7 @@ import '../constants/app_constants.dart';
 import '../models/family_member_model.dart';
 import '../models/location_details_model.dart';
 import '../models/registration_model.dart';
+import '../utils/phone_utils.dart';
 import 'geocoding_service.dart';
 
 class DatabaseService {
@@ -145,16 +146,43 @@ class DatabaseService {
     return filtered;
   }
 
-  // Find all Family Groups associated with a Phone Number
+  // Find all Family Groups associated with a Phone Number (Fast O(1) Index Lookup with Legacy Fallback)
   Future<List<String>> getFamilyNamesForPhone(String mobile) async {
-    final allMembers = await getAllDatabaseMembers();
     final Set<String> groups = {};
+    final norm = PhoneUtils.normalize(mobile);
 
+    // 1. Fast O(1) direct index lookup from user_families/{normalizedPhone}
+    if (norm.isNotEmpty) {
+      try {
+        final snap = await _db.ref('user_families').child(norm).get();
+        if (snap.exists && snap.value is Map) {
+          (snap.value as Map).forEach((k, v) {
+            if (k != null && k.toString().trim().isNotEmpty) {
+              groups.add(k.toString().trim());
+            }
+          });
+          if (groups.isNotEmpty) {
+            debugPrint('[FamilyTracker] ⚡ Fast index lookup found ${groups.length} groups for $norm');
+            return groups.toList();
+          }
+        }
+      } catch (e) {
+        debugPrint('[FamilyTracker] Index lookup bypassed: $e');
+      }
+    }
+
+    // 2. Fallback: Search all members for legacy backwards-compatibility
+    final allMembers = await getAllDatabaseMembers();
     debugPrint('[FamilyTracker] Searching groups for phone: $mobile among ${allMembers.length} members');
 
     for (var member in allMembers) {
-      if (matchPhones(member.mobile, mobile) && member.familyName.trim().isNotEmpty) {
-        groups.add(member.familyName.trim());
+      if (PhoneUtils.isSame(member.mobile, mobile) && member.familyName.trim().isNotEmpty) {
+        final fam = member.familyName.trim();
+        groups.add(fam);
+        // Auto-index into user_families for future instant lookups
+        if (norm.isNotEmpty) {
+          _db.ref('user_families').child(norm).child(fam).set(true).catchError((_) {});
+        }
       }
     }
 
@@ -163,7 +191,11 @@ class DatabaseService {
       try {
         final snap = await _db.ref(AppConstants.userFamilyName).child(mobile).get();
         if (snap.exists && snap.value != null) {
-          groups.add(snap.value.toString().trim());
+          final fam = snap.value.toString().trim();
+          groups.add(fam);
+          if (norm.isNotEmpty) {
+            _db.ref('user_families').child(norm).child(fam).set(true).catchError((_) {});
+          }
         }
       } catch (_) {}
     }
@@ -517,10 +549,82 @@ class DatabaseService {
             .ref(AppConstants.userFamilyName)
             .child(member.mobile)
             .set(member.familyName);
+
+        // Fast O(1) Index mapping: user_families/{normalizedMobile}/{familyName} = true
+        final norm = PhoneUtils.normalize(member.mobile);
+        if (norm.isNotEmpty) {
+          await _db
+              .ref('user_families')
+              .child(norm)
+              .child(member.familyName)
+              .set(true);
+
+          await _db
+              .ref('family_members')
+              .child(member.familyName)
+              .child(norm)
+              .set(json);
+        }
       }
     } catch (e) {
       rethrow;
     }
+  }
+
+  // -------------------------------------------------------------
+  // Peer-to-Peer Emergency SOS Alert Methods ($0 Cost, No Cloud Functions)
+  // -------------------------------------------------------------
+
+  /// Broadcast an Emergency SOS panic event to all members of a family circle
+  Future<void> triggerFamilySos({
+    required String familyName,
+    required String senderPhone,
+    required String senderName,
+    required double latitude,
+    required double longitude,
+    required String address,
+  }) async {
+    if (familyName.isEmpty) return;
+    try {
+      final cleanFamily = familyName.trim();
+      final now = DateTime.now().millisecondsSinceEpoch;
+      final alertData = {
+        'senderPhone': senderPhone,
+        'senderName': senderName,
+        'latitude': latitude,
+        'longitude': longitude,
+        'address': address,
+        'timestamp': now,
+        'status': 'ACTIVE',
+      };
+      await _db.ref('emergency_alerts').child(cleanFamily).set(alertData);
+      debugPrint('[FamilyTracker] 🚨 SOS Alert broadcasted for family $cleanFamily');
+    } catch (e) {
+      debugPrint('[FamilyTracker] Failed to broadcast SOS: $e');
+    }
+  }
+
+  /// Dismiss / Resolve an active Emergency SOS alert
+  Future<void> clearFamilySos(String familyName) async {
+    if (familyName.isEmpty) return;
+    try {
+      await _db.ref('emergency_alerts').child(familyName.trim()).remove();
+      debugPrint('[FamilyTracker] SOS Alert dismissed for family $familyName');
+    } catch (e) {
+      debugPrint('[FamilyTracker] Failed to clear SOS: $e');
+    }
+  }
+
+  /// Stream active Emergency SOS alerts for the current family circle
+  Stream<Map<String, dynamic>?> streamEmergencyAlerts(String familyName) {
+    if (familyName.isEmpty) return const Stream.empty();
+    return _db.ref('emergency_alerts').child(familyName.trim()).onValue.map((event) {
+      final val = event.snapshot.value;
+      if (val is Map) {
+        return Map<String, dynamic>.from(val);
+      }
+      return null;
+    });
   }
 
   // Delete Family Member

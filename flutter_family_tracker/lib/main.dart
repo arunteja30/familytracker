@@ -6,13 +6,15 @@ import 'constants/app_theme.dart';
 import 'providers/auth_provider.dart';
 import 'providers/family_provider.dart';
 import 'services/preferences_service.dart';
+import 'services/notification_service.dart';
 import 'ui/screens/splash_screen.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Initialize Local Preferences
+  // Initialize Local Preferences & Notifications
   await PreferencesService.init();
+  await NotificationService.initialize();
 
   // Initialize Firebase (Cross-Platform / Web / iOS / Android)
   try {

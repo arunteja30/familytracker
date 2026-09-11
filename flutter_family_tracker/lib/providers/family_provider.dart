@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:geolocator/geolocator.dart';
 import '../models/family_member_model.dart';
 import '../models/location_details_model.dart';
 import '../services/database_service.dart';
@@ -7,6 +8,9 @@ import '../services/preferences_service.dart';
 import '../services/location_service.dart';
 import '../services/native_service.dart';
 import '../services/contacts_service.dart';
+import '../services/geocoding_service.dart';
+import '../services/notification_service.dart';
+import '../utils/phone_utils.dart';
 
 class FamilyProvider extends ChangeNotifier {
   final DatabaseService _dbService = DatabaseService();
@@ -16,10 +20,13 @@ class FamilyProvider extends ChangeNotifier {
   List<String> _userFamilyGroups = [];
   List<FamilyMemberModel> _familyMembers = [];
   final Map<String, LocationDetailsModel> _memberLocations = {};
+  final Set<String> _notifiedLowBatteryMembers = {};
+  Map<String, dynamic>? _activeEmergencyAlert;
   bool _isLoading = false;
   String? _errorMessage;
 
   StreamSubscription? _membersSubscription;
+  StreamSubscription? _emergencySubscription;
   final Map<String, StreamSubscription> _locationSubscriptions = {};
 
   static String formatFamilyDisplayName(String? name) {
@@ -35,6 +42,7 @@ class FamilyProvider extends ChangeNotifier {
   List<String> get userFamilyGroups => _userFamilyGroups;
   List<FamilyMemberModel> get familyMembers => _familyMembers;
   Map<String, LocationDetailsModel> get memberLocations => _memberLocations;
+  Map<String, dynamic>? get activeEmergencyAlert => _activeEmergencyAlert;
   bool get isLoading => _isLoading;
   String? get errorMessage => _errorMessage;
 
@@ -178,6 +186,7 @@ class FamilyProvider extends ChangeNotifier {
 
       // 5. Subscribe to real-time updates for the active family group
       _subscribeToMembers(_currentFamilyName);
+      _subscribeToEmergencyAlerts(_currentFamilyName);
 
       // 6. Start continuous background location tracking
       try {
@@ -208,6 +217,32 @@ class FamilyProvider extends ChangeNotifier {
     });
   }
 
+  // Subscribe to Peer-to-Peer Emergency SOS Alerts
+  void _subscribeToEmergencyAlerts(String familyName) {
+    _emergencySubscription?.cancel();
+    if (familyName.isEmpty) return;
+
+    _emergencySubscription =
+        _dbService.streamEmergencyAlerts(familyName).listen((alert) {
+      _activeEmergencyAlert = alert;
+      if (alert != null && alert['status'] == 'ACTIVE') {
+        final senderPhone = alert['senderPhone']?.toString() ?? '';
+        final myPhone = PreferencesService.getUserPhone() ?? '';
+        // Fire heads-up sound & notification if sender is someone else
+        if (!PhoneUtils.isSame(senderPhone, myPhone)) {
+          NotificationService.showSosAlert(
+            senderName: alert['senderName']?.toString() ?? 'Family Member',
+            senderPhone: PhoneUtils.formatDisplay(senderPhone),
+            address: alert['address']?.toString() ?? '',
+          );
+        }
+      }
+      _safeNotifyListeners();
+    }, onError: (err) {
+      debugPrint('[FamilyTracker] Emergency stream error: $err');
+    });
+  }
+
   // Subscribe to Realtime Locations of all Members
   void _subscribeToLocations(List<FamilyMemberModel> members) {
     for (var sub in _locationSubscriptions.values) {
@@ -222,6 +257,22 @@ class FamilyProvider extends ChangeNotifier {
             .listen((location) {
           if (location != null) {
             _memberLocations[member.mobile] = location;
+
+            // Low Battery Notification trigger
+            if (location.batteryPercentage <= 15 && location.batteryPercentage > 0) {
+              final myPhone = PreferencesService.getUserPhone() ?? '';
+              if (!PhoneUtils.isSame(member.mobile, myPhone) &&
+                  !_notifiedLowBatteryMembers.contains(member.mobile)) {
+                _notifiedLowBatteryMembers.add(member.mobile);
+                NotificationService.showLowBatteryAlert(
+                  memberName: member.name.isNotEmpty ? member.name : member.mobile,
+                  batteryLevel: location.batteryPercentage,
+                );
+              }
+            } else if (location.batteryPercentage > 20) {
+              _notifiedLowBatteryMembers.remove(member.mobile);
+            }
+
             _safeNotifyListeners();
           }
         }, onError: (err) {
@@ -229,6 +280,54 @@ class FamilyProvider extends ChangeNotifier {
         });
       }
     }
+  }
+
+  // Broadcast SOS Distress Event to all Family Devices
+  Future<void> triggerSos({
+    double? latitude,
+    double? longitude,
+    String? address,
+    String? senderName,
+  }) async {
+    final myPhone = PreferencesService.getUserPhone() ?? '';
+    final myName = senderName ?? PreferencesService.getUserName() ?? 'Family Member';
+
+    double lat = latitude ?? 0.0;
+    double lng = longitude ?? 0.0;
+    String addr = address ?? '';
+
+    if (lat == 0.0 && lng == 0.0) {
+      try {
+        final pos = await Geolocator.getCurrentPosition(
+          desiredAccuracy: LocationAccuracy.high,
+          timeLimit: const Duration(seconds: 4),
+        );
+        lat = pos.latitude;
+        lng = pos.longitude;
+      } catch (_) {}
+    }
+
+    if (addr.isEmpty && lat != 0.0) {
+      try {
+        addr = await GeocodingService.getAddress(lat, lng);
+      } catch (_) {}
+    }
+
+    await _dbService.triggerFamilySos(
+      familyName: currentFamilyName,
+      senderPhone: myPhone,
+      senderName: myName,
+      latitude: lat,
+      longitude: lng,
+      address: addr,
+    );
+  }
+
+  // Dismiss Emergency SOS Alert
+  Future<void> dismissSos() async {
+    await _dbService.clearFamilySos(currentFamilyName);
+    _activeEmergencyAlert = null;
+    _safeNotifyListeners();
   }
 
   // Switch Family Group
@@ -240,6 +339,7 @@ class FamilyProvider extends ChangeNotifier {
       final members = await _dbService.getFamilyMembers(newFamilyName);
       _familyMembers = _enrichWithContactNames(members);
       _subscribeToMembers(newFamilyName);
+      _subscribeToEmergencyAlerts(newFamilyName);
       _subscribeToLocations(members);
     } catch (e) {
       debugPrint('[FamilyTracker] Switch group error: $e');
@@ -282,6 +382,7 @@ class FamilyProvider extends ChangeNotifier {
       final members = await _dbService.getFamilyMembers(_currentFamilyName);
       _familyMembers = _enrichWithContactNames(members);
       _subscribeToLocations(members);
+      _subscribeToEmergencyAlerts(_currentFamilyName);
     } catch (e) {
       debugPrint('[FamilyTracker] Refresh error: $e');
     } finally {
@@ -295,6 +396,7 @@ class FamilyProvider extends ChangeNotifier {
     _notifyDebounceTimer?.cancel();
     _locationService.stopContinuousTracking();
     _membersSubscription?.cancel();
+    _emergencySubscription?.cancel();
     for (var sub in _locationSubscriptions.values) {
       sub.cancel();
     }

@@ -155,6 +155,51 @@ class _FamilyDashboardScreenState extends State<FamilyDashboardScreen> {
     );
   }
 
+  void _confirmTriggerSos(BuildContext context, FamilyProvider familyProvider) {
+    final userName = PreferencesService.getUserName() ?? 'Family Member';
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.warning_amber_rounded, color: Colors.red, size: 28),
+            SizedBox(width: 8),
+            Text('Send Emergency SOS?'),
+          ],
+        ),
+        content: const Text(
+          'This will immediately send a high-priority distress alert with a sound notification to all members of this family circle.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              final messenger = ScaffoldMessenger.of(context);
+              Navigator.pop(ctx);
+              await familyProvider.triggerSos(senderName: userName);
+              if (mounted) {
+                messenger.showSnackBar(
+                  const SnackBar(
+                    backgroundColor: Colors.red,
+                    content: Text('🚨 Emergency SOS alert sent to family circle!'),
+                  ),
+                );
+              }
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red.shade700,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('BROADCAST SOS'),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final familyProvider = context.watch<FamilyProvider>();
@@ -168,14 +213,38 @@ class _FamilyDashboardScreenState extends State<FamilyDashboardScreen> {
           GradientHeader(
             title: familyProvider.displayFamilyName,
             subtitle: 'Logged in: $_userPhone',
-            trailing: IconButton(
-              icon: const Icon(Icons.settings_rounded, color: Colors.white),
-              onPressed: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const SettingsScreen()),
-                );
-              },
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                IconButton(
+                  tooltip: 'Emergency SOS Broadcast',
+                  icon: Container(
+                    padding: const EdgeInsets.all(6),
+                    decoration: BoxDecoration(
+                      color: Colors.red.shade600,
+                      shape: BoxShape.circle,
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.red.withOpacity(0.5),
+                          blurRadius: 8,
+                          spreadRadius: 2,
+                        ),
+                      ],
+                    ),
+                    child: const Icon(Icons.sos_rounded, color: Colors.white, size: 20),
+                  ),
+                  onPressed: () => _confirmTriggerSos(context, familyProvider),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.settings_rounded, color: Colors.white),
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => const SettingsScreen()),
+                    );
+                  },
+                ),
+              ],
             ),
             bottom: InkWell(
               onTap: () => _showGroupSwitcherDialog(
@@ -212,6 +281,79 @@ class _FamilyDashboardScreenState extends State<FamilyDashboardScreen> {
               ),
             ),
           ),
+
+          // 🚨 ACTIVE EMERGENCY SOS DISTRESS BANNER
+          if (familyProvider.activeEmergencyAlert != null)
+            Container(
+              width: double.infinity,
+              margin: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [Colors.red.shade700, Colors.red.shade900],
+                ),
+                borderRadius: BorderRadius.circular(14),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.red.withOpacity(0.4),
+                    blurRadius: 10,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.warning_amber_rounded,
+                      color: Colors.white, size: 30),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '🚨 SOS DISTRESS: ${familyProvider.activeEmergencyAlert!['senderName'] ?? 'Family Member'}',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 14,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          'Emergency triggered! Immediate attention required.',
+                          style: TextStyle(
+                            color: Colors.white.withOpacity(0.9),
+                            fontSize: 11,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  ElevatedButton(
+                    onPressed: () async {
+                      await familyProvider.dismissSos();
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.white,
+                      foregroundColor: Colors.red.shade800,
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 10, vertical: 8),
+                      minimumSize: Size.zero,
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                    child: const Text(
+                      'Mark Safe',
+                      style:
+                          TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                ],
+              ),
+            ),
 
           // GPS is OFF Alert Banner
           if (!_isGpsEnabled)
