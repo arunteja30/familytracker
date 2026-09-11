@@ -448,36 +448,6 @@ class _MemberCardState extends State<MemberCard> {
                     ),
                   ),
                 ),
-                const SizedBox(width: 6),
-
-                // 4. Track Button
-                Expanded(
-                  child: ElevatedButton(
-                    onPressed: widget.onTrackOnMap,
-                    style: ElevatedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
-                      minimumSize: const Size(0, 34),
-                      visualDensity: VisualDensity.compact,
-                      backgroundColor: AppColors.primary,
-                      foregroundColor: Colors.white,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                    ),
-                    child: const Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.navigation_rounded, size: 14),
-                        SizedBox(width: 4),
-                        Text(
-                          'Track',
-                          style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
               ],
             ),
           ],
