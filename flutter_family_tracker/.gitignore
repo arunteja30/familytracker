@@ -56,6 +56,7 @@ migrate_working_dir/
 /build/native_assets/
 /build/test_cache/
 /build/unit_test_assets/
+/build/flutter_local_notifications/
 # Allow build/web so Render Docker can serve pre-built static files
 !/build/web/
 /coverage/
