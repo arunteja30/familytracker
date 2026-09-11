@@ -55,6 +55,13 @@ class MainActivity : FlutterActivity() {
                         result.success(false)
                     }
                 }
+                "updateStickyNotification" -> {
+                    val title = call.argument<String>("title")
+                    val text = call.argument<String>("text")
+                    val isSosActive = call.argument<Boolean>("isSosActive") ?: false
+                    StickyTrackerService.updateStickyNotificationFromFlutter(applicationContext, title, text, isSosActive)
+                    result.success(true)
+                }
                 else -> result.notImplemented()
             }
         }

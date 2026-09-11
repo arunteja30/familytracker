@@ -80,5 +80,22 @@ class NativeService {
     }
     return false;
   }
+
+  // Update sticky foreground notification with real-time status (e.g. SOS distress or active tracking)
+  static Future<void> updateStickyNotification({
+    required String title,
+    required String text,
+    required bool isSosActive,
+  }) async {
+    if (_isAndroid) {
+      try {
+        await _channel.invokeMethod('updateStickyNotification', {
+          'title': title,
+          'text': text,
+          'isSosActive': isSosActive,
+        });
+      } catch (_) {}
+    }
+  }
 }
 

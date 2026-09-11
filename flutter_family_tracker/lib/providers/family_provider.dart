@@ -238,16 +238,35 @@ class FamilyProvider extends ChangeNotifier {
       if (alert != null && alert['status'] == 'ACTIVE') {
         final senderPhone = alert['senderPhone']?.toString() ?? '';
         final myPhone = PreferencesService.getUserPhone() ?? '';
+        final senderName = alert['senderName']?.toString() ?? 'Family Member';
+        final address = alert['address']?.toString() ?? '';
+        final formattedPhone = PhoneUtils.formatDisplay(senderPhone);
+
+        // Update persistent sticky notification for all family members
+        NativeService.updateStickyNotification(
+          title: '🚨 SOS: $senderName ($formattedPhone)',
+          text: address.isNotEmpty
+              ? '📍 $address • Tap to open live emergency map'
+              : 'Emergency SOS distress active in $displayFamilyName',
+          isSosActive: true,
+        );
+
         // Fire heads-up sound & notification if sender is someone else
         if (!PhoneUtils.isSame(senderPhone, myPhone)) {
           NotificationService.showSosAlert(
-            senderName: alert['senderName']?.toString() ?? 'Family Member',
-            senderPhone: PhoneUtils.formatDisplay(senderPhone),
-            address: alert['address']?.toString() ?? '',
+            senderName: senderName,
+            senderPhone: formattedPhone,
+            address: address,
             familyName: displayFamilyName,
           );
         }
       } else {
+        // Revert sticky notification back to standard family tracking
+        NativeService.updateStickyNotification(
+          title: 'FamilyTracker Active',
+          text: 'Live family safety tracking active',
+          isSosActive: false,
+        );
         NotificationService.cancelSosAlert();
       }
       _safeNotifyListeners();
@@ -511,6 +530,13 @@ class FamilyProvider extends ChangeNotifier {
         familyName: displayFamilyName,
         address: addr,
       );
+      await NativeService.updateStickyNotification(
+        title: '🚨 SOS BROADCAST ACTIVE ($displayFamilyName)',
+        text: addr.isNotEmpty
+            ? '📍 $addr • Broadcasting distress to family'
+            : 'Broadcasting distress alert to family circle',
+        isSosActive: true,
+      );
     } catch (e) {
       debugPrint('[FamilyTracker] SOS sender notification error: $e');
     }
@@ -521,6 +547,11 @@ class FamilyProvider extends ChangeNotifier {
     await _dbService.clearFamilySos(currentFamilyName);
     _activeEmergencyAlert = null;
     await NotificationService.cancelSosAlert();
+    await NativeService.updateStickyNotification(
+      title: 'FamilyTracker Active',
+      text: 'Live family safety tracking active',
+      isSosActive: false,
+    );
     _safeNotifyListeners();
   }
 

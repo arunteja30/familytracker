@@ -23,6 +23,7 @@ import android.provider.Settings
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
+import androidx.core.content.ContextCompat
 import com.google.firebase.FirebaseApp
 import com.google.firebase.database.FirebaseDatabase
 import java.text.SimpleDateFormat
@@ -38,6 +39,34 @@ class StickyTrackerService : Service(), LocationListener {
     private var gpsStateReceiver: BroadcastReceiver? = null
     private var isGpsCurrentlyOff = false
 
+    companion object {
+        var activeSosTitle: String? = null
+        var activeSosText: String? = null
+        var isSosCurrentlyActive: Boolean = false
+
+        fun updateStickyNotificationFromFlutter(context: Context, title: String?, text: String?, isSosActive: Boolean) {
+            activeSosTitle = title
+            activeSosText = text
+            isSosCurrentlyActive = isSosActive
+
+            val serviceIntent = Intent(context, StickyTrackerService::class.java).apply {
+                action = "ACTION_UPDATE_SOS_STATUS"
+                putExtra("EXTRA_SOS_TITLE", title)
+                putExtra("EXTRA_SOS_TEXT", text)
+                putExtra("EXTRA_SOS_ACTIVE", isSosActive)
+            }
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    ContextCompat.startForegroundService(context, serviceIntent)
+                } else {
+                    context.startService(serviceIntent)
+                }
+            } catch (e: Exception) {
+                Log.w("StickyTrackerService", "Failed to send update intent to StickyTrackerService: ${e.message}")
+            }
+        }
+    }
+
     override fun onCreate() {
         super.onCreate()
         Log.d(TAG, "StickyTrackerService onCreate called")
@@ -45,15 +74,23 @@ class StickyTrackerService : Service(), LocationListener {
         locationManager = getSystemService(Context.LOCATION_SERVICE) as? LocationManager
 
         checkAndUpdateGpsState()
-        promoteToForeground(if (isGpsCurrentlyOff) "GPS is OFF 🙁 • Tap to turn ON" else "Live family safety tracking active")
+        val defaultText = if (isSosCurrentlyActive && !activeSosText.isNullOrEmpty()) activeSosText!! else (if (isGpsCurrentlyOff) "GPS is OFF 🙁 • Tap to turn ON" else "Live family safety tracking active")
+        promoteToForeground(defaultText)
         initFirebaseAndLocation()
         registerGpsProviderReceiver()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         Log.d(TAG, "StickyTrackerService onStartCommand called - START_STICKY")
+        if (intent != null && intent.action == "ACTION_UPDATE_SOS_STATUS") {
+            isSosCurrentlyActive = intent.getBooleanExtra("EXTRA_SOS_ACTIVE", false)
+            activeSosTitle = intent.getStringExtra("EXTRA_SOS_TITLE")
+            activeSosText = intent.getStringExtra("EXTRA_SOS_TEXT")
+        }
+
         checkAndUpdateGpsState()
-        promoteToForeground(if (isGpsCurrentlyOff) "GPS is OFF 🙁 • Tap to turn ON" else "Live family safety tracking active")
+        val defaultText = if (isSosCurrentlyActive && !activeSosText.isNullOrEmpty()) activeSosText!! else (if (isGpsCurrentlyOff) "GPS is OFF 🙁 • Tap to turn ON" else "Live family safety tracking active")
+        promoteToForeground(defaultText)
         return START_STICKY
     }
 
@@ -209,8 +246,9 @@ class StickyTrackerService : Service(), LocationListener {
 
     private fun buildForegroundNotification(statusText: String): Notification {
         val isGpsOff = isGpsCurrentlyOff
+        val isSos = isSosCurrentlyActive && !activeSosTitle.isNullOrEmpty()
 
-        val contentPendingIntent: PendingIntent = if (isGpsOff) {
+        val contentPendingIntent: PendingIntent = if (isGpsOff && !isSos) {
             val settingsIntent = Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS).apply {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
@@ -219,23 +257,50 @@ class StickyTrackerService : Service(), LocationListener {
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
         } else {
-            val launchIntent = packageManager.getLaunchIntentForPackage(packageName)
+            val launchIntent = packageManager.getLaunchIntentForPackage(packageName)?.apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            }
             PendingIntent.getActivity(
                 this, 0, launchIntent,
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
         }
 
+        val title = if (isSos) {
+            activeSosTitle ?: "🚨 SOS DISTRESS ALERT"
+        } else if (isGpsOff) {
+            "⚠️ FamilyTracker: GPS is OFF"
+        } else {
+            "FamilyTracker Active"
+        }
+
+        val text = if (isSos && !activeSosText.isNullOrEmpty()) activeSosText!! else statusText
+
         val builder = NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle(if (isGpsOff) "⚠️ FamilyTracker: GPS is OFF" else "FamilyTracker Active")
-            .setContentText(statusText)
+            .setContentTitle(title)
+            .setContentText(text)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
             .setSmallIcon(R.mipmap.ic_launcher)
             .setOngoing(true)
             .setContentIntent(contentPendingIntent)
-            .setPriority(if (isGpsOff) NotificationCompat.PRIORITY_HIGH else NotificationCompat.PRIORITY_LOW)
-            .setOnlyAlertOnce(!isGpsOff)
+            .setPriority(if (isSos) NotificationCompat.PRIORITY_MAX else (if (isGpsOff) NotificationCompat.PRIORITY_HIGH else NotificationCompat.PRIORITY_LOW))
+            .setOnlyAlertOnce(!isSos && !isGpsOff)
 
-        if (isGpsOff) {
+        if (isSos) {
+            builder.setCategory(NotificationCompat.CATEGORY_ALARM)
+            val launchIntent = packageManager.getLaunchIntentForPackage(packageName)?.apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            }
+            val mapPendingIntent = PendingIntent.getActivity(
+                this, 4, launchIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            builder.addAction(
+                android.R.drawable.ic_dialog_map,
+                "OPEN EMERGENCY MAP",
+                mapPendingIntent
+            )
+        } else if (isGpsOff) {
             val settingsIntent = Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS).apply {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
@@ -326,7 +391,11 @@ class StickyTrackerService : Service(), LocationListener {
         val dateStr = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date(now))
 
         // Update single notification with latest status
-        updateNotification("Updated $timeFormatted • Battery $batteryLevel%")
+        if (isSosCurrentlyActive && !activeSosText.isNullOrEmpty()) {
+            updateNotification(activeSosText!!)
+        } else {
+            updateNotification("Updated $timeFormatted • Battery $batteryLevel%")
+        }
 
         if (phone != null && phone.isNotEmpty()) {
             val locationMap = hashMapOf<String, Any>(
