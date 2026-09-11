@@ -245,23 +245,32 @@ class NotificationService {
     }
   }
 
-  /// Show Group Chat Message notification
+  /// Show Group or Direct Chat Message notification
   static Future<void> showChatMessageNotification({
     required String senderName,
     required String text,
     required String familyName,
+    int? notificationId,
   }) async {
     try {
       await initialize();
 
-      const androidDetails = AndroidNotificationDetails(
+      final id = notificationId ?? (DateTime.now().millisecondsSinceEpoch.remainder(100000));
+      final title = '💬 $senderName ($familyName)';
+
+      final androidDetails = AndroidNotificationDetails(
         'family_chat_channel',
         'Family Circle Messages',
-        channelDescription: 'Group chat notifications from family circle members',
-        importance: Importance.high,
+        channelDescription: 'Group and direct chat notifications from family circle members',
+        importance: Importance.max,
         priority: Priority.high,
         playSound: true,
         enableVibration: true,
+        styleInformation: BigTextStyleInformation(
+          text,
+          contentTitle: title,
+          summaryText: familyName,
+        ),
       );
 
       const darwinDetails = DarwinNotificationDetails(
@@ -270,14 +279,14 @@ class NotificationService {
         presentSound: true,
       );
 
-      const details = NotificationDetails(
+      final details = NotificationDetails(
         android: androidDetails,
         iOS: darwinDetails,
       );
 
       await _notificationsPlugin.show(
-        familyName.hashCode,
-        '💬 $senderName ($familyName)',
+        id,
+        title,
         text,
         details,
       );

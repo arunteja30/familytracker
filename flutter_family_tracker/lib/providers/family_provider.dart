@@ -26,7 +26,8 @@ class FamilyProvider extends ChangeNotifier {
   List<ChatMessageModel> _chatMessages = [];
   int _unreadChatCount = 0;
   bool _isChatScreenActive = false;
-  String? _lastProcessedMessageId;
+  final Set<String> _processedChatMessageIds = {};
+  bool _hasInitialChatLoaded = false;
   bool _isLoading = false;
   String? _errorMessage;
 
@@ -280,25 +281,41 @@ class FamilyProvider extends ChangeNotifier {
     _chatSubscription?.cancel();
     if (familyName.isEmpty) return;
 
-    _chatSubscription = _dbService.streamChatMessages(familyName).listen((messages) {
+    _chatSubscription =
+        _dbService.streamChatMessages(familyName).listen((messages) {
       final myPhone = PreferencesService.getUserPhone() ?? '';
-      
-      // Check if a new message arrived that warrants notification
+
+      // Process newly arrived / sent family messages
       if (messages.isNotEmpty) {
-        final lastMsg = messages.last;
-        if (_lastProcessedMessageId != null && _lastProcessedMessageId != lastMsg.messageId) {
-          if (!PhoneUtils.isSame(lastMsg.senderPhone, myPhone) && !_isChatScreenActive) {
-            _unreadChatCount++;
-            NotificationService.showChatMessageNotification(
-              senderName: lastMsg.senderName,
-              text: lastMsg.isLocation ? '📍 Shared location pin' : lastMsg.text,
-              familyName: formatFamilyDisplayName(familyName),
-            );
+        if (_hasInitialChatLoaded) {
+          for (final msg in messages) {
+            if (!_processedChatMessageIds.contains(msg.messageId)) {
+              _processedChatMessageIds.add(msg.messageId);
+
+              // Notify if message was sent by another family member and user isn't currently viewing chat
+              if (!PhoneUtils.isSame(msg.senderPhone, myPhone) &&
+                  !_isChatScreenActive) {
+                _unreadChatCount++;
+                NotificationService.showChatMessageNotification(
+                  senderName: msg.senderName,
+                  text: msg.isLocation
+                      ? '📍 Shared live location pin'
+                      : msg.text,
+                  familyName: formatFamilyDisplayName(familyName),
+                  notificationId: msg.messageId.hashCode,
+                );
+              }
+            }
           }
+        } else {
+          // Initial snapshot load: mark all existing messages as processed
+          for (final msg in messages) {
+            _processedChatMessageIds.add(msg.messageId);
+          }
+          _hasInitialChatLoaded = true;
         }
-        _lastProcessedMessageId = lastMsg.messageId;
       }
-      
+
       _chatMessages = messages;
       _safeNotifyListeners();
     }, onError: (err) {
@@ -559,6 +576,8 @@ class FamilyProvider extends ChangeNotifier {
   Future<void> switchFamilyGroup(String newFamilyName) async {
     _currentFamilyName = newFamilyName;
     _unreadChatCount = 0;
+    _processedChatMessageIds.clear();
+    _hasInitialChatLoaded = false;
     await PreferencesService.saveUserFamilyName(newFamilyName);
 
     try {
