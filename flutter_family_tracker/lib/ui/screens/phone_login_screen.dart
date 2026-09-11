@@ -2,12 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../constants/app_colors.dart';
 import '../../providers/auth_provider.dart';
-import '../../services/preferences_service.dart';
-import '../../services/database_service.dart';
-import '../../models/registration_model.dart';
-import '../../utils/phone_utils.dart';
 import 'otp_verification_screen.dart';
-import 'family_dashboard_screen.dart';
 
 class PhoneLoginScreen extends StatefulWidget {
   const PhoneLoginScreen({super.key});
@@ -53,37 +48,6 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
         );
       },
     );
-  }
-
-  Future<void> _onDirectLogin() async {
-    final phone = _phoneController.text.trim();
-    if (phone.isEmpty || phone.length < 6) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter a valid mobile number first')),
-      );
-      return;
-    }
-
-    final fullPhoneNumber = '$_selectedCountryCode$phone';
-    final normalized = PhoneUtils.normalize(fullPhoneNumber);
-
-    await PreferencesService.saveUserPhone(normalized);
-    await PreferencesService.setLoggedIn(true);
-
-    final db = DatabaseService();
-    await db.registerPhone(RegistrationModel(
-      phone: normalized,
-      name: 'User',
-      uid: 'direct_$normalized',
-    ));
-
-    if (mounted) {
-      Navigator.pushAndRemoveUntil(
-        context,
-        MaterialPageRoute(builder: (_) => const FamilyDashboardScreen()),
-        (route) => false,
-      );
-    }
   }
 
   @override
@@ -304,32 +268,6 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
                                       color: Colors.white,
                                     ),
                                   ),
-                          ),
-                        ),
-
-                        const SizedBox(height: 12),
-
-                        // Quick Direct Login (Dev / Fast Entry)
-                        SizedBox(
-                          width: double.infinity,
-                          height: 48,
-                          child: OutlinedButton.icon(
-                            onPressed: _onDirectLogin,
-                            icon: const Icon(Icons.flash_on_rounded, size: 18, color: AppColors.primary),
-                            label: const Text(
-                              'Instant Direct Login',
-                              style: TextStyle(
-                                fontSize: 14,
-                                fontWeight: FontWeight.bold,
-                                color: AppColors.primary,
-                              ),
-                            ),
-                            style: OutlinedButton.styleFrom(
-                              side: const BorderSide(color: AppColors.primary, width: 1.5),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(14),
-                              ),
-                            ),
                           ),
                         ),
                       ],
