@@ -20,8 +20,10 @@ class LocationHistoryScreen extends StatefulWidget {
 
 class _LocationHistoryScreenState extends State<LocationHistoryScreen> {
   final DatabaseService _dbService = DatabaseService();
+  final ScrollController _scrollController = ScrollController();
   DateTime _selectedDate = DateTime.now();
   List<LocationDetailsModel> _historyPoints = [];
+  int? _selectedIndex;
   bool _isLoading = false;
 
   GoogleMapController? _mapController;
@@ -34,53 +36,27 @@ class _LocationHistoryScreenState extends State<LocationHistoryScreen> {
     _fetchHistory();
   }
 
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
   Future<void> _fetchHistory() async {
-    setState(() => _isLoading = true);
+    setState(() {
+      _isLoading = true;
+      _selectedIndex = null;
+    });
     final dateStr = DateFormat('yyyy-MM-dd').format(_selectedDate);
     final points = await _dbService.getLocationHistory(widget.member.mobile, dateStr);
 
-    _markers.clear();
     _polylines.clear();
-
     final polylineCoords = <LatLng>[];
 
     for (int i = 0; i < points.length; i++) {
       final p = points[i];
       if (p.latitude != 0.0 && p.longitude != 0.0) {
-        final pos = LatLng(p.latitude, p.longitude);
-        polylineCoords.add(pos);
-
-        final timeStr = p.timeStamp > 0
-            ? DateFormat('hh:mm a').format(
-                DateTime.fromMillisecondsSinceEpoch(p.timeStamp),
-              )
-            : '';
-
-        // Markers for start, intermediate (sampled), and end
-        if (i == 0 || i == points.length - 1 || points.length <= 10 || i % 5 == 0) {
-          final isStart = i == 0;
-          final isEnd = i == points.length - 1;
-
-          _markers.add(
-            Marker(
-              markerId: MarkerId('point_$i'),
-              position: pos,
-              icon: isStart
-                  ? BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen)
-                  : isEnd
-                      ? BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed)
-                      : BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure),
-              infoWindow: InfoWindow(
-                title: isStart
-                    ? 'Start Location ($timeStr)'
-                    : isEnd
-                        ? 'Latest Location ($timeStr)'
-                        : 'Point #${i + 1} ($timeStr)',
-                snippet: p.address,
-              ),
-            ),
-          );
-        }
+        polylineCoords.add(LatLng(p.latitude, p.longitude));
       }
     }
 
@@ -102,11 +78,119 @@ class _LocationHistoryScreenState extends State<LocationHistoryScreen> {
       setState(() {
         _historyPoints = points;
         _isLoading = false;
+        _buildMarkers();
       });
     }
 
     // Asynchronously enrich missing street addresses
     _resolveAddresses(points);
+  }
+
+  void _buildMarkers() {
+    _markers.clear();
+
+    for (int i = 0; i < _historyPoints.length; i++) {
+      final p = _historyPoints[i];
+      if (p.latitude != 0.0 && p.longitude != 0.0) {
+        final pos = LatLng(p.latitude, p.longitude);
+        final isSelected = _selectedIndex == i;
+        final isStart = i == 0;
+        final isEnd = i == _historyPoints.length - 1;
+
+        // Always include start, end, selected point, or sampled points
+        if (isSelected || isStart || isEnd || _historyPoints.length <= 15 || i % 4 == 0) {
+          final timeStr = p.timeStamp > 0
+              ? DateFormat('hh:mm a').format(
+                  DateTime.fromMillisecondsSinceEpoch(p.timeStamp),
+                )
+              : '';
+
+          final markerId = MarkerId('point_$i');
+
+          BitmapDescriptor icon;
+          if (isSelected) {
+            icon = BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueYellow);
+          } else if (isStart) {
+            icon = BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen);
+          } else if (isEnd) {
+            icon = BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed);
+          } else {
+            icon = BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure);
+          }
+
+          _markers.add(
+            Marker(
+              markerId: markerId,
+              position: pos,
+              icon: icon,
+              zIndexInt: isSelected ? 100 : (isEnd ? 10 : (isStart ? 9 : 1)),
+              infoWindow: InfoWindow(
+                title: isSelected
+                    ? '📍 Selected (#${i + 1}) • $timeStr'
+                    : (isStart
+                        ? '🟢 Start Location ($timeStr)'
+                        : isEnd
+                            ? '🔴 Latest Location ($timeStr)'
+                            : 'Point #${i + 1} ($timeStr)'),
+                snippet: p.address.isNotEmpty
+                    ? p.address
+                    : 'Lat: ${p.latitude.toStringAsFixed(5)}, Lng: ${p.longitude.toStringAsFixed(5)}',
+              ),
+              onTap: () {
+                _onMarkerTapped(i);
+              },
+            ),
+          );
+        }
+      }
+    }
+  }
+
+  void _onCardTapped(int index) {
+    if (index >= _historyPoints.length) return;
+    final p = _historyPoints[index];
+    if (p.latitude == 0.0 && p.longitude == 0.0) return;
+
+    setState(() {
+      _selectedIndex = index;
+      _buildMarkers();
+    });
+
+    _mapController?.animateCamera(
+      CameraUpdate.newCameraPosition(
+        CameraPosition(
+          target: LatLng(p.latitude, p.longitude),
+          zoom: 17,
+        ),
+      ),
+    );
+
+    Future.delayed(const Duration(milliseconds: 350), () {
+      _mapController?.showMarkerInfoWindow(MarkerId('point_$index'));
+    });
+  }
+
+  void _onMarkerTapped(int index) {
+    setState(() {
+      _selectedIndex = index;
+      _buildMarkers();
+    });
+    _scrollToCard(index);
+  }
+
+  void _scrollToCard(int index) {
+    if (_scrollController.hasClients) {
+      const itemHeight = 90.0;
+      final targetOffset = (index * itemHeight).clamp(
+        0.0,
+        _scrollController.position.maxScrollExtent,
+      );
+      _scrollController.animateTo(
+        targetOffset,
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeInOut,
+      );
+    }
   }
 
   Future<void> _resolveAddresses(List<LocationDetailsModel> points) async {
@@ -341,7 +425,7 @@ class _LocationHistoryScreenState extends State<LocationHistoryScreen> {
                                 Icon(
                                   Icons.location_off_rounded,
                                   size: 40,
-                                  color: AppColors.textMuted.withOpacity(0.5),
+                                  color: AppColors.textMuted.withValues(alpha: 0.5),
                                 ),
                                 const SizedBox(height: 8),
                                 const Text(
@@ -355,11 +439,12 @@ class _LocationHistoryScreenState extends State<LocationHistoryScreen> {
                             ),
                           )
                         : ListView.builder(
+                            controller: _scrollController,
                             itemCount: _historyPoints.length,
                             itemBuilder: (context, index) {
                               final p = _historyPoints[index];
                               final timeStr = p.timeStamp > 0
-                                  ? DateFormat('hh:mm a').format(
+                                  ? DateFormat('hh:mm:ss a').format(
                                       DateTime.fromMillisecondsSinceEpoch(
                                         p.timeStamp,
                                       ),
@@ -368,53 +453,145 @@ class _LocationHistoryScreenState extends State<LocationHistoryScreen> {
 
                               final isStart = index == 0;
                               final isEnd = index == _historyPoints.length - 1;
+                              final isSelected = _selectedIndex == index;
 
-                              return Card(
+                              return AnimatedContainer(
+                                duration: const Duration(milliseconds: 200),
                                 margin: const EdgeInsets.only(bottom: 8),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(12),
+                                decoration: BoxDecoration(
+                                  color: isSelected
+                                      ? AppColors.primary.withValues(alpha: 0.08)
+                                      : Colors.white,
+                                  borderRadius: BorderRadius.circular(14),
+                                  border: Border.all(
+                                    color: isSelected
+                                        ? AppColors.primary
+                                        : AppColors.cardBorder,
+                                    width: isSelected ? 2.0 : 1.0,
+                                  ),
+                                  boxShadow: isSelected
+                                      ? [
+                                          BoxShadow(
+                                            color: AppColors.primary.withValues(alpha: 0.25),
+                                            blurRadius: 8,
+                                            offset: const Offset(0, 3),
+                                          ),
+                                        ]
+                                      : [
+                                          BoxShadow(
+                                            color: Colors.black.withValues(alpha: 0.04),
+                                            blurRadius: 4,
+                                            offset: const Offset(0, 1),
+                                          ),
+                                        ],
                                 ),
                                 child: ListTile(
+                                  contentPadding: const EdgeInsets.symmetric(
+                                    horizontal: 12,
+                                    vertical: 4,
+                                  ),
                                   leading: CircleAvatar(
-                                    radius: 16,
-                                    backgroundColor: isStart
-                                        ? AppColors.success
-                                        : isEnd
-                                            ? AppColors.danger
-                                            : AppColors.primaryLight,
+                                    radius: 18,
+                                    backgroundColor: isSelected
+                                        ? const Color(0xFFF59E0B) // Amber highlight
+                                        : (isStart
+                                            ? AppColors.success
+                                            : isEnd
+                                                ? AppColors.danger
+                                                : AppColors.primaryLight),
+                                    child: isSelected
+                                        ? const Icon(
+                                            Icons.location_on_rounded,
+                                            color: Colors.white,
+                                            size: 20,
+                                          )
+                                        : Text(
+                                            '${index + 1}',
+                                            style: const TextStyle(
+                                              color: Colors.white,
+                                              fontSize: 12,
+                                              fontWeight: FontWeight.bold,
+                                            ),
+                                          ),
+                                  ),
+                                  title: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      // 1. Lat & Lng Coordinates
+                                      Row(
+                                        children: [
+                                          const Icon(
+                                            Icons.gps_fixed_rounded,
+                                            size: 11,
+                                            color: AppColors.accent,
+                                          ),
+                                          const SizedBox(width: 4),
+                                          Text(
+                                            'Lat: ${p.latitude.toStringAsFixed(6)}, Lng: ${p.longitude.toStringAsFixed(6)}',
+                                            style: TextStyle(
+                                              fontSize: 11,
+                                              fontFamily: 'monospace',
+                                              fontWeight: isSelected
+                                                  ? FontWeight.bold
+                                                  : FontWeight.w600,
+                                              color: isSelected
+                                                  ? AppColors.primary
+                                                  : AppColors.textSecondary,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                      const SizedBox(height: 3),
+
+                                      // 2. Street Address below Lat and Lng
+                                      Text(
+                                        p.address.isNotEmpty
+                                            ? p.address
+                                            : 'Fetching street address...',
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          fontWeight: isSelected
+                                              ? FontWeight.bold
+                                              : FontWeight.w500,
+                                          color: AppColors.textPrimary,
+                                        ),
+                                        maxLines: 2,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ],
+                                  ),
+                                  subtitle: Padding(
+                                    padding: const EdgeInsets.only(top: 4),
                                     child: Text(
-                                      '${index + 1}',
+                                      '🕒 $timeStr • ⚡ ${p.batteryPercentage}%',
                                       style: const TextStyle(
-                                        color: Colors.white,
-                                        fontSize: 11,
-                                        fontWeight: FontWeight.bold,
+                                        fontSize: 10,
+                                        color: AppColors.textMuted,
+                                        fontWeight: FontWeight.w500,
                                       ),
                                     ),
                                   ),
-                                  title: Text(
-                                    p.address.isNotEmpty
-                                        ? p.address
-                                        : 'Lat: ${p.latitude.toStringAsFixed(4)}, Lon: ${p.longitude.toStringAsFixed(4)}',
-                                    style: const TextStyle(
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
-                                  subtitle: Text(
-                                    '$timeStr • Battery: ${p.batteryPercentage}%',
-                                    style: const TextStyle(
-                                      fontSize: 11,
-                                      color: AppColors.textSecondary,
-                                    ),
-                                  ),
-                                  onTap: () {
-                                    _mapController?.animateCamera(
-                                      CameraUpdate.newLatLngZoom(
-                                        LatLng(p.latitude, p.longitude),
-                                        16,
-                                      ),
-                                    );
-                                  },
+                                  trailing: isSelected
+                                      ? Container(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 8,
+                                            vertical: 4,
+                                          ),
+                                          decoration: BoxDecoration(
+                                            color: AppColors.primary,
+                                            borderRadius: BorderRadius.circular(10),
+                                          ),
+                                          child: const Text(
+                                            'ON MAP',
+                                            style: TextStyle(
+                                              color: Colors.white,
+                                              fontSize: 10,
+                                              fontWeight: FontWeight.bold,
+                                            ),
+                                          ),
+                                        )
+                                      : null,
+                                  onTap: () => _onCardTapped(index),
                                 ),
                               );
                             },
