@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:latlong2/latlong.dart' as ll;
 import 'package:intl/intl.dart';
+import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../constants/app_colors.dart';
 import '../../models/family_member_model.dart';
@@ -14,6 +15,7 @@ import '../../services/geocoding_service.dart';
 import '../../services/profile_image_service.dart';
 import '../../utils/marker_generator.dart';
 import '../widgets/adaptive_map_view.dart';
+import '../widgets/buzzing_dot.dart';
 import 'location_history_screen.dart';
 import 'family_chat_screen.dart';
 
@@ -744,28 +746,40 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
                       Row(
                         children: [
                           Expanded(
-                            child: OutlinedButton.icon(
-                              onPressed: () {
-                                if (_selectedMember != null) {
-                                  Navigator.push(
-                                    context,
-                                    MaterialPageRoute(
-                                      builder: (_) => FamilyChatScreen(
-                                        targetMember: _selectedMember,
-                                      ),
+                            child: Builder(
+                              builder: (ctx) {
+                                final hasUnread = _selectedMember != null &&
+                                    ctx.watch<FamilyProvider>().hasUnreadForMember(_selectedMember!.mobile);
+                                return OutlinedButton.icon(
+                                  onPressed: () {
+                                    if (_selectedMember != null) {
+                                      Navigator.push(
+                                        context,
+                                        MaterialPageRoute(
+                                          builder: (_) => FamilyChatScreen(
+                                            targetMember: _selectedMember,
+                                          ),
+                                        ),
+                                      );
+                                    }
+                                  },
+                                  icon: BuzzingBadge(
+                                    showBadge: hasUnread,
+                                    dotSize: 7,
+                                    top: -2,
+                                    right: -2,
+                                    child: const Icon(Icons.chat_bubble_outline_rounded, size: 16),
+                                  ),
+                                  label: const Text('Chat', style: TextStyle(fontSize: 12)),
+                                  style: OutlinedButton.styleFrom(
+                                    foregroundColor: AppColors.primary,
+                                    padding: const EdgeInsets.symmetric(vertical: 8),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(12),
                                     ),
-                                  );
-                                }
+                                  ),
+                                );
                               },
-                              icon: const Icon(Icons.chat_bubble_outline_rounded, size: 16),
-                              label: const Text('Chat', style: TextStyle(fontSize: 12)),
-                              style: OutlinedButton.styleFrom(
-                                foregroundColor: AppColors.primary,
-                                padding: const EdgeInsets.symmetric(vertical: 8),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                              ),
                             ),
                           ),
                           const SizedBox(width: 8),

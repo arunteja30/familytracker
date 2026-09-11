@@ -25,6 +25,7 @@ class FamilyProvider extends ChangeNotifier {
   Map<String, dynamic>? _activeEmergencyAlert;
   List<ChatMessageModel> _chatMessages = [];
   int _unreadChatCount = 0;
+  final Set<String> _unreadMemberPhones = {};
   bool _isChatScreenActive = false;
   final Set<String> _processedChatMessageIds = {};
   bool _hasInitialChatLoaded = false;
@@ -52,9 +53,31 @@ class FamilyProvider extends ChangeNotifier {
   Map<String, dynamic>? get activeEmergencyAlert => _activeEmergencyAlert;
   List<ChatMessageModel> get chatMessages => _chatMessages;
   int get unreadChatCount => _unreadChatCount;
+  bool get hasUnreadChat => _unreadChatCount > 0;
   bool get isChatScreenActive => _isChatScreenActive;
   bool get isLoading => _isLoading;
   String? get errorMessage => _errorMessage;
+
+  bool hasUnreadForMember(String? phone) {
+    if (phone == null || phone.isEmpty) return false;
+    final normalized = PhoneUtils.normalize(phone);
+    return _unreadMemberPhones.contains(normalized);
+  }
+
+  void markChatReadForMember(String? phone) {
+    if (phone != null && phone.isNotEmpty) {
+      final normalized = PhoneUtils.normalize(phone);
+      if (_unreadMemberPhones.remove(normalized)) {
+        _safeNotifyListeners();
+      }
+    }
+  }
+
+  void markAllChatRead() {
+    _unreadChatCount = 0;
+    _unreadMemberPhones.clear();
+    _safeNotifyListeners();
+  }
 
   // Check if current user is Admin of the active family group
   bool isUserAdmin(String userPhone) {
@@ -296,6 +319,10 @@ class FamilyProvider extends ChangeNotifier {
               if (!PhoneUtils.isSame(msg.senderPhone, myPhone) &&
                   !_isChatScreenActive) {
                 _unreadChatCount++;
+                final normalizedSender = PhoneUtils.normalize(msg.senderPhone);
+                if (normalizedSender.isNotEmpty) {
+                  _unreadMemberPhones.add(normalizedSender);
+                }
                 NotificationService.showChatMessageNotification(
                   senderName: msg.senderName,
                   text: msg.isLocation
@@ -576,6 +603,7 @@ class FamilyProvider extends ChangeNotifier {
   Future<void> switchFamilyGroup(String newFamilyName) async {
     _currentFamilyName = newFamilyName;
     _unreadChatCount = 0;
+    _unreadMemberPhones.clear();
     _processedChatMessageIds.clear();
     _hasInitialChatLoaded = false;
     await PreferencesService.saveUserFamilyName(newFamilyName);
@@ -685,6 +713,7 @@ class FamilyProvider extends ChangeNotifier {
     _isChatScreenActive = active;
     if (active) {
       _unreadChatCount = 0;
+      _unreadMemberPhones.clear();
     }
     _safeNotifyListeners();
   }

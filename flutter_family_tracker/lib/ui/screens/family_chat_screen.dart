@@ -75,8 +75,13 @@ class _FamilyChatScreenState extends State<FamilyChatScreen> {
     }
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      Provider.of<FamilyProvider>(context, listen: false)
-          .setChatScreenActive(true);
+      final provider = Provider.of<FamilyProvider>(context, listen: false);
+      provider.setChatScreenActive(true);
+      if (isDirectChat && effectivePeerPhone.isNotEmpty) {
+        provider.markChatReadForMember(effectivePeerPhone);
+      } else {
+        provider.markAllChatRead();
+      }
       _scrollToBottom();
     });
   }

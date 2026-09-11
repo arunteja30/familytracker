@@ -18,6 +18,7 @@ import 'member_map_screen.dart';
 import 'location_history_screen.dart';
 import 'family_chat_screen.dart';
 import 'settings_screen.dart';
+import '../widgets/buzzing_dot.dart';
 
 class FamilyDashboardScreen extends StatefulWidget {
   const FamilyDashboardScreen({super.key});
@@ -240,29 +241,13 @@ class _FamilyDashboardScreenState extends State<FamilyDashboardScreen> {
                     children: [
                       const Icon(Icons.chat_bubble_outline_rounded,
                           color: Colors.white, size: 24),
-                      if (familyProvider.unreadChatCount > 0)
-                        Positioned(
-                          right: -4,
-                          top: -4,
-                          child: Container(
-                            padding: const EdgeInsets.all(4),
-                            decoration: const BoxDecoration(
-                              color: Colors.red,
-                              shape: BoxShape.circle,
-                            ),
-                            constraints: const BoxConstraints(
-                              minWidth: 16,
-                              minHeight: 16,
-                            ),
-                            child: Text(
-                              '${familyProvider.unreadChatCount}',
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 9,
-                                fontWeight: FontWeight.bold,
-                              ),
-                              textAlign: TextAlign.center,
-                            ),
+                      if (familyProvider.hasUnreadChat)
+                        const Positioned(
+                          right: -2,
+                          top: -2,
+                          child: BuzzingDot(
+                            size: 9,
+                            color: Color(0xFFEF4444),
                           ),
                         ),
                     ],

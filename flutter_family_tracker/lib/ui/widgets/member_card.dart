@@ -2,12 +2,15 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../constants/app_colors.dart';
 import '../../models/family_member_model.dart';
 import '../../models/location_details_model.dart';
+import '../../providers/family_provider.dart';
 import '../../services/profile_image_service.dart';
 import '../screens/family_chat_screen.dart';
+import 'buzzing_dot.dart';
 
 class MemberCard extends StatefulWidget {
   final FamilyMemberModel member;
@@ -140,6 +143,8 @@ class _MemberCardState extends State<MemberCard> {
   Widget build(BuildContext context) {
     final battery = widget.location?.batteryPercentage ?? 0;
     final address = widget.location?.address ?? 'Location pending...';
+    final familyProvider = context.watch<FamilyProvider>();
+    final hasUnread = familyProvider.hasUnreadForMember(widget.member.mobile);
 
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
@@ -381,13 +386,27 @@ class _MemberCardState extends State<MemberCard> {
                         borderRadius: BorderRadius.circular(8),
                       ),
                     ),
-                    child: const Row(
+                    child: Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Icon(Icons.chat_bubble_outline_rounded, size: 14),
-                        SizedBox(width: 4),
-                        Text(
+                        Stack(
+                          clipBehavior: Clip.none,
+                          children: [
+                            const Icon(Icons.chat_bubble_outline_rounded, size: 14),
+                            if (hasUnread)
+                              const Positioned(
+                                top: -3,
+                                right: -3,
+                                child: BuzzingDot(
+                                  size: 6.5,
+                                  color: Color(0xFFEF4444),
+                                ),
+                              ),
+                          ],
+                        ),
+                        const SizedBox(width: 4),
+                        const Text(
                           'Chat',
                           style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
                         ),
