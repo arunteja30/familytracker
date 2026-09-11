@@ -44,7 +44,6 @@ class _MemberMapScreenState extends State<MemberMapScreen> {
   final List<AdaptivePolyline> _adaptivePolylines = [];
   MapType _currentMapType = MapType.normal;
   bool _autoFollow = true;
-  bool _isLoadingTrail = false;
 
   @override
   void initState() {
@@ -53,10 +52,8 @@ class _MemberMapScreenState extends State<MemberMapScreen> {
     if (_currentLocation != null &&
         (_currentLocation!.latitude != 0.0 || _currentLocation!.longitude != 0.0)) {
       _liveTrailPoints.add(LatLng(_currentLocation!.latitude, _currentLocation!.longitude));
-      _updatePolylineSet();
     }
     _loadProfileAndMarker();
-    _loadTodayTrailHistory();
     _subscribeToLiveLocation();
   }
 
@@ -82,50 +79,16 @@ class _MemberMapScreenState extends State<MemberMapScreen> {
     }
   }
 
-  // Load today's history to initialize the live trail route
-  Future<void> _loadTodayTrailHistory() async {
-    if (!mounted) return;
-    setState(() => _isLoadingTrail = true);
-
-    try {
-      final now = DateTime.now();
-      final todayDate = DateFormat('yyyy-MM-dd').format(now);
-      final history =
-          await _dbService.getLocationHistory(widget.member.mobile, todayDate);
-
-      if (history.isNotEmpty && mounted) {
-        final List<LatLng> loadedPoints = [];
-        for (var p in history) {
-          if (p.latitude != 0.0 && p.longitude != 0.0) {
-            loadedPoints.add(LatLng(p.latitude, p.longitude));
-          }
-        }
-
-        if (loadedPoints.isNotEmpty) {
-          setState(() {
-            _liveTrailPoints.clear();
-            _liveTrailPoints.addAll(loadedPoints);
-            // Append current live location if newer
-            if (_currentLocation != null &&
-                (_currentLocation!.latitude != 0.0 ||
-                    _currentLocation!.longitude != 0.0)) {
-              final latest = LatLng(
-                  _currentLocation!.latitude, _currentLocation!.longitude);
-              if (_liveTrailPoints.isEmpty ||
-                  _liveTrailPoints.last.latitude != latest.latitude ||
-                  _liveTrailPoints.last.longitude != latest.longitude) {
-                _liveTrailPoints.add(latest);
-              }
-            }
-            _updatePolylineSet();
-          });
-        }
+  void _clearAndResetTrail() {
+    setState(() {
+      _liveTrailPoints.clear();
+      if (_currentLocation != null &&
+          (_currentLocation!.latitude != 0.0 || _currentLocation!.longitude != 0.0)) {
+        _liveTrailPoints.add(
+            LatLng(_currentLocation!.latitude, _currentLocation!.longitude));
       }
-    } catch (e) {
-      debugPrint('[MemberMapScreen] Load history trail error: $e');
-    } finally {
-      if (mounted) setState(() => _isLoadingTrail = false);
-    }
+      _updatePolylineSet();
+    });
   }
 
   void _updatePolylineSet() {
@@ -303,17 +266,32 @@ class _MemberMapScreenState extends State<MemberMapScreen> {
             : 'Fetching street address...');
 
     final markers = <Marker>{
+      // Current Member Position Marker
       if (_currentLocation != null &&
           (_currentLocation!.latitude != 0.0 ||
               _currentLocation!.longitude != 0.0))
         Marker(
           markerId: MarkerId(widget.member.mobile),
           position: pos,
+          zIndexInt: 10,
           icon: _customMarkerIcon ?? BitmapDescriptor.defaultMarker,
           infoWindow: InfoWindow(
             title: widget.member.name,
             snippet:
                 '$displayAddress\n⚡ ${_currentLocation?.batteryPercentage}%\n🕒 $formattedTime',
+          ),
+        ),
+
+      // Starting Origin Point for this live session (if member moved)
+      if (_liveTrailPoints.length > 1)
+        Marker(
+          markerId: const MarkerId('live_start_origin'),
+          position: _liveTrailPoints.first,
+          icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen),
+          zIndexInt: 5,
+          infoWindow: const InfoWindow(
+            title: '🟢 Starting Point (Map Open)',
+            snippet: 'Movement origin for this live session',
           ),
         ),
     };
@@ -378,6 +356,14 @@ class _MemberMapScreenState extends State<MemberMapScreen> {
                     : (_currentLocation?.address ?? ''),
                 pinColor: AppColors.primary,
               ),
+              if (_liveTrailPoints.length > 1)
+                AdaptiveMapPoint(
+                  id: 'live_start_origin',
+                  latitude: _liveTrailPoints.first.latitude,
+                  longitude: _liveTrailPoints.first.longitude,
+                  title: '🟢 Start Point',
+                  pinColor: AppColors.success,
+                ),
             ],
             polylines: _adaptivePolylines,
             googleMarkers: markers,
@@ -400,7 +386,7 @@ class _MemberMapScreenState extends State<MemberMapScreen> {
                 borderRadius: BorderRadius.circular(20),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withOpacity(0.12),
+                    color: Colors.black.withValues(alpha: 0.12),
                     blurRadius: 6,
                     offset: const Offset(0, 2),
                   ),
@@ -413,7 +399,7 @@ class _MemberMapScreenState extends State<MemberMapScreen> {
                   const SizedBox(width: 6),
                   Text(
                     _liveTrailPoints.length > 1
-                        ? 'LIVE TRAIL (${_liveTrailPoints.length} PTS)'
+                        ? 'LIVE MOVEMENT (${_liveTrailPoints.length} PTS)'
                         : 'LIVE TRACKING ACTIVE',
                     style: const TextStyle(
                       fontSize: 11,
@@ -421,20 +407,12 @@ class _MemberMapScreenState extends State<MemberMapScreen> {
                       color: AppColors.success,
                     ),
                   ),
-                  if (_isLoadingTrail) ...[
-                    const SizedBox(width: 8),
-                    const SizedBox(
-                      width: 10,
-                      height: 10,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    ),
-                  ],
                 ],
               ),
             ),
           ),
 
-          // Floating Map Quick Actions (Auto-Follow & Fit Trail)
+          // Floating Map Quick Actions (Auto-Follow, Fit Trail, & Reset Trail)
           Positioned(
             top: 16,
             right: 16,
@@ -462,8 +440,8 @@ class _MemberMapScreenState extends State<MemberMapScreen> {
                 ),
                 const SizedBox(height: 8),
 
-                // Fit Full Trail Route
-                if (_liveTrailPoints.length > 1)
+                // Fit Full Trail Route (when moving)
+                if (_liveTrailPoints.length > 1) ...[
                   FloatingActionButton.small(
                     heroTag: 'btn_fit_trail',
                     backgroundColor: Colors.white,
@@ -475,6 +453,19 @@ class _MemberMapScreenState extends State<MemberMapScreen> {
                     },
                     child: const Icon(Icons.route_rounded, size: 20),
                   ),
+                  const SizedBox(height: 8),
+
+                  // Reset / Start Fresh Session Trail
+                  FloatingActionButton.small(
+                    heroTag: 'btn_reset_trail',
+                    backgroundColor: Colors.white,
+                    foregroundColor: AppColors.danger,
+                    elevation: 4,
+                    tooltip: 'Reset Trail',
+                    onPressed: _clearAndResetTrail,
+                    child: const Icon(Icons.restart_alt_rounded, size: 20),
+                  ),
+                ],
               ],
             ),
           ),
@@ -501,7 +492,7 @@ class _MemberMapScreenState extends State<MemberMapScreen> {
                         CircleAvatar(
                           radius: 24,
                           backgroundColor:
-                              AppColors.primaryLight.withOpacity(0.2),
+                              AppColors.primaryLight.withValues(alpha: 0.2),
                           backgroundImage: _profileImageFile != null
                               ? FileImage(_profileImageFile!)
                               : null,
