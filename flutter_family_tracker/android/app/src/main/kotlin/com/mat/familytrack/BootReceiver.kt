@@ -20,15 +20,33 @@ class BootReceiver : BroadcastReceiver() {
             Intent.ACTION_LOCKED_BOOT_COMPLETED,
             Intent.ACTION_MY_PACKAGE_REPLACED,
             "android.intent.action.QUICKBOOT_POWERON",
-            "com.htc.intent.action.QUICKBOOT_POWERON"
+            "com.htc.intent.action.QUICKBOOT_POWERON",
+            "android.intent.action.REBOOT"
         )
 
         if (action in validActions) {
-            val prefs = context.getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
-            val isLoggedIn = prefs.getBoolean("flutter.is_logged_in", false)
-            val phone = prefs.getString("flutter.user_phone", null)
+            var isLoggedIn = false
+            var phone: String? = null
 
-            Log.d(TAG, "Boot check - isLoggedIn: $isLoggedIn, phone: $phone")
+            try {
+                val prefs = context.getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
+                isLoggedIn = prefs.getBoolean("flutter.is_logged_in", false)
+                phone = prefs.getString("flutter.user_phone", null)
+            } catch (e: Exception) {
+                Log.w(TAG, "Standard storage locked, attempting device protected storage: ${e.message}")
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                    try {
+                        val directBootContext = context.createDeviceProtectedStorageContext()
+                        val directPrefs = directBootContext.getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
+                        isLoggedIn = directPrefs.getBoolean("flutter.is_logged_in", false)
+                        phone = directPrefs.getString("flutter.user_phone", null)
+                    } catch (ex: Exception) {
+                        Log.e(TAG, "Error accessing device protected storage: ${ex.message}")
+                    }
+                }
+            }
+
+            Log.d(TAG, "Boot event processed ($action) - isLoggedIn: $isLoggedIn, phone: $phone")
 
             if (isLoggedIn || !phone.isNullOrEmpty()) {
                 val serviceIntent = Intent(context, StickyTrackerService::class.java)
@@ -38,10 +56,12 @@ class BootReceiver : BroadcastReceiver() {
                     } else {
                         context.startService(serviceIntent)
                     }
-                    Log.d(TAG, "StickyTrackerService successfully launched after boot/restart")
+                    Log.d(TAG, "StickyTrackerService successfully started on boot.")
                 } catch (e: Exception) {
-                    Log.e(TAG, "Failed launching background service on boot: ${e.message}")
+                    Log.e(TAG, "Error starting StickyTrackerService on boot: ${e.message}", e)
                 }
+            } else {
+                Log.d(TAG, "No logged-in user or phone found. Service start skipped.")
             }
         }
     }

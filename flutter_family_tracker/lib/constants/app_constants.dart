@@ -16,4 +16,5 @@ class AppConstants {
   static const String prefUserName = 'user_name';
   static const String prefFcmToken = 'fcm_token';
   static const String prefIsLoggedIn = 'is_logged_in';
+  static const String prefAutostartGuidanceShown = 'autostart_guidance_shown';
 }

@@ -45,6 +45,7 @@ class AdaptiveMapView extends StatefulWidget {
   final double initialLat;
   final double initialLng;
   final double initialZoom;
+  final gmaps.MapType mapType;
   final List<AdaptiveMapPoint> points;
   final List<AdaptivePolyline> polylines;
   final Set<gmaps.Marker>? googleMarkers;
@@ -56,6 +57,7 @@ class AdaptiveMapView extends StatefulWidget {
     required this.initialLat,
     required this.initialLng,
     this.initialZoom = 14.0,
+    this.mapType = gmaps.MapType.normal,
     this.points = const [],
     this.polylines = const [],
     this.googleMarkers,
@@ -273,6 +275,7 @@ class _AdaptiveMapViewState extends State<AdaptiveMapView> {
   // Google Maps for Android / iOS Native
   Widget _buildGoogleMap() {
     return gmaps.GoogleMap(
+      mapType: widget.mapType,
       initialCameraPosition: gmaps.CameraPosition(
         target: gmaps.LatLng(widget.initialLat, widget.initialLng),
         zoom: widget.initialZoom,

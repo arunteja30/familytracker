@@ -38,4 +38,42 @@ class NativeService {
     }
     return null;
   }
+
+  // Get detected OEM information (Xiaomi, Oppo, Vivo, Samsung, etc.)
+  static Future<Map<String, dynamic>?> getDeviceOemInfo() async {
+    if (_isAndroid) {
+      try {
+        final result = await _channel.invokeMethod('getDeviceOemInfo');
+        if (result is Map) {
+          return Map<String, dynamic>.from(result);
+        }
+      } catch (_) {}
+    }
+    return null;
+  }
+
+  // Open OEM-specific auto-start or battery management activity
+  static Future<bool> openOemAutoStartSettings() async {
+    if (_isAndroid) {
+      try {
+        final bool? result =
+            await _channel.invokeMethod<bool>('openOemAutoStartSettings');
+        return result ?? false;
+      } catch (_) {}
+    }
+    return false;
+  }
+
+  // Open OS Location / GPS Settings
+  static Future<bool> openLocationSettings() async {
+    if (_isAndroid) {
+      try {
+        final bool? result =
+            await _channel.invokeMethod<bool>('openLocationSettings');
+        return result ?? false;
+      } catch (_) {}
+    }
+    return false;
+  }
 }
+

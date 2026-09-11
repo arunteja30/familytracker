@@ -6,11 +6,13 @@ import 'package:intl/intl.dart';
 import '../models/location_details_model.dart';
 import 'database_service.dart';
 import 'geocoding_service.dart';
+import 'ip_location_service.dart';
 
 class LocationService {
   final Battery _battery = Battery();
   final DatabaseService _dbService = DatabaseService();
   StreamSubscription<Position>? _positionStreamSubscription;
+  StreamSubscription<ServiceStatus>? _serviceStatusSubscription;
 
   // Check and Request Location Permissions
   Future<bool> checkPermission() async {
@@ -34,38 +36,62 @@ class LocationService {
     return true;
   }
 
-  // Get Current Location & Battery Info Once
+  // Get Current Location & Battery Info (With IP Fallback when GPS is OFF)
   Future<LocationDetailsModel?> getCurrentLocationDetails() async {
+    final batteryLevel = await _battery.batteryLevel;
+    final now = DateTime.now();
+    final dateStr = DateFormat('yyyy-MM-dd').format(now);
+
+    // 1. Try Hardware GPS first
     try {
-      final hasPermission = await checkPermission();
-      if (!hasPermission) return null;
+      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (serviceEnabled) {
+        final hasPermission = await checkPermission();
+        if (hasPermission) {
+          final position = await Geolocator.getCurrentPosition(
+            desiredAccuracy: LocationAccuracy.high,
+            timeLimit: const Duration(seconds: 15),
+          );
 
-      final position = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.high,
-        timeLimit: const Duration(seconds: 15),
-      );
+          final address = await GeocodingService.getAddressFromCoordinates(
+            position.latitude,
+            position.longitude,
+          );
 
-      final batteryLevel = await _battery.batteryLevel;
-      final address = await GeocodingService.getAddressFromCoordinates(
-        position.latitude,
-        position.longitude,
-      );
-
-      final now = DateTime.now();
-      final dateStr = DateFormat('yyyy-MM-dd').format(now);
-
-      return LocationDetailsModel(
-        latitude: position.latitude,
-        longitude: position.longitude,
-        timeStamp: now.millisecondsSinceEpoch,
-        date: dateStr,
-        batteryPercentage: batteryLevel,
-        address: address,
-        gpsStatus: 'Active',
-      );
+          return LocationDetailsModel(
+            latitude: position.latitude,
+            longitude: position.longitude,
+            timeStamp: now.millisecondsSinceEpoch,
+            date: dateStr,
+            batteryPercentage: batteryLevel,
+            address: address,
+            gpsStatus: 'Active',
+          );
+        }
+      }
     } catch (e) {
-      return null;
+      debugPrint('[FamilyTracker] GPS fix failed: $e. Using IP Geolocation fallback.');
     }
+
+    // 2. Fallback: Coarse IP Geolocation when GPS is OFF
+    try {
+      final ipLocation = await IpLocationService.getCoarseIpLocation();
+      if (ipLocation != null) {
+        return LocationDetailsModel(
+          latitude: ipLocation['lat'] as double,
+          longitude: ipLocation['lon'] as double,
+          timeStamp: now.millisecondsSinceEpoch,
+          date: dateStr,
+          batteryPercentage: batteryLevel,
+          address: ipLocation['address'] as String,
+          gpsStatus: 'IP (Approx)',
+        );
+      }
+    } catch (e) {
+      debugPrint('[FamilyTracker] IP location fallback failed: $e');
+    }
+
+    return null;
   }
 
   // Update & Push Single Location
@@ -138,12 +164,45 @@ class LocationService {
       }
     });
 
-    debugPrint('[FamilyTracker] Continuous background tracking started for: $mobile');
+    _serviceStatusSubscription?.cancel();
+    _serviceStatusSubscription =
+        Geolocator.getServiceStatusStream().listen((status) async {
+      if (status == ServiceStatus.disabled) {
+        debugPrint(
+            '[FamilyTracker] GPS disabled event detected, fetching IP location fallback...');
+        try {
+          final ipLocation = await IpLocationService.getCoarseIpLocation();
+          if (ipLocation != null) {
+            final batteryLevel = await _battery.batteryLevel;
+            final now = DateTime.now();
+            final dateStr = DateFormat('yyyy-MM-dd').format(now);
+
+            final location = LocationDetailsModel(
+              latitude: ipLocation['lat'] as double,
+              longitude: ipLocation['lon'] as double,
+              timeStamp: now.millisecondsSinceEpoch,
+              date: dateStr,
+              batteryPercentage: batteryLevel,
+              address: ipLocation['address'] as String,
+              gpsStatus: 'IP (Approx)',
+            );
+            await _dbService.saveLocation(mobile, location);
+          }
+        } catch (e) {
+          debugPrint('[FamilyTracker] IP location push error: $e');
+        }
+      }
+    });
+
+    debugPrint(
+        '[FamilyTracker] Continuous background tracking started for: $mobile');
   }
 
   // Stop Continuous Tracking
   void stopContinuousTracking() {
     _positionStreamSubscription?.cancel();
     _positionStreamSubscription = null;
+    _serviceStatusSubscription?.cancel();
+    _serviceStatusSubscription = null;
   }
 }

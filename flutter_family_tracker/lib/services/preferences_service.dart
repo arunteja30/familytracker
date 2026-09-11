@@ -40,6 +40,14 @@ class PreferencesService {
     return _prefs?.getBool(AppConstants.prefIsLoggedIn) ?? false;
   }
 
+  static Future<void> setAutostartGuidanceShown(bool shown) async {
+    await _prefs?.setBool(AppConstants.prefAutostartGuidanceShown, shown);
+  }
+
+  static bool isAutostartGuidanceShown() {
+    return _prefs?.getBool(AppConstants.prefAutostartGuidanceShown) ?? false;
+  }
+
   static Future<void> clearSession() async {
     await _prefs?.clear();
   }

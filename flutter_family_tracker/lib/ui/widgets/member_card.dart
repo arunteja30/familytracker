@@ -254,12 +254,12 @@ class _MemberCardState extends State<MemberCard> {
                             InkWell(
                               onTap: widget.onDelete,
                               borderRadius: BorderRadius.circular(12),
-                              child: const Padding(
-                                padding: EdgeInsets.all(2),
+                              child: Padding(
+                                padding: const EdgeInsets.all(3),
                                 child: Icon(
-                                  Icons.close_rounded,
-                                  size: 16,
-                                  color: AppColors.textMuted,
+                                  Icons.delete_outline_rounded,
+                                  size: 18,
+                                  color: Colors.red.shade400,
                                 ),
                               ),
                             ),

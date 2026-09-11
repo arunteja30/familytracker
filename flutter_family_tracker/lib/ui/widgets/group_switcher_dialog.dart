@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../constants/app_colors.dart';
+import '../../providers/family_provider.dart';
 
 class GroupSwitcherDialog extends StatefulWidget {
   final String currentGroup;
@@ -87,9 +88,9 @@ class _GroupSwitcherDialogState extends State<GroupSwitcherDialog> {
                   final isSelected =
                       grp.toLowerCase() == widget.currentGroup.toLowerCase();
                   return ChoiceChip(
-                    label: Text(grp),
+                    label: Text(FamilyProvider.formatFamilyDisplayName(grp)),
                     selected: isSelected,
-                    selectedColor: AppColors.primaryLight.withOpacity(0.3),
+                    selectedColor: AppColors.primaryLight.withValues(alpha: 0.3),
                     onSelected: (selected) {
                       if (selected) {
                         _groupNameController.text = grp;

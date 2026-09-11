@@ -1,13 +1,18 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:geolocator/geolocator.dart';
 import '../../constants/app_colors.dart';
 import '../../providers/family_provider.dart';
 import '../../services/preferences_service.dart';
 import '../../services/permission_service.dart';
+import '../../services/native_service.dart';
+import '../../services/database_service.dart';
 import '../widgets/gradient_header.dart';
 import '../widgets/member_card.dart';
 import '../widgets/add_member_dialog.dart';
 import '../widgets/group_switcher_dialog.dart';
+import '../widgets/oem_autostart_modal.dart';
 import 'all_maps_screen.dart';
 import 'member_map_screen.dart';
 import 'location_history_screen.dart';
@@ -22,14 +27,42 @@ class FamilyDashboardScreen extends StatefulWidget {
 
 class _FamilyDashboardScreenState extends State<FamilyDashboardScreen> {
   String _userPhone = '';
+  bool _isGpsEnabled = true;
+  StreamSubscription<ServiceStatus>? _serviceStatusSub;
 
   @override
   void initState() {
     super.initState();
+    _checkGpsStatus();
+    _serviceStatusSub = Geolocator.getServiceStatusStream().listen((ServiceStatus status) {
+      if (mounted) {
+        setState(() {
+          _isGpsEnabled = (status == ServiceStatus.enabled);
+        });
+      }
+    });
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _loadData();
     });
   }
+
+  @override
+  void dispose() {
+    _serviceStatusSub?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _checkGpsStatus() async {
+    try {
+      final enabled = await Geolocator.isLocationServiceEnabled();
+      if (mounted) {
+        setState(() {
+          _isGpsEnabled = enabled;
+        });
+      }
+    } catch (_) {}
+  }
+
 
   Future<void> _loadData() async {
     if (!mounted) return;
@@ -45,6 +78,9 @@ class _FamilyDashboardScreenState extends State<FamilyDashboardScreen> {
             final familyProvider =
                 Provider.of<FamilyProvider>(context, listen: false);
             await familyProvider.init(_userPhone);
+            if (mounted) {
+              await OemAutoStartModal.showIfNeeded(context);
+            }
           }
         },
       );
@@ -53,6 +89,9 @@ class _FamilyDashboardScreenState extends State<FamilyDashboardScreen> {
         final familyProvider =
             Provider.of<FamilyProvider>(context, listen: false);
         await familyProvider.init(_userPhone);
+        if (mounted) {
+          await OemAutoStartModal.showIfNeeded(context);
+        }
       }
     }
   }
@@ -127,7 +166,7 @@ class _FamilyDashboardScreenState extends State<FamilyDashboardScreen> {
         children: [
           // Gradient Header
           GradientHeader(
-            title: familyProvider.currentFamilyName,
+            title: familyProvider.displayFamilyName,
             subtitle: 'Logged in: $_userPhone',
             trailing: IconButton(
               icon: const Icon(Icons.settings_rounded, color: Colors.white),
@@ -173,6 +212,69 @@ class _FamilyDashboardScreenState extends State<FamilyDashboardScreen> {
               ),
             ),
           ),
+
+          // GPS is OFF Alert Banner
+          if (!_isGpsEnabled)
+            Container(
+              width: double.infinity,
+              margin: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              decoration: BoxDecoration(
+                color: Colors.red.shade50,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.red.shade300),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.location_off_rounded,
+                      color: Colors.red.shade700, size: 24),
+                  const SizedBox(width: 10),
+                  const Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'GPS is OFF 🙁',
+                          style: TextStyle(
+                            color: Colors.red,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 13,
+                          ),
+                        ),
+                        Text(
+                          'Location tracking is paused. Turn on GPS to resume.',
+                          style: TextStyle(
+                            color: Colors.black87,
+                            fontSize: 11,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  ElevatedButton(
+                    onPressed: () async {
+                      await NativeService.openLocationSettings();
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.red.shade700,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 10, vertical: 6),
+                      minimumSize: Size.zero,
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                    child: const Text(
+                      'Turn ON',
+                      style:
+                          TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                ],
+              ),
+            ),
 
           // Section Header
           Padding(
@@ -238,6 +340,11 @@ class _FamilyDashboardScreenState extends State<FamilyDashboardScreen> {
                           itemBuilder: (context, index) {
                             final member = members[index];
                             final location = locations[member.mobile];
+                            final isCurrentUserAdmin =
+                                familyProvider.isUserAdmin(_userPhone);
+                            final isSelf = DatabaseService.matchPhones(
+                                member.mobile, _userPhone);
+
                             return MemberCard(
                               member: member,
                               location: location,
@@ -262,11 +369,13 @@ class _FamilyDashboardScreenState extends State<FamilyDashboardScreen> {
                                   ),
                                 );
                               },
-                              onDelete: () => _confirmDeleteMember(
-                                member.memberId,
-                                member.name,
-                                member.mobile,
-                              ),
+                              onDelete: isCurrentUserAdmin && !isSelf
+                                  ? () => _confirmDeleteMember(
+                                        member.memberId,
+                                        member.name,
+                                        member.mobile,
+                                      )
+                                  : null,
                             );
                           },
                         ),

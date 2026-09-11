@@ -22,13 +22,68 @@ class FamilyProvider extends ChangeNotifier {
   StreamSubscription? _membersSubscription;
   final Map<String, StreamSubscription> _locationSubscriptions = {};
 
+  static String formatFamilyDisplayName(String? name) {
+    if (name == null || name.trim().isEmpty) return 'MyFamily';
+    // Do not show numbers after _ (e.g. Smith_9876543210 -> Smith, MyFamily_123 -> MyFamily)
+    final clean = name.replaceFirst(RegExp(r'_\d+.*$'), '');
+    return clean.isNotEmpty ? clean : name;
+  }
+
   String get currentFamilyName =>
       _currentFamilyName.isNotEmpty ? _currentFamilyName : 'MyFamily';
+  String get displayFamilyName => formatFamilyDisplayName(_currentFamilyName);
   List<String> get userFamilyGroups => _userFamilyGroups;
   List<FamilyMemberModel> get familyMembers => _familyMembers;
   Map<String, LocationDetailsModel> get memberLocations => _memberLocations;
   bool get isLoading => _isLoading;
   String? get errorMessage => _errorMessage;
+
+  // Check if current user is Admin of the active family group
+  bool isUserAdmin(String userPhone) {
+    if (userPhone.trim().isEmpty) return false;
+
+    // 1. If group name suffix is user's phone number (e.g. MyFamily_9876543210)
+    if (_currentFamilyName.contains('_')) {
+      final parts = _currentFamilyName.split('_');
+      if (parts.length >= 2) {
+        final phonePart = parts.sublist(1).join('_');
+        if (DatabaseService.matchPhones(phonePart, userPhone)) {
+          return true;
+        }
+      }
+    }
+
+    // 2. If any member has adminName matching user's phone or user's registered name
+    final currentUserName = PreferencesService.getUserName() ?? '';
+    for (var m in _familyMembers) {
+      if (m.adminName != null && m.adminName!.trim().isNotEmpty) {
+        if (DatabaseService.matchPhones(m.adminName!, userPhone) ||
+            (currentUserName.isNotEmpty &&
+                m.adminName!.trim().toLowerCase() ==
+                    currentUserName.trim().toLowerCase())) {
+          return true;
+        }
+      }
+      // If user's own record lists relationship as Admin / Creator / Owner / Head
+      if (DatabaseService.matchPhones(m.mobile, userPhone)) {
+        final rel = m.relationship.trim().toLowerCase();
+        if (rel == 'admin' ||
+            rel == 'creator' ||
+            rel == 'owner' ||
+            rel == 'head') {
+          return true;
+        }
+      }
+    }
+
+    // 3. If user is the first/creator member in the group
+    if (_familyMembers.isNotEmpty &&
+        DatabaseService.matchPhones(_familyMembers.first.mobile, userPhone)) {
+      return true;
+    }
+
+    return false;
+  }
 
   void _safeNotifyListeners() {
     WidgetsBinding.instance.addPostFrameCallback((_) {

@@ -98,10 +98,12 @@ class _LocationHistoryScreenState extends State<LocationHistoryScreen> {
       _fitMapToBounds(polylineCoords);
     }
 
-    setState(() {
-      _historyPoints = points;
-      _isLoading = false;
-    });
+    if (mounted) {
+      setState(() {
+        _historyPoints = points;
+        _isLoading = false;
+      });
+    }
 
     // Asynchronously enrich missing street addresses
     _resolveAddresses(points);

@@ -36,9 +36,114 @@ class MainActivity : FlutterActivity() {
                     val contactsMap = getDeviceContacts()
                     result.success(contactsMap)
                 }
+                "getDeviceOemInfo" -> {
+                    val oemInfo = getDeviceOemInfo()
+                    result.success(oemInfo)
+                }
+                "openOemAutoStartSettings" -> {
+                    val success = openOemAutoStartSettings()
+                    result.success(success)
+                }
+                "openLocationSettings" -> {
+                    try {
+                        val intent = Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS).apply {
+                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        }
+                        startActivity(intent)
+                        result.success(true)
+                    } catch (e: Exception) {
+                        result.success(false)
+                    }
+                }
                 else -> result.notImplemented()
             }
         }
+    }
+
+    private fun getDeviceOemInfo(): HashMap<String, Any> {
+        val manufacturer = Build.MANUFACTURER ?: ""
+        val brand = Build.BRAND ?: ""
+        val model = Build.MODEL ?: ""
+        val mLower = manufacturer.lowercase()
+        val bLower = brand.lowercase()
+
+        val isStrictOem = mLower.contains("xiaomi") || mLower.contains("redmi") || mLower.contains("poco") ||
+                mLower.contains("oppo") || mLower.contains("realme") ||
+                mLower.contains("vivo") || mLower.contains("iqoo") ||
+                mLower.contains("samsung") ||
+                mLower.contains("oneplus") ||
+                mLower.contains("huawei") || mLower.contains("honor") ||
+                mLower.contains("asus") ||
+                bLower.contains("xiaomi") || bLower.contains("redmi") || bLower.contains("poco") ||
+                bLower.contains("oppo") || bLower.contains("realme") ||
+                bLower.contains("vivo") || bLower.contains("iqoo") ||
+                bLower.contains("oneplus") || bLower.contains("huawei") || bLower.contains("honor")
+
+        val map = HashMap<String, Any>()
+        map["manufacturer"] = manufacturer
+        map["brand"] = brand
+        map["model"] = model
+        map["isStrictOem"] = isStrictOem
+        map["sdkVersion"] = Build.VERSION.SDK_INT
+        return map
+    }
+
+    private fun openOemAutoStartSettings(): Boolean {
+        val mLower = (Build.MANUFACTURER ?: "").lowercase()
+        val bLower = (Build.BRAND ?: "").lowercase()
+
+        val intentsToTry = mutableListOf<Intent>()
+
+        if (mLower.contains("xiaomi") || mLower.contains("redmi") || mLower.contains("poco") ||
+            bLower.contains("xiaomi") || bLower.contains("redmi") || bLower.contains("poco")) {
+            intentsToTry.add(Intent().setComponent(android.content.ComponentName("com.miui.securitycenter", "com.miui.permcenter.autostart.AutoStartManagementActivity")))
+            intentsToTry.add(Intent("miui.intent.action.OP_AUTO_START").addCategory(Intent.CATEGORY_DEFAULT))
+            intentsToTry.add(Intent().setComponent(android.content.ComponentName("com.miui.powerkeeper", "com.miui.powerkeeper.ui.HiddenAppsConfigActivity")))
+        } else if (mLower.contains("oppo") || mLower.contains("realme") || bLower.contains("oppo") || bLower.contains("realme")) {
+            intentsToTry.add(Intent().setComponent(android.content.ComponentName("com.coloros.safecenter", "com.coloros.safecenter.permission.startup.StartupAppListActivity")))
+            intentsToTry.add(Intent().setComponent(android.content.ComponentName("com.coloros.safecenter", "com.coloros.safecenter.startupapp.StartupAppListActivity")))
+            intentsToTry.add(Intent().setComponent(android.content.ComponentName("com.oppo.safe", "com.oppo.safe.permission.startup.StartupAppListActivity")))
+            intentsToTry.add(Intent().setComponent(android.content.ComponentName("com.coloros.safecenter", "com.coloros.safecenter.permission.startupApp.StartupAppListActivity")))
+            intentsToTry.add(Intent().setComponent(android.content.ComponentName("com.coloros.safecenter", "com.coloros.safecenter.permission.startup.fake.StartupScrollListActivity")))
+        } else if (mLower.contains("vivo") || mLower.contains("iqoo") || bLower.contains("vivo") || bLower.contains("iqoo")) {
+            intentsToTry.add(Intent().setComponent(android.content.ComponentName("com.vivo.permissionmanager", "com.vivo.permissionmanager.activity.PurviewTabActivity")))
+            intentsToTry.add(Intent().setComponent(android.content.ComponentName("com.vivo.permissionmanager", "com.vivo.permissionmanager.activity.BgStartUpManagerActivity")))
+            intentsToTry.add(Intent().setComponent(android.content.ComponentName("com.iqoo.secure", "com.iqoo.secure.ui.phoneoptimize.AddWhiteListActivity")))
+            intentsToTry.add(Intent().setComponent(android.content.ComponentName("com.iqoo.secure", "com.iqoo.secure.ui.phoneoptimize.BgStartUpManager")))
+        } else if (mLower.contains("samsung") || bLower.contains("samsung")) {
+            intentsToTry.add(Intent().setComponent(android.content.ComponentName("com.samsung.android.lool", "com.samsung.android.sm.ui.battery.BatteryActivity")))
+            intentsToTry.add(Intent().setComponent(android.content.ComponentName("com.samsung.android.sm", "com.samsung.android.sm.battery.ui.BatteryActivity")))
+            intentsToTry.add(Intent().setComponent(android.content.ComponentName("com.samsung.android.sm", "com.samsung.android.sm.ui.battery.AppSleepListActivity")))
+        } else if (mLower.contains("oneplus") || bLower.contains("oneplus")) {
+            intentsToTry.add(Intent().setComponent(android.content.ComponentName("com.oneplus.security", "com.oneplus.security.chainlaunch.view.ChainLaunchAppListActivity")))
+            intentsToTry.add(Intent().setComponent(android.content.ComponentName("com.oneplus.battery", "com.oneplus.battery.BatteryStatusActivity")))
+        } else if (mLower.contains("huawei") || mLower.contains("honor") || bLower.contains("huawei") || bLower.contains("honor")) {
+            intentsToTry.add(Intent().setComponent(android.content.ComponentName("com.huawei.systemmanager", "com.huawei.systemmanager.startupmgr.ui.StartupNormalAppListActivity")))
+            intentsToTry.add(Intent().setComponent(android.content.ComponentName("com.huawei.systemmanager", "com.huawei.systemmanager.optimize.process.ProtectActivity")))
+            intentsToTry.add(Intent().setComponent(android.content.ComponentName("com.huawei.systemmanager", "com.huawei.systemmanager.appcontrol.activity.StartupAppControlActivity")))
+        } else if (mLower.contains("asus") || bLower.contains("asus")) {
+            intentsToTry.add(Intent().setComponent(android.content.ComponentName("com.asus.mobilemanager", "com.asus.mobilemanager.autostart.AutoStartActivity")))
+        }
+
+        // Generic / Fallback intents
+        val appDetailsIntent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+            data = Uri.parse("package:$packageName")
+        }
+        val batteryOptIntent = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+
+        intentsToTry.add(appDetailsIntent)
+        intentsToTry.add(batteryOptIntent)
+
+        for (intent in intentsToTry) {
+            try {
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                startActivity(intent)
+                return true
+            } catch (e: Exception) {
+                // Try next candidate
+            }
+        }
+        return false
     }
 
     private fun startNativeTrackerService() {

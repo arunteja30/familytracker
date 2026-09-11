@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../constants/app_colors.dart';
 import '../../providers/auth_provider.dart';
+import '../../providers/family_provider.dart';
 import '../../services/preferences_service.dart';
+import '../widgets/oem_autostart_modal.dart';
 import 'phone_login_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -101,7 +103,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           ),
                           const SizedBox(height: 2),
                           Text(
-                            'Active Group: $familyName',
+                            'Active Group: ${FamilyProvider.formatFamilyDisplayName(familyName)}',
                             style: const TextStyle(
                               fontSize: 13,
                               color: AppColors.textSecondary,
@@ -196,6 +198,54 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     const Text(
                       'Monitors failed device passcode attempts and silently takes security snapshots.',
                       style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+
+            // Auto-Start & OEM Battery Settings Card
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Row(
+                      children: [
+                        Icon(Icons.power_settings_new_rounded, color: AppColors.primary, size: 22),
+                        SizedBox(width: 10),
+                        Text(
+                          'Auto-Start & Background Run',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                            color: AppColors.textPrimary,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    const Text(
+                      'Ensure FamilyTracker starts automatically when your phone turns on and never gets killed in the background.',
+                      style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
+                    ),
+                    const SizedBox(height: 14),
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        onPressed: () => OemAutoStartModal.show(context, isManualTrigger: true),
+                        icon: const Icon(Icons.settings_suggest_rounded, size: 18),
+                        label: const Text('Configure OEM Auto-Start'),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: AppColors.primary,
+                          side: const BorderSide(color: AppColors.primary),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                      ),
                     ),
                   ],
                 ),
