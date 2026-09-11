@@ -585,7 +585,29 @@ class _MemberMapScreenState extends State<MemberMapScreen> {
                     const Divider(height: 1, color: AppColors.cardBorder),
                     const SizedBox(height: 8),
 
-                    // Full Street Address
+                    // 1. Lat & Lng Coordinates
+                    Row(
+                      children: [
+                        const Icon(
+                          Icons.gps_fixed_rounded,
+                          size: 14,
+                          color: AppColors.accent,
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          'Lat: ${lat.toStringAsFixed(6)}, Lng: ${lng.toStringAsFixed(6)}',
+                          style: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: AppColors.textSecondary,
+                            fontFamily: 'monospace',
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+
+                    // 2. Full Street Address (Below Lat & Lng)
                     Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
@@ -609,46 +631,23 @@ class _MemberMapScreenState extends State<MemberMapScreen> {
                         ),
                       ],
                     ),
-                    const SizedBox(height: 4),
+                    const SizedBox(height: 6),
 
-                    // Coordinates & Last Updated
+                    // 3. Last Updated
                     Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Row(
-                          children: [
-                            const Icon(
-                              Icons.gps_fixed_rounded,
-                              size: 13,
-                              color: AppColors.accent,
-                            ),
-                            const SizedBox(width: 4),
-                            Text(
-                              '${lat.toStringAsFixed(4)}, ${lng.toStringAsFixed(4)}',
-                              style: const TextStyle(
-                                fontSize: 11,
-                                color: AppColors.textSecondary,
-                                fontFamily: 'monospace',
-                              ),
-                            ),
-                          ],
+                        const Icon(
+                          Icons.access_time_rounded,
+                          size: 13,
+                          color: AppColors.textMuted,
                         ),
-                        Row(
-                          children: [
-                            const Icon(
-                              Icons.access_time_rounded,
-                              size: 13,
-                              color: AppColors.textMuted,
-                            ),
-                            const SizedBox(width: 4),
-                            Text(
-                              formattedTime,
-                              style: const TextStyle(
-                                fontSize: 11,
-                                color: AppColors.textSecondary,
-                              ),
-                            ),
-                          ],
+                        const SizedBox(width: 6),
+                        Text(
+                          'Last updated: $formattedTime',
+                          style: const TextStyle(
+                            fontSize: 11,
+                            color: AppColors.textSecondary,
+                          ),
                         ),
                       ],
                     ),

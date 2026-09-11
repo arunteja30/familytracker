@@ -575,7 +575,7 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
                           ),
                           const SizedBox(width: 12),
 
-                          // Name & Address Summary
+                          // Name, Coordinates & Address Summary
                           Expanded(
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
@@ -615,15 +615,54 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
                                   ],
                                 ),
                                 const SizedBox(height: 3),
-                                Text(
-                                  currentAddress,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(
-                                    fontSize: 12,
-                                    color: AppColors.textSecondary,
-                                    fontWeight: FontWeight.w500,
-                                  ),
+
+                                // 1. Lat & Lng Coordinates
+                                Row(
+                                  children: [
+                                    const Icon(
+                                      Icons.gps_fixed_rounded,
+                                      size: 12,
+                                      color: AppColors.accent,
+                                    ),
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      selectedLoc != null && selectedLoc.latitude != 0.0
+                                          ? 'Lat: ${selectedLoc.latitude.toStringAsFixed(6)}, Lng: ${selectedLoc.longitude.toStringAsFixed(6)}'
+                                          : 'No GPS Fix',
+                                      style: const TextStyle(
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w600,
+                                        color: AppColors.textSecondary,
+                                        fontFamily: 'monospace',
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 2),
+
+                                // 2. Street Address below Lat and Lng
+                                Row(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    const Icon(
+                                      Icons.location_on_rounded,
+                                      size: 13,
+                                      color: AppColors.primary,
+                                    ),
+                                    const SizedBox(width: 4),
+                                    Expanded(
+                                      child: Text(
+                                        currentAddress,
+                                        maxLines: 2,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(
+                                          fontSize: 11,
+                                          color: AppColors.textPrimary,
+                                          fontWeight: FontWeight.w500,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ],
                             ),
@@ -658,25 +697,6 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
                       const SizedBox(height: 12),
                       const Divider(height: 1, color: AppColors.cardBorder),
                       const SizedBox(height: 10),
-
-                      // Exact GPS Coordinates
-                      Row(
-                        children: [
-                          const Icon(Icons.gps_fixed_rounded, size: 14, color: AppColors.accent),
-                          const SizedBox(width: 6),
-                          Text(
-                            selectedLoc != null && selectedLoc.latitude != 0.0
-                                ? 'Lat: ${selectedLoc.latitude.toStringAsFixed(6)}, Lng: ${selectedLoc.longitude.toStringAsFixed(6)}'
-                                : 'No GPS Fix',
-                            style: const TextStyle(
-                              fontSize: 11,
-                              color: AppColors.textSecondary,
-                              fontFamily: 'monospace',
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 5),
 
                       // Last Updated Time
                       Row(
