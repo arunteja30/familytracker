@@ -32,6 +32,33 @@
 	<string>FamilyTracker requires background location access to provide continuous safety and tracking for your family.</string>
 	<key>NSLocationAlwaysUsageDescription</key>
 	<string>FamilyTracker requires background location access to keep your family updated.</string>
+	<key>NSContactsUsageDescription</key>
+	<string>FamilyTracker requires access to contacts so you can quickly add family members and see their contact names.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>FamilyTracker requires camera access to take profile photos for family members.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>FamilyTracker requires photo library access to choose profile photos for family members.</string>
+	<key>LSApplicationQueriesSchemes</key>
+	<array>
+		<string>tel</string>
+		<string>sms</string>
+		<string>comgooglemaps</string>
+		<string>baidumap</string>
+		<string>iosamap</string>
+		<string>waze</string>
+		<string>yandexmaps</string>
+		<string>yandexnavi</string>
+		<string>citymapper</string>
+		<string>mapswithme</string>
+		<string>osmandmaps</string>
+		<string>dgis</string>
+		<string>qqmap</string>
+		<string>here-location</string>
+		<string>https</string>
+		<string>http</string>
+	</array>
+	<key>io.flutter.embedded_views_preview</key>
+	<true/>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>location</string>

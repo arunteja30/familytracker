@@ -5,12 +5,17 @@ class NativeService {
   static const MethodChannel _channel =
       MethodChannel('com.mat.familytrack/background_service');
 
+  static bool get _isMobile =>
+      !kIsWeb &&
+      (defaultTargetPlatform == TargetPlatform.android ||
+          defaultTargetPlatform == TargetPlatform.iOS);
+
   static bool get _isAndroid =>
       !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
 
-  // Start the native sticky background service (auto-restarting)
+  // Start the native sticky background service (auto-restarting on Android)
   static Future<void> startNativeStickyService() async {
-    if (_isAndroid) {
+    if (_isMobile) {
       try {
         await _channel.invokeMethod('startNativeStickyService');
       } catch (_) {}
@@ -26,9 +31,9 @@ class NativeService {
     }
   }
 
-  // Read device contacts from phonebook
+  // Read device contacts from phonebook (Android & iOS)
   static Future<Map<dynamic, dynamic>?> getDeviceContacts() async {
-    if (_isAndroid) {
+    if (_isMobile) {
       try {
         final result = await _channel.invokeMethod('getDeviceContacts');
         if (result is Map) {
@@ -39,9 +44,9 @@ class NativeService {
     return null;
   }
 
-  // Get detected OEM information (Xiaomi, Oppo, Vivo, Samsung, etc.)
+  // Get detected OEM information (Xiaomi, Oppo, Vivo, Samsung, Apple, etc.)
   static Future<Map<String, dynamic>?> getDeviceOemInfo() async {
-    if (_isAndroid) {
+    if (_isMobile) {
       try {
         final result = await _channel.invokeMethod('getDeviceOemInfo');
         if (result is Map) {
@@ -64,9 +69,9 @@ class NativeService {
     return false;
   }
 
-  // Open OS Location / GPS Settings
+  // Open OS Location / GPS Settings (Android & iOS)
   static Future<bool> openLocationSettings() async {
-    if (_isAndroid) {
+    if (_isMobile) {
       try {
         final bool? result =
             await _channel.invokeMethod<bool>('openLocationSettings');
