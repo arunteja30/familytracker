@@ -1,12 +1,18 @@
 import 'package:flutter/foundation.dart';
 import 'package:firebase_database/firebase_database.dart';
+import 'package:geolocator/geolocator.dart';
 import '../constants/app_constants.dart';
 import '../models/family_member_model.dart';
 import '../models/location_details_model.dart';
 import '../models/registration_model.dart';
+import 'geocoding_service.dart';
 
 class DatabaseService {
   final FirebaseDatabase _db = FirebaseDatabase.instance;
+
+  // Cache of last saved history point per mobile to avoid redundant DB reads
+  static final Map<String, LocationDetailsModel> _lastSavedHistoryPoints = {};
+  static final Map<String, String> _lastSavedHistoryKeys = {};
 
   // Helper: Normalize & Match Phone Numbers (e.g. +919876543210 vs 9876543210)
   static bool matchPhones(String p1, String p2) {
@@ -81,33 +87,41 @@ class DatabaseService {
     final List<FamilyMemberModel> all = [];
     final seen = <String>{};
 
-    void addUnique(List<FamilyMemberModel> list) {
-      for (var m in list) {
-        final key = '${m.mobile}_${m.familyName}';
-        if (!seen.contains(key) && m.mobile.isNotEmpty) {
-          seen.add(key);
-          all.add(m);
-        }
-      }
-    }
-
     try {
       // 1. Check familyMembersList
       final snap1 = await _db.ref(AppConstants.familyMemberList).get();
       if (snap1.exists && snap1.value != null) {
-        addUnique(parseMembersFromSnapshot(snap1.value));
+        for (var m in parseMembersFromSnapshot(snap1.value)) {
+          final key = '${m.mobile}_${m.familyName}';
+          if (!seen.contains(key) && m.mobile.isNotEmpty) {
+            seen.add(key);
+            all.add(m);
+          }
+        }
       }
 
       // 2. Check familyNames
       final snap2 = await _db.ref(AppConstants.familyDbName).get();
       if (snap2.exists && snap2.value != null) {
-        addUnique(parseMembersFromSnapshot(snap2.value));
+        for (var m in parseMembersFromSnapshot(snap2.value)) {
+          final key = '${m.mobile}_${m.familyName}';
+          if (!seen.contains(key) && m.mobile.isNotEmpty) {
+            seen.add(key);
+            all.add(m);
+          }
+        }
       }
 
       // 3. Check legacy FamilyDetails
       final snap3 = await _db.ref(AppConstants.legacyFamilyDb).get();
       if (snap3.exists && snap3.value != null) {
-        addUnique(parseMembersFromSnapshot(snap3.value));
+        for (var m in parseMembersFromSnapshot(snap3.value)) {
+          final key = '${m.mobile}_${m.familyName}';
+          if (!seen.contains(key) && m.mobile.isNotEmpty) {
+            seen.add(key);
+            all.add(m);
+          }
+        }
       }
     } catch (e) {
       debugPrint('[FamilyTracker] Error fetching all members: $e');
@@ -201,60 +215,131 @@ class DatabaseService {
     }
   }
 
-  // Save/Update Live Location
-  // Save Location to Realtime DB & History
+  // Save Location to Realtime DB & History (Resolves Address at Save Time & Filters <200m Duplicates)
   Future<void> saveLocation(
       String mobile, LocationDetailsModel location) async {
     try {
+      // 1. Resolve human-readable address on save if missing or placeholder
+      if (location.latitude != 0.0 && location.longitude != 0.0) {
+        if (location.address.isEmpty ||
+            location.address.startsWith('Lat:') ||
+            location.address.contains('null')) {
+          try {
+            final resolved = await GeocodingService.getAddressFromCoordinates(
+              location.latitude,
+              location.longitude,
+            );
+            if (resolved.isNotEmpty && !resolved.startsWith('Lat:')) {
+              location.address = resolved;
+            }
+          } catch (_) {}
+        }
+      }
+
       final json = location.toJson();
       final clean = mobile.replaceAll(RegExp(r'[^0-9+]'), '');
 
+      // 2. Always update live location nodes
       await _db.ref('locationList').child(mobile).set(json);
       await _db.ref('LocationDetails').child(mobile).set(json);
-      if (clean != mobile) {
+      if (clean != mobile && clean.isNotEmpty) {
         await _db.ref('locationList').child(clean).set(json);
         await _db.ref('LocationDetails').child(clean).set(json);
       }
 
-      // Save to Location History under both case conventions
-      if (location.date.isNotEmpty) {
-        final timeKey = location.timeStamp > 0
-            ? location.timeStamp.toString()
-            : DateTime.now().millisecondsSinceEpoch.toString();
+      // 3. Save to locationHistory with 200-meter stationary filter
+      if (location.date.isNotEmpty && location.latitude != 0.0 && location.longitude != 0.0) {
+        final dateKey = location.date;
+        final cleanKey = clean.isNotEmpty ? clean : mobile;
 
-        await _db
-            .ref('locationHistory')
-            .child(mobile)
-            .child(location.date)
-            .child(timeKey)
-            .set(json);
+        LocationDetailsModel? lastPoint = _lastSavedHistoryPoints[cleanKey];
+        String? lastKey = _lastSavedHistoryKeys[cleanKey];
 
-        await _db
-            .ref('LocationHistory')
-            .child(mobile)
-            .child(location.date)
-            .child(timeKey)
-            .set(json);
+        // If not in in-memory cache, query the most recent history entry for today
+        if (lastPoint == null || lastKey == null) {
+          try {
+            final lastSnap = await _db
+                .ref('locationHistory')
+                .child(cleanKey)
+                .child(dateKey)
+                .limitToLast(1)
+                .get();
+            if (lastSnap.exists && lastSnap.value is Map) {
+              final map = lastSnap.value as Map;
+              if (map.isNotEmpty) {
+                final k = map.keys.first.toString();
+                final v = map[k];
+                if (v is Map) {
+                  lastPoint = LocationDetailsModel.fromJson(v);
+                  lastKey = k;
+                  _lastSavedHistoryPoints[cleanKey] = lastPoint;
+                  _lastSavedHistoryKeys[cleanKey] = lastKey;
+                }
+              }
+            }
+          } catch (_) {}
+        }
 
-        if (clean != mobile) {
-          await _db
-              .ref('locationHistory')
-              .child(clean)
-              .child(location.date)
-              .child(timeKey)
-              .set(json);
-          await _db
-              .ref('LocationHistory')
-              .child(clean)
-              .child(location.date)
-              .child(timeKey)
-              .set(json);
+        // Check distance against the previous location record
+        bool isDuplicateOrStationary = false;
+        if (lastPoint != null && lastKey != null && lastPoint.date == dateKey) {
+          final distance = Geolocator.distanceBetween(
+            lastPoint.latitude,
+            lastPoint.longitude,
+            location.latitude,
+            location.longitude,
+          );
+          if (distance < 200.0) {
+            isDuplicateOrStationary = true;
+          }
+        }
+
+        if (isDuplicateOrStationary && lastKey != null) {
+          // UPDATE TIME ONLY on existing card, DO NOT add extra card
+          final updateData = {
+            'timeStamp': location.timeStamp > 0
+                ? location.timeStamp
+                : DateTime.now().millisecondsSinceEpoch,
+            'batteryPercentage': location.batteryPercentage,
+            if (location.address.isNotEmpty && !location.address.startsWith('Lat:'))
+              'address': location.address,
+            if (location.gpsStatus.isNotEmpty) 'gpsStatus': location.gpsStatus,
+          };
+
+          await _db.ref('locationHistory').child(mobile).child(dateKey).child(lastKey).update(updateData);
+          await _db.ref('LocationHistory').child(mobile).child(dateKey).child(lastKey).update(updateData);
+          if (clean != mobile && clean.isNotEmpty) {
+            await _db.ref('locationHistory').child(clean).child(dateKey).child(lastKey).update(updateData);
+            await _db.ref('LocationHistory').child(clean).child(dateKey).child(lastKey).update(updateData);
+          }
+
+          // Update memory cache
+          lastPoint?.timeStamp = location.timeStamp;
+          if (location.address.isNotEmpty) lastPoint?.address = location.address;
+          lastPoint?.batteryPercentage = location.batteryPercentage;
+        } else {
+          // Distance changed >= 200m or new day: Record new history card
+          final timeKey = location.timeStamp > 0
+              ? location.timeStamp.toString()
+              : DateTime.now().millisecondsSinceEpoch.toString();
+
+          await _db.ref('locationHistory').child(mobile).child(dateKey).child(timeKey).set(json);
+          await _db.ref('LocationHistory').child(mobile).child(dateKey).child(timeKey).set(json);
+          if (clean != mobile && clean.isNotEmpty) {
+            await _db.ref('locationHistory').child(clean).child(dateKey).child(timeKey).set(json);
+            await _db.ref('LocationHistory').child(clean).child(dateKey).child(timeKey).set(json);
+          }
+
+          _lastSavedHistoryPoints[cleanKey] = location;
+          _lastSavedHistoryKeys[cleanKey] = timeKey;
         }
       }
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('[FamilyTracker] saveLocation error: $e');
+    }
   }
 
-  // Get Location History for a Date with deep multi-path and multi-format matching
+  // Get Location History for a Date with deep multi-path matching & 200m sequential collapsing
   Future<List<LocationDetailsModel>> getLocationHistory(
       String mobile, String date) async {
     final List<LocationDetailsModel> history = [];
@@ -269,7 +354,6 @@ class DatabaseService {
       if (data is Map) {
         data.forEach((k, v) {
           if (v is Map) {
-            // Check if v itself is a location or if it contains timestamped locations
             if (v.containsKey('latitude') || v.containsKey('lat')) {
               try {
                 history.add(LocationDetailsModel.fromJson(v));
@@ -322,7 +406,6 @@ class DatabaseService {
                 final userMap = snapshot.value as Map;
                 userMap.forEach((dateKey, dateVal) {
                   final dk = dateKey.toString();
-                  // Check if date key matches YYYY-MM-DD or DD-MM-YYYY or contains the date
                   if (dk == date ||
                       dk.contains(date) ||
                       date.contains(dk) ||
@@ -349,7 +432,38 @@ class DatabaseService {
 
       final sorted = uniquePoints.values.toList()
         ..sort((a, b) => a.timeStamp.compareTo(b.timeStamp));
-      return sorted;
+
+      // 3. Collapse sequential duplicate / < 200m stationary stays into a single card with latest time
+      final List<LocationDetailsModel> collapsed = [];
+      for (final p in sorted) {
+        if (p.latitude == 0.0 && p.longitude == 0.0) continue;
+
+        if (collapsed.isEmpty) {
+          collapsed.add(p);
+        } else {
+          final last = collapsed.last;
+          final dist = Geolocator.distanceBetween(
+            last.latitude,
+            last.longitude,
+            p.latitude,
+            p.longitude,
+          );
+
+          if (dist < 200.0) {
+            // Duplicate location or < 200m change: update time only, do not add extra card
+            last.timeStamp = p.timeStamp;
+            if (p.address.isNotEmpty && (last.address.isEmpty || last.address.startsWith('Lat:'))) {
+              last.address = p.address;
+            }
+            last.batteryPercentage = p.batteryPercentage;
+            if (p.gpsStatus.isNotEmpty) last.gpsStatus = p.gpsStatus;
+          } else {
+            collapsed.add(p);
+          }
+        }
+      }
+
+      return collapsed;
     } catch (e) {
       debugPrint('[FamilyTracker] History fetch error: $e');
       return [];
