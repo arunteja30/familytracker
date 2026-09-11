@@ -12,8 +12,13 @@ import Contacts
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
-    // Initialize Google Maps SDK for iOS
-    GMSServices.provideAPIKey("AIzaSyCqdmb42a0bZ6wtrfad_wmGe0SeseMx5KQ")
+    // Initialize Google Maps SDK for iOS (injected dynamically)
+    let mapsApiKey = (Bundle.main.object(forInfoDictionaryKey: "GoogleMapsAPIKey") as? String)
+      ?? ProcessInfo.processInfo.environment["MAPS_API_KEY"]
+      ?? ""
+    if !mapsApiKey.isEmpty {
+      GMSServices.provideAPIKey(mapsApiKey)
+    }
 
     let controller : FlutterViewController = window?.rootViewController as! FlutterViewController
     let backgroundChannel = FlutterMethodChannel(name: CHANNEL, binaryMessenger: controller.binaryMessenger)

@@ -4,6 +4,19 @@ plugins {
     id("com.google.gms.google-services")
 }
 
+import java.util.Properties
+import java.io.FileInputStream
+
+val localProperties = Properties()
+val localPropertiesFile = rootProject.file("local.properties")
+if (localPropertiesFile.exists()) {
+    localProperties.load(FileInputStream(localPropertiesFile))
+}
+
+val mapsApiKey: String = localProperties.getProperty("maps.apiKey")
+    ?: System.getenv("MAPS_API_KEY")
+    ?: ""
+
 android {
     namespace = "com.mat.familytrack"
     compileSdk = 36
@@ -21,6 +34,7 @@ android {
         versionCode = flutter.versionCode
         versionName = flutter.versionName
         multiDexEnabled = true
+        manifestPlaceholders["mapsApiKey"] = mapsApiKey
     }
 
     buildTypes {

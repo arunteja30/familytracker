@@ -21,10 +21,10 @@
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
 
-        <!-- Google Maps API Key -->
+        <!-- Google Maps API Key (injected securely from local.properties / env) -->
         <meta-data
             android:name="com.google.android.geo.API_KEY"
-            android:value="AIzaSyCqdmb42a0bZ6wtrfad_wmGe0SeseMx5KQ" />
+            android:value="${mapsApiKey}" />
 
         <!-- Native Sticky Background Location Service -->
         <service
