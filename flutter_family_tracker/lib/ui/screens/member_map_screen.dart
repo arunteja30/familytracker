@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:latlong2/latlong.dart' as ll;
 import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../constants/app_colors.dart';
@@ -37,11 +38,25 @@ class _MemberMapScreenState extends State<MemberMapScreen> {
   File? _profileImageFile;
   String _resolvedAddress = '';
 
+  // Live Tracking Polyline Coordinates
+  final List<LatLng> _liveTrailPoints = [];
+  final Set<Polyline> _polylines = {};
+  final List<AdaptivePolyline> _adaptivePolylines = [];
+  MapType _currentMapType = MapType.normal;
+  bool _autoFollow = true;
+  bool _isLoadingTrail = false;
+
   @override
   void initState() {
     super.initState();
     _currentLocation = widget.initialLocation;
+    if (_currentLocation != null &&
+        (_currentLocation!.latitude != 0.0 || _currentLocation!.longitude != 0.0)) {
+      _liveTrailPoints.add(LatLng(_currentLocation!.latitude, _currentLocation!.longitude));
+      _updatePolylineSet();
+    }
     _loadProfileAndMarker();
+    _loadTodayTrailHistory();
     _subscribeToLiveLocation();
   }
 
@@ -67,10 +82,87 @@ class _MemberMapScreenState extends State<MemberMapScreen> {
     }
   }
 
+  // Load today's history to initialize the live trail route
+  Future<void> _loadTodayTrailHistory() async {
+    if (!mounted) return;
+    setState(() => _isLoadingTrail = true);
+
+    try {
+      final now = DateTime.now();
+      final todayDate = DateFormat('yyyy-MM-dd').format(now);
+      final history =
+          await _dbService.getLocationHistory(widget.member.mobile, todayDate);
+
+      if (history.isNotEmpty && mounted) {
+        final List<LatLng> loadedPoints = [];
+        for (var p in history) {
+          if (p.latitude != 0.0 && p.longitude != 0.0) {
+            loadedPoints.add(LatLng(p.latitude, p.longitude));
+          }
+        }
+
+        if (loadedPoints.isNotEmpty) {
+          setState(() {
+            _liveTrailPoints.clear();
+            _liveTrailPoints.addAll(loadedPoints);
+            // Append current live location if newer
+            if (_currentLocation != null &&
+                (_currentLocation!.latitude != 0.0 ||
+                    _currentLocation!.longitude != 0.0)) {
+              final latest = LatLng(
+                  _currentLocation!.latitude, _currentLocation!.longitude);
+              if (_liveTrailPoints.isEmpty ||
+                  _liveTrailPoints.last.latitude != latest.latitude ||
+                  _liveTrailPoints.last.longitude != latest.longitude) {
+                _liveTrailPoints.add(latest);
+              }
+            }
+            _updatePolylineSet();
+          });
+        }
+      }
+    } catch (e) {
+      debugPrint('[MemberMapScreen] Load history trail error: $e');
+    } finally {
+      if (mounted) setState(() => _isLoadingTrail = false);
+    }
+  }
+
+  void _updatePolylineSet() {
+    if (_liveTrailPoints.length < 2) {
+      _polylines.clear();
+      _adaptivePolylines.clear();
+      return;
+    }
+
+    _polylines.clear();
+    _polylines.add(
+      Polyline(
+        polylineId: const PolylineId('live_tracking_trail'),
+        points: List.from(_liveTrailPoints),
+        color: AppColors.primary,
+        width: 5,
+        startCap: Cap.roundCap,
+        endCap: Cap.roundCap,
+        jointType: JointType.round,
+      ),
+    );
+
+    _adaptivePolylines.clear();
+    _adaptivePolylines.add(
+      AdaptivePolyline(
+        id: 'live_tracking_trail',
+        points: _liveTrailPoints.map((p) => ll.LatLng(p.latitude, p.longitude)).toList(),
+        color: AppColors.primary,
+        strokeWidth: 5.0,
+      ),
+    );
+  }
+
   void _resolveAddress(double lat, double lng) {
     if (lat != 0.0 || lng != 0.0) {
       GeocodingService.getAddressFromCoordinates(lat, lng).then((addr) {
-        if (mounted) {
+        if (mounted && addr.isNotEmpty) {
           setState(() => _resolvedAddress = addr);
         }
       });
@@ -82,9 +174,32 @@ class _MemberMapScreenState extends State<MemberMapScreen> {
         .streamLocationDetails(widget.member.mobile)
         .listen((loc) {
       if (loc != null && mounted) {
-        setState(() => _currentLocation = loc);
-        _resolveAddress(loc.latitude, loc.longitude);
-        _animateCamera(loc.latitude, loc.longitude);
+        final hasCoords = loc.latitude != 0.0 && loc.longitude != 0.0;
+        final newLatLng = LatLng(loc.latitude, loc.longitude);
+
+        setState(() {
+          _currentLocation = loc;
+          if (hasCoords) {
+            // Append to live trail if coordinates moved
+            if (_liveTrailPoints.isEmpty) {
+              _liveTrailPoints.add(newLatLng);
+            } else {
+              final last = _liveTrailPoints.last;
+              if (last.latitude != newLatLng.latitude ||
+                  last.longitude != newLatLng.longitude) {
+                _liveTrailPoints.add(newLatLng);
+              }
+            }
+            _updatePolylineSet();
+          }
+        });
+
+        if (hasCoords) {
+          _resolveAddress(loc.latitude, loc.longitude);
+          if (_autoFollow) {
+            _animateCamera(loc.latitude, loc.longitude);
+          }
+        }
       }
     });
   }
@@ -104,15 +219,58 @@ class _MemberMapScreenState extends State<MemberMapScreen> {
     } catch (_) {}
   }
 
+  Future<void> _fitTrailBounds() async {
+    if (_liveTrailPoints.isEmpty) {
+      if (_currentLocation != null) {
+        _animateCamera(
+            _currentLocation!.latitude, _currentLocation!.longitude);
+      }
+      return;
+    }
+
+    if (_liveTrailPoints.length == 1) {
+      _animateCamera(
+          _liveTrailPoints.first.latitude, _liveTrailPoints.first.longitude);
+      return;
+    }
+
+    try {
+      final GoogleMapController controller = await _controller.future;
+      double minLat = _liveTrailPoints.first.latitude;
+      double maxLat = _liveTrailPoints.first.latitude;
+      double minLng = _liveTrailPoints.first.longitude;
+      double maxLng = _liveTrailPoints.first.longitude;
+
+      for (var p in _liveTrailPoints) {
+        if (p.latitude < minLat) minLat = p.latitude;
+        if (p.latitude > maxLat) maxLat = p.latitude;
+        if (p.longitude < minLng) minLng = p.longitude;
+        if (p.longitude > maxLng) maxLng = p.longitude;
+      }
+
+      controller.animateCamera(
+        CameraUpdate.newLatLngBounds(
+          LatLngBounds(
+            southwest: LatLng(minLat, minLng),
+            northeast: LatLng(maxLat, maxLng),
+          ),
+          80,
+        ),
+      );
+    } catch (_) {}
+  }
+
   Future<void> _makeCall(String phone) async {
-    final uri = Uri.parse('tel:$phone');
+    final clean = phone.replaceAll(RegExp(r'[^0-9+]'), '');
+    final uri = Uri.parse('tel:$clean');
     if (await canLaunchUrl(uri)) {
       await launchUrl(uri);
     }
   }
 
   Future<void> _sendSms(String phone) async {
-    final uri = Uri.parse('sms:$phone');
+    final clean = phone.replaceAll(RegExp(r'[^0-9+]'), '');
+    final uri = Uri.parse('sms:$clean');
     if (await canLaunchUrl(uri)) {
       await launchUrl(uri);
     }
@@ -145,7 +303,9 @@ class _MemberMapScreenState extends State<MemberMapScreen> {
             : 'Fetching street address...');
 
     final markers = <Marker>{
-      if (_currentLocation != null)
+      if (_currentLocation != null &&
+          (_currentLocation!.latitude != 0.0 ||
+              _currentLocation!.longitude != 0.0))
         Marker(
           markerId: MarkerId(widget.member.mobile),
           position: pos,
@@ -162,8 +322,31 @@ class _MemberMapScreenState extends State<MemberMapScreen> {
       appBar: AppBar(
         title: Text(widget.member.name),
         actions: [
+          PopupMenuButton<MapType>(
+            icon: const Icon(Icons.layers_rounded),
+            onSelected: (type) => setState(() => _currentMapType = type),
+            itemBuilder: (context) => [
+              const PopupMenuItem(
+                value: MapType.normal,
+                child: Text('Normal Map'),
+              ),
+              const PopupMenuItem(
+                value: MapType.satellite,
+                child: Text('Satellite Map'),
+              ),
+              const PopupMenuItem(
+                value: MapType.terrain,
+                child: Text('Terrain Map'),
+              ),
+              const PopupMenuItem(
+                value: MapType.hybrid,
+                child: Text('Hybrid Map'),
+              ),
+            ],
+          ),
           IconButton(
             icon: const Icon(Icons.history_rounded),
+            tooltip: 'View Full History',
             onPressed: () {
               Navigator.push(
                 context,
@@ -183,6 +366,7 @@ class _MemberMapScreenState extends State<MemberMapScreen> {
             initialLat: pos.latitude,
             initialLng: pos.longitude,
             initialZoom: 15,
+            mapType: _currentMapType,
             points: [
               AdaptiveMapPoint(
                 id: widget.member.mobile,
@@ -195,16 +379,22 @@ class _MemberMapScreenState extends State<MemberMapScreen> {
                 pinColor: AppColors.primary,
               ),
             ],
+            polylines: _adaptivePolylines,
             googleMarkers: markers,
-            onGoogleMapCreated: (controller) => _controller.complete(controller),
+            googlePolylines: _polylines,
+            onGoogleMapCreated: (controller) {
+              if (!_controller.isCompleted) {
+                _controller.complete(controller);
+              }
+            },
           ),
 
-          // Top Live Badge
+          // Top Live Status & Trail Badge
           Positioned(
             top: 16,
             left: 20,
             child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
               decoration: BoxDecoration(
                 color: AppColors.bgSurface,
                 borderRadius: BorderRadius.circular(20),
@@ -212,24 +402,80 @@ class _MemberMapScreenState extends State<MemberMapScreen> {
                   BoxShadow(
                     color: Colors.black.withOpacity(0.12),
                     blurRadius: 6,
+                    offset: const Offset(0, 2),
                   ),
                 ],
               ),
-              child: const Row(
+              child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  CircleAvatar(radius: 4, backgroundColor: AppColors.success),
-                  SizedBox(width: 6),
+                  const CircleAvatar(radius: 4, backgroundColor: AppColors.success),
+                  const SizedBox(width: 6),
                   Text(
-                    'LIVE TRACKING ACTIVE',
-                    style: TextStyle(
+                    _liveTrailPoints.length > 1
+                        ? 'LIVE TRAIL (${_liveTrailPoints.length} PTS)'
+                        : 'LIVE TRACKING ACTIVE',
+                    style: const TextStyle(
                       fontSize: 11,
                       fontWeight: FontWeight.bold,
                       color: AppColors.success,
                     ),
                   ),
+                  if (_isLoadingTrail) ...[
+                    const SizedBox(width: 8),
+                    const SizedBox(
+                      width: 10,
+                      height: 10,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                  ],
                 ],
               ),
+            ),
+          ),
+
+          // Floating Map Quick Actions (Auto-Follow & Fit Trail)
+          Positioned(
+            top: 16,
+            right: 16,
+            child: Column(
+              children: [
+                // Re-center / Auto Follow Toggle
+                FloatingActionButton.small(
+                  heroTag: 'btn_auto_follow',
+                  backgroundColor: _autoFollow ? AppColors.primary : Colors.white,
+                  foregroundColor: _autoFollow ? Colors.white : AppColors.textPrimary,
+                  elevation: 4,
+                  onPressed: () {
+                    setState(() => _autoFollow = !_autoFollow);
+                    if (_autoFollow && _currentLocation != null) {
+                      _animateCamera(
+                          _currentLocation!.latitude, _currentLocation!.longitude);
+                    }
+                  },
+                  child: Icon(
+                    _autoFollow
+                        ? Icons.my_location_rounded
+                        : Icons.location_searching_rounded,
+                    size: 20,
+                  ),
+                ),
+                const SizedBox(height: 8),
+
+                // Fit Full Trail Route
+                if (_liveTrailPoints.length > 1)
+                  FloatingActionButton.small(
+                    heroTag: 'btn_fit_trail',
+                    backgroundColor: Colors.white,
+                    foregroundColor: AppColors.primary,
+                    elevation: 4,
+                    onPressed: () {
+                      setState(() => _autoFollow = false);
+                      _fitTrailBounds();
+                    },
+                    child: const Icon(Icons.route_rounded, size: 20),
+                  ),
+              ],
             ),
           ),
 
@@ -245,7 +491,7 @@ class _MemberMapScreenState extends State<MemberMapScreen> {
                 side: const BorderSide(color: AppColors.cardBorder, width: 1.5),
               ),
               child: Padding(
-                padding: const EdgeInsets.all(18),
+                padding: const EdgeInsets.all(16),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   mainAxisSize: MainAxisSize.min,
@@ -280,7 +526,7 @@ class _MemberMapScreenState extends State<MemberMapScreen> {
                               Text(
                                 widget.member.name,
                                 style: const TextStyle(
-                                  fontSize: 17,
+                                  fontSize: 16,
                                   fontWeight: FontWeight.bold,
                                   color: AppColors.textPrimary,
                                 ),
@@ -288,7 +534,7 @@ class _MemberMapScreenState extends State<MemberMapScreen> {
                               Text(
                                 widget.member.mobile,
                                 style: const TextStyle(
-                                  fontSize: 13,
+                                  fontSize: 12,
                                   color: AppColors.textSecondary,
                                 ),
                               ),
@@ -335,9 +581,9 @@ class _MemberMapScreenState extends State<MemberMapScreen> {
                           ),
                       ],
                     ),
-                    const SizedBox(height: 12),
-                    const Divider(height: 1, color: AppColors.cardBorder),
                     const SizedBox(height: 10),
+                    const Divider(height: 1, color: AppColors.cardBorder),
+                    const SizedBox(height: 8),
 
                     // Full Street Address
                     Row(
@@ -353,56 +599,60 @@ class _MemberMapScreenState extends State<MemberMapScreen> {
                           child: Text(
                             displayAddress,
                             style: const TextStyle(
-                              fontSize: 13,
+                              fontSize: 12,
                               fontWeight: FontWeight.w500,
                               color: AppColors.textPrimary,
                             ),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 6),
-
-                    // Coordinates
-                    Row(
-                      children: [
-                        const Icon(
-                          Icons.gps_fixed_rounded,
-                          size: 14,
-                          color: AppColors.accent,
-                        ),
-                        const SizedBox(width: 6),
-                        Text(
-                          'Lat: ${lat.toStringAsFixed(6)}, Lng: ${lng.toStringAsFixed(6)}',
-                          style: const TextStyle(
-                            fontSize: 11,
-                            color: AppColors.textSecondary,
-                            fontFamily: 'monospace',
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
                           ),
                         ),
                       ],
                     ),
                     const SizedBox(height: 4),
 
-                    // Last Updated
+                    // Coordinates & Last Updated
                     Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        const Icon(
-                          Icons.access_time_rounded,
-                          size: 14,
-                          color: AppColors.textMuted,
+                        Row(
+                          children: [
+                            const Icon(
+                              Icons.gps_fixed_rounded,
+                              size: 13,
+                              color: AppColors.accent,
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              '${lat.toStringAsFixed(4)}, ${lng.toStringAsFixed(4)}',
+                              style: const TextStyle(
+                                fontSize: 11,
+                                color: AppColors.textSecondary,
+                                fontFamily: 'monospace',
+                              ),
+                            ),
+                          ],
                         ),
-                        const SizedBox(width: 6),
-                        Text(
-                          'Last updated: $formattedTime',
-                          style: const TextStyle(
-                            fontSize: 11,
-                            color: AppColors.textSecondary,
-                          ),
+                        Row(
+                          children: [
+                            const Icon(
+                              Icons.access_time_rounded,
+                              size: 13,
+                              color: AppColors.textMuted,
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              formattedTime,
+                              style: const TextStyle(
+                                fontSize: 11,
+                                color: AppColors.textSecondary,
+                              ),
+                            ),
+                          ],
                         ),
                       ],
                     ),
-                    const SizedBox(height: 14),
+                    const SizedBox(height: 12),
 
                     // Call & SMS & History buttons
                     Row(

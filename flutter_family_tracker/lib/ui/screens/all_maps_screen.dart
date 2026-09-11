@@ -2,12 +2,14 @@ import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:latlong2/latlong.dart' as ll;
 import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../constants/app_colors.dart';
 import '../../models/family_member_model.dart';
 import '../../models/location_details_model.dart';
 import '../../providers/family_provider.dart';
+import '../../services/database_service.dart';
 import '../../services/geocoding_service.dart';
 import '../../services/profile_image_service.dart';
 import '../../utils/marker_generator.dart';
@@ -32,8 +34,12 @@ class AllMapsScreen extends StatefulWidget {
 
 class _AllMapsScreenState extends State<AllMapsScreen> {
   final Completer<GoogleMapController> _controller = Completer();
+  final DatabaseService _dbService = DatabaseService();
   MapType _currentMapType = MapType.normal;
   final Set<Marker> _markers = {};
+  final Set<Polyline> _polylines = {};
+  final List<AdaptivePolyline> _adaptivePolylines = [];
+  final List<LatLng> _selectedMemberTrail = [];
   FamilyMemberModel? _selectedMember;
   final Map<String, String> _resolvedAddresses = {};
   final Map<String, File?> _memberPhotos = {};
@@ -54,15 +60,16 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
     super.initState();
     if (widget.members.isNotEmpty) {
       _selectedMember = widget.members.first;
+      _loadMemberTrail(widget.members.first);
     }
     _loadPhotosAndBuildMarkers();
   }
 
   Future<void> _loadPhotosAndBuildMarkers() async {
-    final Set<Marker> newMarkers = {};
-
-    for (int i = 0; i < widget.members.length; i++) {
-      final member = widget.members[i];
+    // Generate markers in parallel across all members using cached bitmaps
+    final markerFutures = widget.members.asMap().entries.map((entry) async {
+      final i = entry.key;
+      final member = entry.value;
       final loc = widget.locations[member.mobile];
       final color = _markerColors[i % _markerColors.length];
 
@@ -72,7 +79,7 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
       _memberPhotos[member.mobile] = photoFile;
 
       if (loc != null && (loc.latitude != 0.0 || loc.longitude != 0.0)) {
-        // Resolve address if missing or coordinate format
+        // Resolve address in background if missing
         if (loc.address.isEmpty || loc.address.startsWith('Lat:')) {
           GeocodingService.getAddressFromCoordinates(loc.latitude, loc.longitude)
               .then((addr) {
@@ -98,31 +105,99 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
 
         final displayAddr = _resolvedAddresses[member.mobile] ?? loc.address;
 
-        newMarkers.add(
-          Marker(
-            markerId: MarkerId(member.mobile),
-            position: LatLng(loc.latitude, loc.longitude),
-            icon: customIcon,
-            infoWindow: InfoWindow(
-              title: member.name,
-              snippet: '⚡ ${loc.batteryPercentage}% • $displayAddr\n🕒 $lastUpdated',
-            ),
-            onTap: () {
-              setState(() {
-                _selectedMember = member;
-                _showBottomCard = true;
-              });
-            },
+        return Marker(
+          markerId: MarkerId(member.mobile),
+          position: LatLng(loc.latitude, loc.longitude),
+          icon: customIcon,
+          infoWindow: InfoWindow(
+            title: member.name,
+            snippet: '⚡ ${loc.batteryPercentage}% • $displayAddr\n🕒 $lastUpdated',
           ),
+          onTap: () {
+            _focusMember(member);
+          },
         );
       }
-    }
+      return null;
+    });
+
+    final resolvedMarkers = await Future.wait(markerFutures);
 
     if (mounted) {
       setState(() {
         _markers.clear();
-        _markers.addAll(newMarkers);
+        _markers.addAll(resolvedMarkers.whereType<Marker>());
       });
+    }
+  }
+
+  Future<void> _loadMemberTrail(FamilyMemberModel member) async {
+    try {
+      final now = DateTime.now();
+      final todayDate = DateFormat('yyyy-MM-dd').format(now);
+      final history =
+          await _dbService.getLocationHistory(member.mobile, todayDate);
+      if (!mounted) return;
+
+      final List<LatLng> points = [];
+      final List<ll.LatLng> adaptivePoints = [];
+
+      for (var h in history) {
+        if (h.latitude != 0.0 && h.longitude != 0.0) {
+          points.add(LatLng(h.latitude, h.longitude));
+          adaptivePoints.add(ll.LatLng(h.latitude, h.longitude));
+        }
+      }
+
+      final loc = widget.locations[member.mobile];
+      if (loc != null && (loc.latitude != 0.0 || loc.longitude != 0.0)) {
+        final cur = LatLng(loc.latitude, loc.longitude);
+        if (points.isEmpty || points.last.latitude != cur.latitude || points.last.longitude != cur.longitude) {
+          points.add(cur);
+          adaptivePoints.add(ll.LatLng(loc.latitude, loc.longitude));
+        }
+      }
+
+      if (mounted) {
+        setState(() {
+          _selectedMemberTrail.clear();
+          _selectedMemberTrail.addAll(points);
+          _polylines.clear();
+          _adaptivePolylines.clear();
+
+          if (points.length >= 2) {
+            final memberIndex =
+                widget.members.indexWhere((m) => m.mobile == member.mobile);
+            final trailColor = memberIndex >= 0
+                ? _markerColors[memberIndex % _markerColors.length]
+                : AppColors.primary;
+
+            _polylines.add(
+              Polyline(
+                polylineId: PolylineId('all_maps_trail_${member.mobile}'),
+                points: points,
+                color: trailColor,
+                width: 5,
+                startCap: Cap.roundCap,
+                endCap: Cap.roundCap,
+                jointType: JointType.round,
+                geodesic: true,
+              ),
+            );
+
+            _adaptivePolylines.add(
+              AdaptivePolyline(
+                id: 'all_maps_trail_${member.mobile}',
+                points: adaptivePoints,
+                color: trailColor,
+                strokeWidth: 4.5,
+              ),
+            );
+          }
+        });
+      }
+    } catch (e) {
+      debugPrint('[AllMapsScreen] Error loading trail: $e');
     }
   }
 
@@ -132,17 +207,21 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
       _showBottomCard = true;
     });
 
+    _loadMemberTrail(member);
+
     final loc = widget.locations[member.mobile];
     if (loc != null && (loc.latitude != 0.0 || loc.longitude != 0.0)) {
-      final GoogleMapController controller = await _controller.future;
-      controller.animateCamera(
-        CameraUpdate.newCameraPosition(
-          CameraPosition(
-            target: LatLng(loc.latitude, loc.longitude),
-            zoom: 16,
+      try {
+        final GoogleMapController controller = await _controller.future;
+        controller.animateCamera(
+          CameraUpdate.newCameraPosition(
+            CameraPosition(
+              target: LatLng(loc.latitude, loc.longitude),
+              zoom: 16,
+            ),
           ),
-        ),
-      );
+        );
+      } catch (_) {}
     }
   }
 
@@ -150,6 +229,9 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
     setState(() {
       _selectedMember = null;
       _showBottomCard = false;
+      _polylines.clear();
+      _adaptivePolylines.clear();
+      _selectedMemberTrail.clear();
     });
 
     if (_markers.isEmpty) return;
@@ -287,16 +369,17 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
                 snippet: loc?.address ?? '',
                 pinColor: MarkerGenerator.getMarkerColor(m.relationship),
                 onTap: () {
-                  setState(() {
-                    _selectedMember = m;
-                    _showBottomCard = true;
-                  });
+                  _focusMember(m);
                 },
               );
             }).where((p) => p.latitude != 0.0 && p.longitude != 0.0).toList(),
             googleMarkers: _markers,
+            googlePolylines: _polylines,
+            polylines: _adaptivePolylines,
             onGoogleMapCreated: (GoogleMapController controller) {
-              _controller.complete(controller);
+              if (!_controller.isCompleted) {
+                _controller.complete(controller);
+              }
               Future.delayed(const Duration(milliseconds: 600), _fitAllBounds);
             },
           ),

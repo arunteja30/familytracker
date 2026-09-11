@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:io';
-import 'dart:typed_data';
 import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -8,7 +7,19 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 import '../constants/app_colors.dart';
 
 class MarkerGenerator {
-  // Generate a custom map marker with Member Avatar + Name Label Pill by default
+  // In-memory cache for generated marker BitmapDescriptors
+  static final Map<String, BitmapDescriptor> _markerCache = {};
+
+  // Clear cache if needed (e.g., when profile photo is updated)
+  static void clearCache([String? memberPhone]) {
+    if (memberPhone != null) {
+      _markerCache.removeWhere((key, _) => key.contains(memberPhone));
+    } else {
+      _markerCache.clear();
+    }
+  }
+
+  // Generate a custom map marker with Member Avatar + Name Label Pill (Cached)
   static Future<BitmapDescriptor> createCustomMemberMarker({
     required String name,
     String? localPhotoPath,
@@ -16,6 +27,12 @@ class MarkerGenerator {
   }) async {
     final displayName = name.isNotEmpty ? name : 'Member';
     final initial = displayName[0].toUpperCase();
+
+    // 0. Cache Check for instant 0ms retrieval
+    final cacheKey = '${displayName}_${pinColor.toARGB32()}_${localPhotoPath ?? ''}';
+    if (_markerCache.containsKey(cacheKey)) {
+      return _markerCache[cacheKey]!;
+    }
 
     const double markerWidth = 140;
     const double markerHeight = 110;
@@ -26,7 +43,7 @@ class MarkerGenerator {
 
     // 1. Draw avatar outer shadow & border
     final shadowPaint = Paint()
-      ..color = Colors.black.withOpacity(0.25)
+      ..color = Colors.black.withValues(alpha: 0.25)
       ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6);
     canvas.drawCircle(
       const Offset(markerWidth / 2, avatarRadius + 4),
@@ -151,7 +168,7 @@ class MarkerGenerator {
     canvas.drawRRect(
       badgeRect.shift(const Offset(0, 2)),
       Paint()
-        ..color = Colors.black.withOpacity(0.2)
+        ..color = Colors.black.withValues(alpha: 0.2)
         ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 3),
     );
 
@@ -165,7 +182,7 @@ class MarkerGenerator {
     canvas.drawRRect(
       badgeRect,
       Paint()
-        ..color = pinColor.withOpacity(0.6)
+        ..color = pinColor.withValues(alpha: 0.6)
         ..style = PaintingStyle.stroke
         ..strokeWidth = 1.5,
     );
@@ -191,7 +208,9 @@ class MarkerGenerator {
     }
 
     final Uint8List uint8list = byteData.buffer.asUint8List();
-    return BitmapDescriptor.bytes(uint8list);
+    final descriptor = BitmapDescriptor.bytes(uint8list);
+    _markerCache[cacheKey] = descriptor;
+    return descriptor;
   }
 
   static Color getMarkerColor(String relationship) {
