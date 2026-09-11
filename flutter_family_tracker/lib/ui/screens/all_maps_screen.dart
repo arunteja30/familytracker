@@ -35,11 +35,13 @@ class AllMapsScreen extends StatefulWidget {
 class _AllMapsScreenState extends State<AllMapsScreen> {
   final Completer<GoogleMapController> _controller = Completer();
   final DatabaseService _dbService = DatabaseService();
+  final List<StreamSubscription> _locationSubscriptions = [];
   MapType _currentMapType = MapType.normal;
   final Set<Marker> _markers = {};
   final Set<Polyline> _polylines = {};
   final List<AdaptivePolyline> _adaptivePolylines = [];
-  final List<LatLng> _selectedMemberTrail = [];
+  final Map<String, List<LatLng>> _sessionMovements = {};
+  final Map<String, LocationDetailsModel> _liveLocations = {};
   FamilyMemberModel? _selectedMember;
   final Map<String, String> _resolvedAddresses = {};
   final Map<String, File?> _memberPhotos = {};
@@ -58,11 +60,156 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
   @override
   void initState() {
     super.initState();
+    _liveLocations.addAll(widget.locations);
     if (widget.members.isNotEmpty) {
       _selectedMember = widget.members.first;
-      _loadMemberTrail(widget.members.first);
     }
     _loadPhotosAndBuildMarkers();
+    _subscribeToLiveMovements();
+  }
+
+  @override
+  void dispose() {
+    for (var sub in _locationSubscriptions) {
+      sub.cancel();
+    }
+    super.dispose();
+  }
+
+  // Subscribe to live location stream for all family members to track movements live
+  void _subscribeToLiveMovements() {
+    for (int i = 0; i < widget.members.length; i++) {
+      final member = widget.members[i];
+      final memberIndex = i;
+
+      final sub = _dbService.streamLocationDetails(member.mobile).listen((newLoc) {
+        if (newLoc != null &&
+            (newLoc.latitude != 0.0 || newLoc.longitude != 0.0) &&
+            mounted) {
+          final oldLoc = _liveLocations[member.mobile];
+          final hasMoved = oldLoc == null ||
+              (oldLoc.latitude - newLoc.latitude).abs() > 0.00001 ||
+              (oldLoc.longitude - newLoc.longitude).abs() > 0.00001;
+
+          _liveLocations[member.mobile] = newLoc;
+
+          if (hasMoved) {
+            _updateMemberMarker(member, newLoc, memberIndex);
+          }
+        }
+      });
+      _locationSubscriptions.add(sub);
+    }
+  }
+
+  Future<Marker?> _buildMarkerForMember(
+      FamilyMemberModel member, LocationDetailsModel? loc, int index) async {
+    if (loc == null || (loc.latitude == 0.0 && loc.longitude == 0.0)) return null;
+
+    final color = _markerColors[index % _markerColors.length];
+    final photoFile = _memberPhotos[member.mobile] ??
+        await ProfileImageService.getProfileImageFile(member.mobile);
+    _memberPhotos[member.mobile] = photoFile;
+
+    // Resolve address in background if missing
+    if (loc.address.isEmpty || loc.address.startsWith('Lat:')) {
+      GeocodingService.getAddressFromCoordinates(loc.latitude, loc.longitude)
+          .then((addr) {
+        if (mounted) {
+          setState(() => _resolvedAddresses[member.mobile] = addr);
+        }
+      });
+    } else {
+      _resolvedAddresses[member.mobile] = loc.address;
+    }
+
+    final customIcon = await MarkerGenerator.createCustomMemberMarker(
+      name: member.name,
+      pinColor: color,
+      localPhotoPath: photoFile?.path,
+    );
+
+    final lastUpdated = loc.timeStamp > 0
+        ? DateFormat('MMM dd, yyyy • hh:mm:ss a').format(
+            DateTime.fromMillisecondsSinceEpoch(loc.timeStamp),
+          )
+        : (loc.date.isNotEmpty ? loc.date : 'Recently');
+
+    final displayAddr = _resolvedAddresses[member.mobile] ?? loc.address;
+
+    return Marker(
+      markerId: MarkerId(member.mobile),
+      position: LatLng(loc.latitude, loc.longitude),
+      icon: customIcon,
+      infoWindow: InfoWindow(
+        title: member.name,
+        snippet: '⚡ ${loc.batteryPercentage}% • $displayAddr\n🕒 $lastUpdated',
+      ),
+      onTap: () {
+        _focusMember(member);
+      },
+    );
+  }
+
+  Future<void> _updateMemberMarker(
+      FamilyMemberModel member, LocationDetailsModel loc, int index) async {
+    final marker = await _buildMarkerForMember(member, loc, index);
+    if (marker != null && mounted) {
+      setState(() {
+        _markers.removeWhere((m) => m.markerId.value == member.mobile);
+        _markers.add(marker);
+
+        // Track live movement path for current active session
+        final memberTrail =
+            _sessionMovements.putIfAbsent(member.mobile, () => []);
+        final newPoint = LatLng(loc.latitude, loc.longitude);
+        if (memberTrail.isEmpty ||
+            memberTrail.last.latitude != newPoint.latitude ||
+            memberTrail.last.longitude != newPoint.longitude) {
+          memberTrail.add(newPoint);
+          if (memberTrail.length > 25) {
+            memberTrail.removeAt(0); // keep only recent movement breadcrumbs
+          }
+        }
+        _updateActiveMovementPolylines();
+      });
+    }
+  }
+
+  void _updateActiveMovementPolylines() {
+    _polylines.clear();
+    _adaptivePolylines.clear();
+
+    for (int i = 0; i < widget.members.length; i++) {
+      final member = widget.members[i];
+      final trail = _sessionMovements[member.mobile];
+      if (trail != null && trail.length >= 2) {
+        // Show current movement trail only for active movements
+        if (_selectedMember == null || _selectedMember!.mobile == member.mobile) {
+          final color = _markerColors[i % _markerColors.length];
+          _polylines.add(
+            Polyline(
+              polylineId: PolylineId('active_move_${member.mobile}'),
+              points: List.from(trail),
+              color: color,
+              width: 4,
+              startCap: Cap.roundCap,
+              endCap: Cap.roundCap,
+              jointType: JointType.round,
+            ),
+          );
+
+          _adaptivePolylines.add(
+            AdaptivePolyline(
+              id: 'active_move_${member.mobile}',
+              points: trail.map((p) => ll.LatLng(p.latitude, p.longitude)).toList(),
+              color: color,
+              strokeWidth: 4.0,
+            ),
+          );
+        }
+      }
+    }
   }
 
   Future<void> _loadPhotosAndBuildMarkers() async {
@@ -70,55 +217,8 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
     final markerFutures = widget.members.asMap().entries.map((entry) async {
       final i = entry.key;
       final member = entry.value;
-      final loc = widget.locations[member.mobile];
-      final color = _markerColors[i % _markerColors.length];
-
-      // Load local photo
-      final photoFile =
-          await ProfileImageService.getProfileImageFile(member.mobile);
-      _memberPhotos[member.mobile] = photoFile;
-
-      if (loc != null && (loc.latitude != 0.0 || loc.longitude != 0.0)) {
-        // Resolve address in background if missing
-        if (loc.address.isEmpty || loc.address.startsWith('Lat:')) {
-          GeocodingService.getAddressFromCoordinates(loc.latitude, loc.longitude)
-              .then((addr) {
-            if (mounted) {
-              setState(() => _resolvedAddresses[member.mobile] = addr);
-            }
-          });
-        } else {
-          _resolvedAddresses[member.mobile] = loc.address;
-        }
-
-        final customIcon = await MarkerGenerator.createCustomMemberMarker(
-          name: member.name,
-          pinColor: color,
-          localPhotoPath: photoFile?.path,
-        );
-
-        final lastUpdated = loc.timeStamp > 0
-            ? DateFormat('MMM dd, yyyy • hh:mm:ss a').format(
-                DateTime.fromMillisecondsSinceEpoch(loc.timeStamp),
-              )
-            : (loc.date.isNotEmpty ? loc.date : 'Recently');
-
-        final displayAddr = _resolvedAddresses[member.mobile] ?? loc.address;
-
-        return Marker(
-          markerId: MarkerId(member.mobile),
-          position: LatLng(loc.latitude, loc.longitude),
-          icon: customIcon,
-          infoWindow: InfoWindow(
-            title: member.name,
-            snippet: '⚡ ${loc.batteryPercentage}% • $displayAddr\n🕒 $lastUpdated',
-          ),
-          onTap: () {
-            _focusMember(member);
-          },
-        );
-      }
-      return null;
+      final loc = _liveLocations[member.mobile] ?? widget.locations[member.mobile];
+      return await _buildMarkerForMember(member, loc, i);
     });
 
     final resolvedMarkers = await Future.wait(markerFutures);
@@ -131,85 +231,14 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
     }
   }
 
-  Future<void> _loadMemberTrail(FamilyMemberModel member) async {
-    try {
-      final now = DateTime.now();
-      final todayDate = DateFormat('yyyy-MM-dd').format(now);
-      final history =
-          await _dbService.getLocationHistory(member.mobile, todayDate);
-      if (!mounted) return;
-
-      final List<LatLng> points = [];
-      final List<ll.LatLng> adaptivePoints = [];
-
-      for (var h in history) {
-        if (h.latitude != 0.0 && h.longitude != 0.0) {
-          points.add(LatLng(h.latitude, h.longitude));
-          adaptivePoints.add(ll.LatLng(h.latitude, h.longitude));
-        }
-      }
-
-      final loc = widget.locations[member.mobile];
-      if (loc != null && (loc.latitude != 0.0 || loc.longitude != 0.0)) {
-        final cur = LatLng(loc.latitude, loc.longitude);
-        if (points.isEmpty || points.last.latitude != cur.latitude || points.last.longitude != cur.longitude) {
-          points.add(cur);
-          adaptivePoints.add(ll.LatLng(loc.latitude, loc.longitude));
-        }
-      }
-
-      if (mounted) {
-        setState(() {
-          _selectedMemberTrail.clear();
-          _selectedMemberTrail.addAll(points);
-          _polylines.clear();
-          _adaptivePolylines.clear();
-
-          if (points.length >= 2) {
-            final memberIndex =
-                widget.members.indexWhere((m) => m.mobile == member.mobile);
-            final trailColor = memberIndex >= 0
-                ? _markerColors[memberIndex % _markerColors.length]
-                : AppColors.primary;
-
-            _polylines.add(
-              Polyline(
-                polylineId: PolylineId('all_maps_trail_${member.mobile}'),
-                points: points,
-                color: trailColor,
-                width: 5,
-                startCap: Cap.roundCap,
-                endCap: Cap.roundCap,
-                jointType: JointType.round,
-                geodesic: true,
-              ),
-            );
-
-            _adaptivePolylines.add(
-              AdaptivePolyline(
-                id: 'all_maps_trail_${member.mobile}',
-                points: adaptivePoints,
-                color: trailColor,
-                strokeWidth: 4.5,
-              ),
-            );
-          }
-        });
-      }
-    } catch (e) {
-      debugPrint('[AllMapsScreen] Error loading trail: $e');
-    }
-  }
-
   Future<void> _focusMember(FamilyMemberModel member) async {
     setState(() {
       _selectedMember = member;
       _showBottomCard = true;
+      _updateActiveMovementPolylines();
     });
 
-    _loadMemberTrail(member);
-
-    final loc = widget.locations[member.mobile];
+    final loc = _liveLocations[member.mobile] ?? widget.locations[member.mobile];
     if (loc != null && (loc.latitude != 0.0 || loc.longitude != 0.0)) {
       try {
         final GoogleMapController controller = await _controller.future;
@@ -229,9 +258,7 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
     setState(() {
       _selectedMember = null;
       _showBottomCard = false;
-      _polylines.clear();
-      _adaptivePolylines.clear();
-      _selectedMemberTrail.clear();
+      _updateActiveMovementPolylines();
     });
 
     if (_markers.isEmpty) return;
@@ -296,7 +323,8 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
     }
 
     final selectedLoc = _selectedMember != null
-        ? widget.locations[_selectedMember!.mobile]
+        ? (_liveLocations[_selectedMember!.mobile] ??
+            widget.locations[_selectedMember!.mobile])
         : null;
 
     final selectedPhoto = _selectedMember != null
@@ -360,7 +388,7 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
             initialZoom: 12,
             mapType: _currentMapType,
             points: widget.members.map((m) {
-              final loc = widget.locations[m.mobile];
+              final loc = _liveLocations[m.mobile] ?? widget.locations[m.mobile];
               return AdaptiveMapPoint(
                 id: m.mobile,
                 latitude: loc?.latitude ?? 0.0,
@@ -723,7 +751,7 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
   Widget _buildMemberChip(FamilyMemberModel member, int index) {
     final isSelected = _selectedMember?.mobile == member.mobile;
     final photo = _memberPhotos[member.mobile];
-    final loc = widget.locations[member.mobile];
+    final loc = _liveLocations[member.mobile] ?? widget.locations[member.mobile];
     final color = _markerColors[index % _markerColors.length];
 
     return Padding(
