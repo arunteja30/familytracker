@@ -323,6 +323,115 @@ class FamilyProvider extends ChangeNotifier {
     }
   }
 
+  // Resolve current user's display name accurately from memory, contacts, and preferences
+  String resolveCurrentUserName([String? candidateName]) {
+    if (candidateName != null &&
+        candidateName.trim().isNotEmpty &&
+        candidateName.trim() != 'Family Member') {
+      return candidateName.trim();
+    }
+
+    final prefName = PreferencesService.getUserName();
+    if (prefName != null &&
+        prefName.trim().isNotEmpty &&
+        prefName.trim() != 'Family Member') {
+      return prefName.trim();
+    }
+
+    final myPhone = PreferencesService.getUserPhone() ?? '';
+    if (myPhone.isNotEmpty) {
+      for (final m in _familyMembers) {
+        if (DatabaseService.matchPhones(m.mobile, myPhone) &&
+            m.name.trim().isNotEmpty &&
+            m.name.trim() != 'Family Member') {
+          PreferencesService.saveUserName(m.name.trim());
+          return m.name.trim();
+        }
+      }
+
+      final contactName = ContactsService.getContactName(myPhone);
+      if (contactName.isNotEmpty && contactName != myPhone) {
+        PreferencesService.saveUserName(contactName);
+        return contactName;
+      }
+    }
+
+    return 'Family Member';
+  }
+
+  // Resolve current location coordinates & address with multi-tier hardware GPS, cache & IP fallback
+  Future<Map<String, dynamic>> resolveCurrentLocationAndAddress({
+    double? latitude,
+    double? longitude,
+    String? address,
+  }) async {
+    double lat = latitude ?? 0.0;
+    double lng = longitude ?? 0.0;
+    String addr = address ?? '';
+
+    final myPhone = PreferencesService.getUserPhone() ?? '';
+    final normalizedPhone = PhoneUtils.normalize(myPhone);
+
+    if (lat == 0.0 && lng == 0.0) {
+      // 1. Try fast hardware GPS & IP fallback via LocationService
+      try {
+        final locDetails = await _locationService.getCurrentLocationDetails();
+        if (locDetails != null && (locDetails.latitude != 0.0 || locDetails.longitude != 0.0)) {
+          lat = locDetails.latitude;
+          lng = locDetails.longitude;
+          if (addr.isEmpty && locDetails.address.isNotEmpty) {
+            addr = locDetails.address;
+          }
+        }
+      } catch (e) {
+        debugPrint('[FamilyTracker] LocationService resolution error: $e');
+      }
+
+      // 2. Check cached in-memory locations
+      if (lat == 0.0 && lng == 0.0) {
+        final cached = _memberLocations[normalizedPhone] ?? _memberLocations[myPhone];
+        if (cached != null && (cached.latitude != 0.0 || cached.longitude != 0.0)) {
+          lat = cached.latitude;
+          lng = cached.longitude;
+          if (addr.isEmpty && cached.address != null && cached.address!.isNotEmpty) {
+            addr = cached.address!;
+          }
+        }
+      }
+
+      // 3. Check Geolocator lastKnown
+      if (lat == 0.0 && lng == 0.0) {
+        try {
+          final lastPos = await Geolocator.getLastKnownPosition();
+          if (lastPos != null && (lastPos.latitude != 0.0 || lastPos.longitude != 0.0)) {
+            lat = lastPos.latitude;
+            lng = lastPos.longitude;
+          }
+        } catch (_) {}
+      }
+    }
+
+    // Resolve human-readable address if missing or placeholder
+    if ((lat != 0.0 || lng != 0.0) && (addr.isEmpty || addr.startsWith('Lat:'))) {
+      try {
+        final resolved = await GeocodingService.getAddressFromCoordinates(lat, lng);
+        if (resolved.isNotEmpty && !resolved.startsWith('Lat:')) {
+          addr = resolved;
+        }
+      } catch (_) {}
+
+      if (addr.isEmpty || addr.startsWith('Lat:')) {
+        addr = 'Lat: ${lat.toStringAsFixed(4)}, Lng: ${lng.toStringAsFixed(4)}';
+      }
+    }
+
+    return {
+      'latitude': lat,
+      'longitude': lng,
+      'address': addr,
+    };
+  }
+
   // Broadcast SOS Distress Event to all Family Devices
   Future<void> triggerSos({
     double? latitude,
@@ -331,37 +440,67 @@ class FamilyProvider extends ChangeNotifier {
     String? senderName,
   }) async {
     final myPhone = PreferencesService.getUserPhone() ?? '';
-    final myName = senderName ?? PreferencesService.getUserName() ?? 'Family Member';
+    final normalizedPhone = PhoneUtils.normalize(myPhone);
+    final myName = resolveCurrentUserName(senderName);
 
-    double lat = latitude ?? 0.0;
-    double lng = longitude ?? 0.0;
-    String addr = address ?? '';
+    final loc = await resolveCurrentLocationAndAddress(
+      latitude: latitude,
+      longitude: longitude,
+      address: address,
+    );
 
-    if (lat == 0.0 && lng == 0.0) {
-      try {
-        final pos = await Geolocator.getCurrentPosition(
-          desiredAccuracy: LocationAccuracy.high,
-          timeLimit: const Duration(seconds: 4),
-        );
-        lat = pos.latitude;
-        lng = pos.longitude;
-      } catch (_) {}
-    }
+    final double lat = loc['latitude'] ?? 0.0;
+    final double lng = loc['longitude'] ?? 0.0;
+    final String addr = loc['address'] ?? '';
 
-    if (addr.isEmpty && lat != 0.0) {
-      try {
-        addr = await GeocodingService.getAddress(lat, lng);
-      } catch (_) {}
-    }
+    debugPrint('[FamilyTracker] 🚨 Triggering SOS: sender=$myName ($normalizedPhone), lat=$lat, lng=$lng, addr=$addr, family=$currentFamilyName');
 
+    // 1. Broadcast to emergency_alerts node in Firebase RTDB
     await _dbService.triggerFamilySos(
       familyName: currentFamilyName,
-      senderPhone: myPhone,
+      senderPhone: normalizedPhone.isNotEmpty ? normalizedPhone : myPhone,
       senderName: myName,
       latitude: lat,
       longitude: lng,
       address: addr,
     );
+
+    // 2. Save location to database if valid coordinates found
+    if (lat != 0.0 || lng != 0.0) {
+      try {
+        final now = DateTime.now();
+        final locationModel = LocationDetailsModel(
+          latitude: lat,
+          longitude: lng,
+          timeStamp: now.millisecondsSinceEpoch,
+          date: '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}',
+          batteryPercentage: 100,
+          address: addr,
+          gpsStatus: 'SOS Distress Active',
+        );
+        await _dbService.saveLocation(normalizedPhone.isNotEmpty ? normalizedPhone : myPhone, locationModel);
+      } catch (e) {
+        debugPrint('[FamilyTracker] SOS saveLocation error: $e');
+      }
+    }
+
+    // 3. Post SOS distress message into Family Group Chat
+    try {
+      final sosChatMessage = ChatMessageModel(
+        messageId: '',
+        senderPhone: normalizedPhone.isNotEmpty ? normalizedPhone : myPhone,
+        senderName: myName,
+        text: '🚨 EMERGENCY SOS: I need immediate help!\n$addr',
+        timestamp: DateTime.now().millisecondsSinceEpoch,
+        type: 'LOCATION',
+        latitude: lat,
+        longitude: lng,
+        address: addr,
+      );
+      await _dbService.sendChatMessage(currentFamilyName, sosChatMessage);
+    } catch (e) {
+      debugPrint('[FamilyTracker] SOS sendChatMessage error: $e');
+    }
   }
 
   // Dismiss Emergency SOS Alert
@@ -414,7 +553,7 @@ class FamilyProvider extends ChangeNotifier {
   Future<void> sendChatMessage(String text) async {
     if (text.trim().isEmpty) return;
     final myPhone = PreferencesService.getUserPhone() ?? '';
-    final myName = PreferencesService.getUserName() ?? 'Family Member';
+    final myName = resolveCurrentUserName();
 
     final message = ChatMessageModel(
       messageId: '',
@@ -435,28 +574,17 @@ class FamilyProvider extends ChangeNotifier {
     String? address,
   }) async {
     final myPhone = PreferencesService.getUserPhone() ?? '';
-    final myName = PreferencesService.getUserName() ?? 'Family Member';
+    final myName = resolveCurrentUserName();
 
-    double lat = latitude ?? 0.0;
-    double lng = longitude ?? 0.0;
-    String addr = address ?? '';
+    final loc = await resolveCurrentLocationAndAddress(
+      latitude: latitude,
+      longitude: longitude,
+      address: address,
+    );
 
-    if (lat == 0.0 && lng == 0.0) {
-      try {
-        final pos = await Geolocator.getCurrentPosition(
-          desiredAccuracy: LocationAccuracy.high,
-          timeLimit: const Duration(seconds: 4),
-        );
-        lat = pos.latitude;
-        lng = pos.longitude;
-      } catch (_) {}
-    }
-
-    if (addr.isEmpty && lat != 0.0) {
-      try {
-        addr = await GeocodingService.getAddress(lat, lng);
-      } catch (_) {}
-    }
+    final double lat = loc['latitude'] ?? 0.0;
+    final double lng = loc['longitude'] ?? 0.0;
+    final String addr = loc['address'] ?? '';
 
     final message = ChatMessageModel(
       messageId: '',

@@ -585,21 +585,37 @@ class DatabaseService {
     required double longitude,
     required String address,
   }) async {
-    if (familyName.isEmpty) return;
+    if (familyName.trim().isEmpty) return;
     try {
-      final cleanFamily = familyName.trim();
+      final rawKey = familyName.trim();
+      final cleanKey = rawKey.replaceAll(RegExp(r'[.#$\[\]]'), '_');
+      final normalizedPhone = PhoneUtils.normalize(senderPhone);
+      final effectivePhone = normalizedPhone.isNotEmpty ? normalizedPhone : senderPhone;
+      final effectiveName = senderName.trim().isNotEmpty ? senderName.trim() : 'Family Member';
       final now = DateTime.now().millisecondsSinceEpoch;
+
       final alertData = {
-        'senderPhone': senderPhone,
-        'senderName': senderName,
+        'senderPhone': effectivePhone,
+        'senderName': effectiveName,
         'latitude': latitude,
         'longitude': longitude,
         'address': address,
         'timestamp': now,
         'status': 'ACTIVE',
       };
-      await _db.ref('emergency_alerts').child(cleanFamily).set(alertData);
-      debugPrint('[FamilyTracker] 🚨 SOS Alert broadcasted for family $cleanFamily');
+
+      // Set active alert on primary key
+      await _db.ref('emergency_alerts').child(cleanKey).set(alertData);
+      if (rawKey != cleanKey) {
+        await _db.ref('emergency_alerts').child(rawKey).set(alertData);
+      }
+
+      // Record in emergency history log
+      try {
+        await _db.ref('emergency_history').child(cleanKey).child(now.toString()).set(alertData);
+      } catch (_) {}
+
+      debugPrint('[FamilyTracker] 🚨 SOS Alert broadcasted for family $cleanKey ($effectiveName at $latitude,$longitude - $address)');
     } catch (e) {
       debugPrint('[FamilyTracker] Failed to broadcast SOS: $e');
     }
@@ -607,10 +623,15 @@ class DatabaseService {
 
   /// Dismiss / Resolve an active Emergency SOS alert
   Future<void> clearFamilySos(String familyName) async {
-    if (familyName.isEmpty) return;
+    if (familyName.trim().isEmpty) return;
     try {
-      await _db.ref('emergency_alerts').child(familyName.trim()).remove();
-      debugPrint('[FamilyTracker] SOS Alert dismissed for family $familyName');
+      final rawKey = familyName.trim();
+      final cleanKey = rawKey.replaceAll(RegExp(r'[.#$\[\]]'), '_');
+      await _db.ref('emergency_alerts').child(cleanKey).remove();
+      if (rawKey != cleanKey) {
+        await _db.ref('emergency_alerts').child(rawKey).remove();
+      }
+      debugPrint('[FamilyTracker] SOS Alert dismissed for family $cleanKey');
     } catch (e) {
       debugPrint('[FamilyTracker] Failed to clear SOS: $e');
     }
@@ -618,8 +639,9 @@ class DatabaseService {
 
   /// Stream active Emergency SOS alerts for the current family circle
   Stream<Map<String, dynamic>?> streamEmergencyAlerts(String familyName) {
-    if (familyName.isEmpty) return const Stream.empty();
-    return _db.ref('emergency_alerts').child(familyName.trim()).onValue.map((event) {
+    if (familyName.trim().isEmpty) return const Stream.empty();
+    final cleanKey = familyName.trim().replaceAll(RegExp(r'[.#$\[\]]'), '_');
+    return _db.ref('emergency_alerts').child(cleanKey).onValue.map((event) {
       final val = event.snapshot.value;
       if (val is Map) {
         return Map<String, dynamic>.from(val);

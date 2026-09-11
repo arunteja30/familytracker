@@ -38,25 +38,51 @@ class LocationService {
 
   // Get Current Location & Battery Info (With IP Fallback when GPS is OFF)
   Future<LocationDetailsModel?> getCurrentLocationDetails() async {
-    final batteryLevel = await _battery.batteryLevel;
+    int batteryLevel = 100;
+    try {
+      batteryLevel = await _battery.batteryLevel;
+    } catch (_) {}
+
     final now = DateTime.now();
     final dateStr = DateFormat('yyyy-MM-dd').format(now);
 
-    // 1. Try Hardware GPS first
+    // 1. Try Hardware GPS (Fast lastKnown + fresh position)
     try {
-      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
-      if (serviceEnabled) {
-        final hasPermission = await checkPermission();
-        if (hasPermission) {
-          final position = await Geolocator.getCurrentPosition(
-            desiredAccuracy: LocationAccuracy.high,
-            timeLimit: const Duration(seconds: 15),
-          );
+      final hasPermission = await checkPermission();
+      if (hasPermission) {
+        Position? position;
 
-          final address = await GeocodingService.getAddressFromCoordinates(
-            position.latitude,
-            position.longitude,
+        // Try fast cached location first (0ms response)
+        try {
+          final lastKnown = await Geolocator.getLastKnownPosition();
+          if (lastKnown != null && (lastKnown.latitude != 0.0 || lastKnown.longitude != 0.0)) {
+            position = lastKnown;
+          }
+        } catch (_) {}
+
+        // Try fresh location with short timeout
+        try {
+          final fresh = await Geolocator.getCurrentPosition(
+            desiredAccuracy: LocationAccuracy.medium,
+            timeLimit: const Duration(seconds: 5),
           );
+          if (fresh.latitude != 0.0 || fresh.longitude != 0.0) {
+            position = fresh;
+          }
+        } catch (_) {}
+
+        if (position != null && (position.latitude != 0.0 || position.longitude != 0.0)) {
+          String address = '';
+          try {
+            address = await GeocodingService.getAddressFromCoordinates(
+              position.latitude,
+              position.longitude,
+            );
+          } catch (_) {}
+
+          if (address.isEmpty || address.startsWith('Lat:')) {
+            address = 'Lat: ${position.latitude.toStringAsFixed(4)}, Lng: ${position.longitude.toStringAsFixed(4)}';
+          }
 
           return LocationDetailsModel(
             latitude: position.latitude,

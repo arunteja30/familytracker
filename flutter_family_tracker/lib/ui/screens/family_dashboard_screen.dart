@@ -157,10 +157,11 @@ class _FamilyDashboardScreenState extends State<FamilyDashboardScreen> {
   }
 
   void _confirmTriggerSos(BuildContext context, FamilyProvider familyProvider) {
-    final userName = PreferencesService.getUserName() ?? 'Family Member';
+    final userName = familyProvider.resolveCurrentUserName();
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: const Row(
           children: [
             Icon(Icons.warning_amber_rounded, color: Colors.red, size: 28),
@@ -168,33 +169,43 @@ class _FamilyDashboardScreenState extends State<FamilyDashboardScreen> {
             Text('Send Emergency SOS?'),
           ],
         ),
-        content: const Text(
-          'This will immediately send a high-priority distress alert with a sound notification to all members of this family circle.',
+        content: Text(
+          'Broadcast distress alert from "$userName" to all devices in ${familyProvider.displayFamilyName}.\n\nThis immediately acquires your live GPS coordinates, resolves your street address, and sounds an emergency alert across all family devices.',
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
             child: const Text('Cancel'),
           ),
-          ElevatedButton(
+          ElevatedButton.icon(
             onPressed: () async {
               final messenger = ScaffoldMessenger.of(context);
               Navigator.pop(ctx);
+              messenger.showSnackBar(
+                const SnackBar(
+                  backgroundColor: Colors.orange,
+                  duration: Duration(seconds: 2),
+                  content: Text('📡 Acquiring location & broadcasting SOS...'),
+                ),
+              );
               await familyProvider.triggerSos(senderName: userName);
               if (mounted) {
+                messenger.hideCurrentSnackBar();
                 messenger.showSnackBar(
                   const SnackBar(
                     backgroundColor: Colors.red,
-                    content: Text('🚨 Emergency SOS alert sent to family circle!'),
+                    duration: Duration(seconds: 4),
+                    content: Text('🚨 Emergency SOS alert sent with live location to family circle!'),
                   ),
                 );
               }
             },
+            icon: const Icon(Icons.sos_rounded, color: Colors.white),
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.red.shade700,
               foregroundColor: Colors.white,
             ),
-            child: const Text('BROADCAST SOS'),
+            label: const Text('BROADCAST SOS'),
           ),
         ],
       ),
@@ -330,76 +341,136 @@ class _FamilyDashboardScreenState extends State<FamilyDashboardScreen> {
 
           // 🚨 ACTIVE EMERGENCY SOS DISTRESS BANNER
           if (familyProvider.activeEmergencyAlert != null)
-            Container(
-              width: double.infinity,
-              margin: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [Colors.red.shade700, Colors.red.shade900],
-                ),
-                borderRadius: BorderRadius.circular(14),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.red.withOpacity(0.4),
-                    blurRadius: 10,
-                    offset: const Offset(0, 4),
+            () {
+              final alert = familyProvider.activeEmergencyAlert!;
+              final alertSender = alert['senderName']?.toString() ?? 'Family Member';
+              final alertAddress = alert['address']?.toString() ?? '';
+              final alertLat = double.tryParse(alert['latitude']?.toString() ?? '') ?? 0.0;
+              final alertLng = double.tryParse(alert['longitude']?.toString() ?? '') ?? 0.0;
+              final hasCoords = alertLat != 0.0 || alertLng != 0.0;
+
+              return Container(
+                width: double.infinity,
+                margin: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [Colors.red.shade700, Colors.red.shade900],
                   ),
-                ],
-              ),
-              child: Row(
-                children: [
-                  const Icon(Icons.warning_amber_rounded,
-                      color: Colors.white, size: 30),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                  borderRadius: BorderRadius.circular(14),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.red.withOpacity(0.4),
+                      blurRadius: 10,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
                       children: [
-                        Text(
-                          '🚨 SOS DISTRESS: ${familyProvider.activeEmergencyAlert!['senderName'] ?? 'Family Member'}',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 14,
+                        const Icon(Icons.warning_amber_rounded,
+                            color: Colors.white, size: 28),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                '🚨 SOS DISTRESS: $alertSender',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 14,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                alertAddress.isNotEmpty
+                                    ? '📍 $alertAddress'
+                                    : 'Emergency triggered! Immediate attention required.',
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  color: Colors.white.withOpacity(0.92),
+                                  fontSize: 11,
+                                ),
+                              ),
+                            ],
                           ),
                         ),
-                        const SizedBox(height: 2),
-                        Text(
-                          'Emergency triggered! Immediate attention required.',
-                          style: TextStyle(
-                            color: Colors.white.withOpacity(0.9),
-                            fontSize: 11,
+                        const SizedBox(width: 8),
+                        ElevatedButton(
+                          onPressed: () async {
+                            await familyProvider.dismissSos();
+                          },
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.white,
+                            foregroundColor: Colors.red.shade800,
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 10, vertical: 8),
+                            minimumSize: Size.zero,
+                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                          ),
+                          child: const Text(
+                            'Mark Safe',
+                            style: TextStyle(
+                                fontSize: 11, fontWeight: FontWeight.bold),
                           ),
                         ),
                       ],
                     ),
-                  ),
-                  const SizedBox(width: 8),
-                  ElevatedButton(
-                    onPressed: () async {
-                      await familyProvider.dismissSos();
-                    },
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.white,
-                      foregroundColor: Colors.red.shade800,
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 10, vertical: 8),
-                      minimumSize: Size.zero,
-                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8),
+                    if (hasCoords) ...[
+                      const SizedBox(height: 8),
+                      InkWell(
+                        onTap: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => AllMapsScreen(
+                                familyName: familyProvider.currentFamilyName,
+                                members: familyProvider.familyMembers,
+                                locations: familyProvider.memberLocations,
+                              ),
+                            ),
+                          );
+                        },
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 10, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withOpacity(0.2),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(
+                                color: Colors.white.withOpacity(0.3)),
+                          ),
+                          child: const Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.map_rounded,
+                                  color: Colors.white, size: 14),
+                              SizedBox(width: 6),
+                              Text(
+                                'Track Live on Map →',
+                                style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.bold),
+                              ),
+                            ],
+                          ),
+                        ),
                       ),
-                    ),
-                    child: const Text(
-                      'Mark Safe',
-                      style:
-                          TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
-                    ),
-                  ),
-                ],
-              ),
-            ),
+                    ],
+                  ],
+                ),
+              );
+            }(),
 
           // GPS is OFF Alert Banner
           if (!_isGpsEnabled)
