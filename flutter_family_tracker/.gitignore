@@ -53,6 +53,9 @@ migrate_working_dir/
 /build/reports/
 /build/shared_preferences_android/
 /build/url_launcher_android/
+/build/native_assets/
+/build/test_cache/
+/build/unit_test_assets/
 # Allow build/web so Render Docker can serve pre-built static files
 !/build/web/
 /coverage/
