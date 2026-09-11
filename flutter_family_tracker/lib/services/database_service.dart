@@ -5,6 +5,7 @@ import '../constants/app_constants.dart';
 import '../models/family_member_model.dart';
 import '../models/location_details_model.dart';
 import '../models/registration_model.dart';
+import '../models/chat_message_model.dart';
 import '../utils/phone_utils.dart';
 import 'geocoding_service.dart';
 
@@ -659,6 +660,63 @@ class DatabaseService {
           }
         } catch (_) {}
       }
+    }
+  }
+
+  // =========================================================================
+  // 💬 FAMILY CIRCLE REAL-TIME GROUP CHAT (100% Free Tier, $0 Backend Cost)
+  // =========================================================================
+
+  /// Send a text or interactive location message to the family circle
+  Future<void> sendChatMessage(String familyName, ChatMessageModel message) async {
+    if (familyName.isEmpty) return;
+    try {
+      final cleanFamily = familyName.trim();
+      final ref = _db.ref('family_chats').child(cleanFamily).push();
+      await ref.set(message.toJson());
+      debugPrint('[FamilyTracker] 💬 Chat message sent to $cleanFamily');
+    } catch (e) {
+      debugPrint('[FamilyTracker] Failed to send chat message: $e');
+      rethrow;
+    }
+  }
+
+  /// Real-time stream of latest messages for active family circle
+  Stream<List<ChatMessageModel>> streamChatMessages(String familyName, {int limit = 100}) {
+    if (familyName.isEmpty) return Stream.value([]);
+    final cleanFamily = familyName.trim();
+    return _db
+        .ref('family_chats')
+        .child(cleanFamily)
+        .limitToLast(limit)
+        .onValue
+        .map((event) {
+      final snapshot = event.snapshot;
+      if (!snapshot.exists || snapshot.value == null || snapshot.value is! Map) {
+        return <ChatMessageModel>[];
+      }
+      final data = snapshot.value as Map;
+      final List<ChatMessageModel> messages = [];
+      data.forEach((key, val) {
+        if (val is Map) {
+          try {
+            messages.add(ChatMessageModel.fromJson(key.toString(), val));
+          } catch (_) {}
+        }
+      });
+      // Sort in chronological order (oldest first for scrolling down)
+      messages.sort((a, b) => a.timestamp.compareTo(b.timestamp));
+      return messages;
+    });
+  }
+
+  /// Delete a single chat message
+  Future<void> deleteChatMessage(String familyName, String messageId) async {
+    if (familyName.isEmpty || messageId.isEmpty) return;
+    try {
+      await _db.ref('family_chats').child(familyName.trim()).child(messageId).remove();
+    } catch (e) {
+      debugPrint('[FamilyTracker] Failed to delete chat message: $e');
     }
   }
 }

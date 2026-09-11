@@ -16,6 +16,7 @@ import '../widgets/oem_autostart_modal.dart';
 import 'all_maps_screen.dart';
 import 'member_map_screen.dart';
 import 'location_history_screen.dart';
+import 'family_chat_screen.dart';
 import 'settings_screen.dart';
 
 class FamilyDashboardScreen extends StatefulWidget {
@@ -216,6 +217,51 @@ class _FamilyDashboardScreenState extends State<FamilyDashboardScreen> {
             trailing: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
+                IconButton(
+                  tooltip: 'Family Circle Chat',
+                  icon: Stack(
+                    clipBehavior: Clip.none,
+                    children: [
+                      const Icon(Icons.chat_bubble_outline_rounded,
+                          color: Colors.white, size: 24),
+                      if (familyProvider.unreadChatCount > 0)
+                        Positioned(
+                          right: -4,
+                          top: -4,
+                          child: Container(
+                            padding: const EdgeInsets.all(4),
+                            decoration: const BoxDecoration(
+                              color: Colors.red,
+                              shape: BoxShape.circle,
+                            ),
+                            constraints: const BoxConstraints(
+                              minWidth: 16,
+                              minHeight: 16,
+                            ),
+                            child: Text(
+                              '${familyProvider.unreadChatCount}',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 9,
+                                fontWeight: FontWeight.bold,
+                              ),
+                              textAlign: TextAlign.center,
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => FamilyChatScreen(
+                          familyName: familyProvider.currentFamilyName,
+                        ),
+                      ),
+                    );
+                  },
+                ),
                 IconButton(
                   tooltip: 'Emergency SOS Broadcast',
                   icon: Container(

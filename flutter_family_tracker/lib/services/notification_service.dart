@@ -58,8 +58,18 @@ class NotificationService {
             enableVibration: true,
           );
 
+          const chatChannel = AndroidNotificationChannel(
+            'family_chat_channel',
+            'Family Circle Messages',
+            description: 'Group chat notifications from family circle members',
+            importance: Importance.high,
+            playSound: true,
+            enableVibration: true,
+          );
+
           await androidImpl.createNotificationChannel(emergencyChannel);
           await androidImpl.createNotificationChannel(alertChannel);
+          await androidImpl.createNotificationChannel(chatChannel);
           await androidImpl.requestNotificationsPermission();
         }
       }
@@ -156,6 +166,47 @@ class NotificationService {
       );
     } catch (e) {
       debugPrint('[NotificationService] Show Low Battery error: $e');
+    }
+  }
+
+  /// Show Group Chat Message notification
+  static Future<void> showChatMessageNotification({
+    required String senderName,
+    required String text,
+    required String familyName,
+  }) async {
+    try {
+      await initialize();
+
+      const androidDetails = AndroidNotificationDetails(
+        'family_chat_channel',
+        'Family Circle Messages',
+        channelDescription: 'Group chat notifications from family circle members',
+        importance: Importance.high,
+        priority: Priority.high,
+        playSound: true,
+        enableVibration: true,
+      );
+
+      const darwinDetails = DarwinNotificationDetails(
+        presentAlert: true,
+        presentBadge: true,
+        presentSound: true,
+      );
+
+      const details = NotificationDetails(
+        android: androidDetails,
+        iOS: darwinDetails,
+      );
+
+      await _notificationsPlugin.show(
+        familyName.hashCode,
+        '💬 $senderName ($familyName)',
+        text,
+        details,
+      );
+    } catch (e) {
+      debugPrint('[NotificationService] Show Chat Notification error: $e');
     }
   }
 }

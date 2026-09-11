@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import '../models/family_member_model.dart';
 import '../models/location_details_model.dart';
+import '../models/chat_message_model.dart';
 import '../services/database_service.dart';
 import '../services/preferences_service.dart';
 import '../services/location_service.dart';
@@ -22,11 +23,16 @@ class FamilyProvider extends ChangeNotifier {
   final Map<String, LocationDetailsModel> _memberLocations = {};
   final Set<String> _notifiedLowBatteryMembers = {};
   Map<String, dynamic>? _activeEmergencyAlert;
+  List<ChatMessageModel> _chatMessages = [];
+  int _unreadChatCount = 0;
+  bool _isChatScreenActive = false;
+  String? _lastProcessedMessageId;
   bool _isLoading = false;
   String? _errorMessage;
 
   StreamSubscription? _membersSubscription;
   StreamSubscription? _emergencySubscription;
+  StreamSubscription? _chatSubscription;
   final Map<String, StreamSubscription> _locationSubscriptions = {};
 
   static String formatFamilyDisplayName(String? name) {
@@ -43,6 +49,9 @@ class FamilyProvider extends ChangeNotifier {
   List<FamilyMemberModel> get familyMembers => _familyMembers;
   Map<String, LocationDetailsModel> get memberLocations => _memberLocations;
   Map<String, dynamic>? get activeEmergencyAlert => _activeEmergencyAlert;
+  List<ChatMessageModel> get chatMessages => _chatMessages;
+  int get unreadChatCount => _unreadChatCount;
+  bool get isChatScreenActive => _isChatScreenActive;
   bool get isLoading => _isLoading;
   String? get errorMessage => _errorMessage;
 
@@ -187,6 +196,7 @@ class FamilyProvider extends ChangeNotifier {
       // 5. Subscribe to real-time updates for the active family group
       _subscribeToMembers(_currentFamilyName);
       _subscribeToEmergencyAlerts(_currentFamilyName);
+      _subscribeToChat(_currentFamilyName);
 
       // 6. Start continuous background location tracking
       try {
@@ -240,6 +250,37 @@ class FamilyProvider extends ChangeNotifier {
       _safeNotifyListeners();
     }, onError: (err) {
       debugPrint('[FamilyTracker] Emergency stream error: $err');
+    });
+  }
+
+  // Subscribe to Peer-to-Peer Family Group Chat
+  void _subscribeToChat(String familyName) {
+    _chatSubscription?.cancel();
+    if (familyName.isEmpty) return;
+
+    _chatSubscription = _dbService.streamChatMessages(familyName).listen((messages) {
+      final myPhone = PreferencesService.getUserPhone() ?? '';
+      
+      // Check if a new message arrived that warrants notification
+      if (messages.isNotEmpty) {
+        final lastMsg = messages.last;
+        if (_lastProcessedMessageId != null && _lastProcessedMessageId != lastMsg.messageId) {
+          if (!PhoneUtils.isSame(lastMsg.senderPhone, myPhone) && !_isChatScreenActive) {
+            _unreadChatCount++;
+            NotificationService.showChatMessageNotification(
+              senderName: lastMsg.senderName,
+              text: lastMsg.isLocation ? '📍 Shared location pin' : lastMsg.text,
+              familyName: formatFamilyDisplayName(familyName),
+            );
+          }
+        }
+        _lastProcessedMessageId = lastMsg.messageId;
+      }
+      
+      _chatMessages = messages;
+      _safeNotifyListeners();
+    }, onError: (err) {
+      debugPrint('[FamilyTracker] Chat stream error: $err');
     });
   }
 
@@ -333,6 +374,7 @@ class FamilyProvider extends ChangeNotifier {
   // Switch Family Group
   Future<void> switchFamilyGroup(String newFamilyName) async {
     _currentFamilyName = newFamilyName;
+    _unreadChatCount = 0;
     await PreferencesService.saveUserFamilyName(newFamilyName);
 
     try {
@@ -340,6 +382,7 @@ class FamilyProvider extends ChangeNotifier {
       _familyMembers = _enrichWithContactNames(members);
       _subscribeToMembers(newFamilyName);
       _subscribeToEmergencyAlerts(newFamilyName);
+      _subscribeToChat(newFamilyName);
       _subscribeToLocations(members);
     } catch (e) {
       debugPrint('[FamilyTracker] Switch group error: $e');
@@ -367,6 +410,83 @@ class FamilyProvider extends ChangeNotifier {
     }
   }
 
+  // Send Chat Text Message
+  Future<void> sendChatMessage(String text) async {
+    if (text.trim().isEmpty) return;
+    final myPhone = PreferencesService.getUserPhone() ?? '';
+    final myName = PreferencesService.getUserName() ?? 'Family Member';
+
+    final message = ChatMessageModel(
+      messageId: '',
+      senderPhone: PhoneUtils.normalize(myPhone),
+      senderName: myName,
+      text: text.trim(),
+      timestamp: DateTime.now().millisecondsSinceEpoch,
+      type: 'TEXT',
+    );
+
+    await _dbService.sendChatMessage(currentFamilyName, message);
+  }
+
+  // Send Interactive Location Share in Chat
+  Future<void> shareCurrentLocationInChat({
+    double? latitude,
+    double? longitude,
+    String? address,
+  }) async {
+    final myPhone = PreferencesService.getUserPhone() ?? '';
+    final myName = PreferencesService.getUserName() ?? 'Family Member';
+
+    double lat = latitude ?? 0.0;
+    double lng = longitude ?? 0.0;
+    String addr = address ?? '';
+
+    if (lat == 0.0 && lng == 0.0) {
+      try {
+        final pos = await Geolocator.getCurrentPosition(
+          desiredAccuracy: LocationAccuracy.high,
+          timeLimit: const Duration(seconds: 4),
+        );
+        lat = pos.latitude;
+        lng = pos.longitude;
+      } catch (_) {}
+    }
+
+    if (addr.isEmpty && lat != 0.0) {
+      try {
+        addr = await GeocodingService.getAddress(lat, lng);
+      } catch (_) {}
+    }
+
+    final message = ChatMessageModel(
+      messageId: '',
+      senderPhone: PhoneUtils.normalize(myPhone),
+      senderName: myName,
+      text: '📍 Shared Location',
+      timestamp: DateTime.now().millisecondsSinceEpoch,
+      type: 'LOCATION',
+      latitude: lat,
+      longitude: lng,
+      address: addr,
+    );
+
+    await _dbService.sendChatMessage(currentFamilyName, message);
+  }
+
+  // Delete a Chat Message
+  Future<void> deleteMessage(String messageId) async {
+    await _dbService.deleteChatMessage(currentFamilyName, messageId);
+  }
+
+  // Set whether user is actively viewing chat screen
+  void setChatScreenActive(bool active) {
+    _isChatScreenActive = active;
+    if (active) {
+      _unreadChatCount = 0;
+    }
+    _safeNotifyListeners();
+  }
+
   // Refresh All
   Future<void> refresh(String userPhone) async {
     _isLoading = true;
@@ -383,6 +503,7 @@ class FamilyProvider extends ChangeNotifier {
       _familyMembers = _enrichWithContactNames(members);
       _subscribeToLocations(members);
       _subscribeToEmergencyAlerts(_currentFamilyName);
+      _subscribeToChat(_currentFamilyName);
     } catch (e) {
       debugPrint('[FamilyTracker] Refresh error: $e');
     } finally {
@@ -397,6 +518,7 @@ class FamilyProvider extends ChangeNotifier {
     _locationService.stopContinuousTracking();
     _membersSubscription?.cancel();
     _emergencySubscription?.cancel();
+    _chatSubscription?.cancel();
     for (var sub in _locationSubscriptions.values) {
       sub.cancel();
     }
