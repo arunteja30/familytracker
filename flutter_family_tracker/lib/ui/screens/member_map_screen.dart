@@ -14,6 +14,7 @@ import '../../services/profile_image_service.dart';
 import '../../utils/marker_generator.dart';
 import '../widgets/adaptive_map_view.dart';
 import 'location_history_screen.dart';
+import 'family_chat_screen.dart';
 
 class MemberMapScreen extends StatefulWidget {
   final FamilyMemberModel member;
@@ -234,14 +235,6 @@ class _MemberMapScreenState extends State<MemberMapScreen> {
   Future<void> _makeCall(String phone) async {
     final clean = phone.replaceAll(RegExp(r'[^0-9+]'), '');
     final uri = Uri.parse('tel:$clean');
-    if (await canLaunchUrl(uri)) {
-      await launchUrl(uri);
-    }
-  }
-
-  Future<void> _sendSms(String phone) async {
-    final clean = phone.replaceAll(RegExp(r'[^0-9+]'), '');
-    final uri = Uri.parse('sms:$clean');
     if (await canLaunchUrl(uri)) {
       await launchUrl(uri);
     }
@@ -716,9 +709,18 @@ class _MemberMapScreenState extends State<MemberMapScreen> {
                           const SizedBox(width: 8),
                           Expanded(
                             child: OutlinedButton.icon(
-                              onPressed: () => _sendSms(widget.member.mobile),
-                              icon: const Icon(Icons.message_rounded, size: 16),
-                              label: const Text('SMS'),
+                              onPressed: () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (_) => FamilyChatScreen(
+                                      targetMember: widget.member,
+                                    ),
+                                  ),
+                                );
+                              },
+                              icon: const Icon(Icons.chat_bubble_outline_rounded, size: 16),
+                              label: const Text('Chat'),
                               style: OutlinedButton.styleFrom(
                                 foregroundColor: AppColors.primary,
                                 padding: const EdgeInsets.symmetric(vertical: 8),

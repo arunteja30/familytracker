@@ -1,21 +1,31 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
+import 'package:geolocator/geolocator.dart';
 import '../../constants/app_colors.dart';
 import '../../models/chat_message_model.dart';
 import '../../models/family_member_model.dart';
 import '../../models/location_details_model.dart';
 import '../../providers/family_provider.dart';
+import '../../services/database_service.dart';
 import '../../services/preferences_service.dart';
+import '../../services/geocoding_service.dart';
 import '../../utils/phone_utils.dart';
 import 'member_map_screen.dart';
 
 class FamilyChatScreen extends StatefulWidget {
-  final String familyName;
+  final String? familyName;
+  final FamilyMemberModel? targetMember;
+  final String? peerPhone;
+  final String? peerName;
 
   const FamilyChatScreen({
     super.key,
-    required this.familyName,
+    this.familyName,
+    this.targetMember,
+    this.peerPhone,
+    this.peerName,
   });
 
   @override
@@ -25,22 +35,58 @@ class FamilyChatScreen extends StatefulWidget {
 class _FamilyChatScreenState extends State<FamilyChatScreen> {
   final TextEditingController _messageController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
+  final DatabaseService _dbService = DatabaseService();
+
+  StreamSubscription<List<ChatMessageModel>>? _directChatSub;
+  List<ChatMessageModel> _directMessages = [];
   String _userPhone = '';
+  String _userName = '';
   bool _isSending = false;
+
+  bool get isDirectChat => widget.targetMember != null || (widget.peerPhone != null && widget.peerPhone!.isNotEmpty);
+
+  String get effectivePeerPhone =>
+      widget.targetMember?.mobile ?? widget.peerPhone ?? '';
+
+  String get effectivePeerName =>
+      widget.targetMember?.name ?? widget.peerName ?? 'Family Member';
+
+  String get directRoomId =>
+      DatabaseService.getDirectChatRoomId(_userPhone, effectivePeerPhone);
 
   @override
   void initState() {
     super.initState();
     _userPhone = PreferencesService.getUserPhone() ?? '';
+    _userName = PreferencesService.getUserName() ?? 'Family Member';
+
+    if (isDirectChat) {
+      _subscribeDirectChat();
+    }
+
     WidgetsBinding.instance.addPostFrameCallback((_) {
       Provider.of<FamilyProvider>(context, listen: false).setChatScreenActive(true);
       _scrollToBottom();
     });
   }
 
+  void _subscribeDirectChat() {
+    _directChatSub?.cancel();
+    if (directRoomId.isEmpty) return;
+
+    _directChatSub = _dbService.streamDirectChatMessages(directRoomId).listen((msgs) {
+      if (mounted) {
+        setState(() {
+          _directMessages = msgs;
+        });
+        _scrollToBottom();
+      }
+    });
+  }
+
   @override
   void dispose() {
-    // Notify provider that chat screen is no longer open
+    _directChatSub?.cancel();
     Provider.of<FamilyProvider>(context, listen: false).setChatScreenActive(false);
     _messageController.dispose();
     _scrollController.dispose();
@@ -65,8 +111,20 @@ class _FamilyChatScreenState extends State<FamilyChatScreen> {
     _messageController.clear();
 
     try {
-      final familyProvider = Provider.of<FamilyProvider>(context, listen: false);
-      await familyProvider.sendChatMessage(text);
+      if (isDirectChat) {
+        final message = ChatMessageModel(
+          messageId: '',
+          senderPhone: PhoneUtils.normalize(_userPhone),
+          senderName: _userName,
+          text: text,
+          timestamp: DateTime.now().millisecondsSinceEpoch,
+          type: 'TEXT',
+        );
+        await _dbService.sendDirectChatMessage(directRoomId, message);
+      } else {
+        final familyProvider = Provider.of<FamilyProvider>(context, listen: false);
+        await familyProvider.sendChatMessage(text);
+      }
       _scrollToBottom();
     } catch (e) {
       if (mounted) {
@@ -81,11 +139,45 @@ class _FamilyChatScreenState extends State<FamilyChatScreen> {
 
   Future<void> _shareLocation() async {
     if (_isSending) return;
+    final familyProvider = Provider.of<FamilyProvider>(context, listen: false);
     setState(() => _isSending = true);
 
     try {
-      final familyProvider = Provider.of<FamilyProvider>(context, listen: false);
-      await familyProvider.shareCurrentLocationInChat();
+      double lat = 0.0;
+      double lng = 0.0;
+      String addr = '';
+
+      try {
+        final pos = await Geolocator.getCurrentPosition(
+          desiredAccuracy: LocationAccuracy.high,
+          timeLimit: const Duration(seconds: 4),
+        );
+        lat = pos.latitude;
+        lng = pos.longitude;
+        addr = await GeocodingService.getAddress(lat, lng);
+      } catch (_) {}
+
+      if (isDirectChat) {
+        final message = ChatMessageModel(
+          messageId: '',
+          senderPhone: PhoneUtils.normalize(_userPhone),
+          senderName: _userName,
+          text: '📍 Shared Location',
+          timestamp: DateTime.now().millisecondsSinceEpoch,
+          type: 'LOCATION',
+          latitude: lat,
+          longitude: lng,
+          address: addr,
+        );
+        await _dbService.sendDirectChatMessage(directRoomId, message);
+      } else {
+        await familyProvider.shareCurrentLocationInChat(
+          latitude: lat,
+          longitude: lng,
+          address: addr,
+        );
+      }
+
       _scrollToBottom();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -110,18 +202,15 @@ class _FamilyChatScreenState extends State<FamilyChatScreen> {
       memberId: msg.senderPhone,
       name: msg.senderName,
       mobile: msg.senderPhone,
-      role: 'MEMBER',
-      joinedAt: msg.timestamp,
+      familyName: widget.familyName ?? '',
     );
 
     final locationModel = LocationDetailsModel(
       latitude: msg.latitude!,
       longitude: msg.longitude!,
       address: msg.address ?? '',
-      batteryLevel: 100,
-      isGpsEnabled: true,
-      speed: 0.0,
-      timestamp: msg.timestamp,
+      batteryPercentage: 100,
+      timeStamp: msg.timestamp,
     );
 
     Navigator.push(
@@ -148,26 +237,58 @@ class _FamilyChatScreenState extends State<FamilyChatScreen> {
   @override
   Widget build(BuildContext context) {
     final familyProvider = context.watch<FamilyProvider>();
-    final messages = familyProvider.chatMessages;
-    final displayName = FamilyProvider.formatFamilyDisplayName(widget.familyName);
+    final messages = isDirectChat ? _directMessages : familyProvider.chatMessages;
+    final title = isDirectChat
+        ? effectivePeerName
+        : '${FamilyProvider.formatFamilyDisplayName(widget.familyName ?? familyProvider.currentFamilyName)} Chat';
+    final subtitle = isDirectChat
+        ? PhoneUtils.formatDisplay(effectivePeerPhone)
+        : '${familyProvider.familyMembers.length} members';
 
     // Auto-scroll when new messages arrive
     WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
 
     return Scaffold(
       appBar: AppBar(
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+        title: Row(
           children: [
-            Text(
-              '$displayName Chat',
-              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-            ),
-            Text(
-              '${familyProvider.familyMembers.length} members',
-              style: TextStyle(
-                fontSize: 12,
-                color: Colors.white.withOpacity(0.85),
+            if (isDirectChat)
+              Container(
+                margin: const EdgeInsets.only(right: 10),
+                width: 38,
+                height: 38,
+                decoration: const BoxDecoration(
+                  color: Colors.white24,
+                  shape: BoxShape.circle,
+                ),
+                alignment: Alignment.center,
+                child: Text(
+                  effectivePeerName.isNotEmpty ? effectivePeerName[0].toUpperCase() : '?',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 16,
+                  ),
+                ),
+              ),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  Text(
+                    subtitle,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: Colors.white70,
+                    ),
+                  ),
+                ],
               ),
             ),
           ],
@@ -201,7 +322,9 @@ class _FamilyChatScreenState extends State<FamilyChatScreen> {
                           ),
                           const SizedBox(height: 12),
                           Text(
-                            'Welcome to $displayName Chat!',
+                            isDirectChat
+                                ? 'Start a conversation with $effectivePeerName!'
+                                : 'Welcome to $title!',
                             style: const TextStyle(
                               fontSize: 16,
                               fontWeight: FontWeight.bold,
@@ -210,7 +333,7 @@ class _FamilyChatScreenState extends State<FamilyChatScreen> {
                           ),
                           const SizedBox(height: 6),
                           const Text(
-                            'Send a message or share location with the family.',
+                            'Send a message or share location pin.',
                             style: TextStyle(
                               fontSize: 12,
                               color: AppColors.textMuted,
@@ -272,12 +395,12 @@ class _FamilyChatScreenState extends State<FamilyChatScreen> {
                           textCapitalization: TextCapitalization.sentences,
                           maxLines: 4,
                           minLines: 1,
-                          decoration: const InputDecoration(
-                            hintText: 'Type a family message...',
-                            hintStyle: TextStyle(fontSize: 14, color: AppColors.textMuted),
+                          decoration: InputDecoration(
+                            hintText: isDirectChat ? 'Message $effectivePeerName...' : 'Type a family message...',
+                            hintStyle: const TextStyle(fontSize: 14, color: AppColors.textMuted),
                             border: InputBorder.none,
                             isDense: true,
-                            contentPadding: EdgeInsets.symmetric(vertical: 10),
+                            contentPadding: const EdgeInsets.symmetric(vertical: 10),
                           ),
                           onSubmitted: (_) => _sendMessage(),
                         ),
@@ -351,8 +474,8 @@ class _FamilyChatScreenState extends State<FamilyChatScreen> {
           crossAxisAlignment:
               isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
           children: [
-            // Sender Name (if not me)
-            if (!isMe)
+            // Sender Name (if not me and group chat)
+            if (!isMe && !isDirectChat)
               Padding(
                 padding: const EdgeInsets.only(bottom: 4),
                 child: Text(

@@ -7,6 +7,7 @@ import '../../constants/app_colors.dart';
 import '../../models/family_member_model.dart';
 import '../../models/location_details_model.dart';
 import '../../services/profile_image_service.dart';
+import '../screens/family_chat_screen.dart';
 
 class MemberCard extends StatefulWidget {
   final FamilyMemberModel member;
@@ -130,14 +131,6 @@ class _MemberCardState extends State<MemberCard> {
   Future<void> _makeCall(String phone) async {
     final clean = phone.replaceAll(RegExp(r'[^0-9+]'), '');
     final uri = Uri.parse('tel:$clean');
-    if (await canLaunchUrl(uri)) {
-      await launchUrl(uri);
-    }
-  }
-
-  Future<void> _sendSms(String phone) async {
-    final clean = phone.replaceAll(RegExp(r'[^0-9+]'), '');
-    final uri = Uri.parse('sms:$clean');
     if (await canLaunchUrl(uri)) {
       await launchUrl(uri);
     }
@@ -365,10 +358,19 @@ class _MemberCardState extends State<MemberCard> {
                 ),
                 const SizedBox(width: 6),
 
-                // 2. SMS Button
+                // 2. Chat Button (Direct 1-on-1)
                 Expanded(
                   child: OutlinedButton(
-                    onPressed: () => _sendSms(widget.member.mobile),
+                    onPressed: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => FamilyChatScreen(
+                            targetMember: widget.member,
+                          ),
+                        ),
+                      );
+                    },
                     style: OutlinedButton.styleFrom(
                       padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
                       minimumSize: const Size(0, 34),
@@ -383,10 +385,10 @@ class _MemberCardState extends State<MemberCard> {
                       mainAxisAlignment: MainAxisAlignment.center,
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Icon(Icons.message_rounded, size: 14),
+                        Icon(Icons.chat_bubble_outline_rounded, size: 14),
                         SizedBox(width: 4),
                         Text(
-                          'SMS',
+                          'Chat',
                           style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
                         ),
                       ],

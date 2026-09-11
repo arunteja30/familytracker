@@ -27,6 +27,16 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
   void initState() {
     super.initState();
     _startTimer();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final authProvider = Provider.of<AppAuthProvider>(context, listen: false);
+      if (authProvider.currentUser != null && mounted) {
+        Navigator.pushAndRemoveUntil(
+          context,
+          MaterialPageRoute(builder: (_) => const FamilyDashboardScreen()),
+          (route) => false,
+        );
+      }
+    });
   }
 
   void _startTimer() {
@@ -34,7 +44,7 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
     _timer?.cancel();
     _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
       if (_countdown > 0) {
-        setState(() => _countdown--);
+        if (mounted) setState(() => _countdown--);
       } else {
         _timer?.cancel();
       }
@@ -51,15 +61,23 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
   Future<void> _verifyOtp(String otp) async {
     if (otp.length < 6) return;
 
-    final authProvider = Provider.of<AppAuthProvider>(context, listen: false);
-    final success = await authProvider.verifyOtp(otp);
+    try {
+      final authProvider = Provider.of<AppAuthProvider>(context, listen: false);
+      final success = await authProvider.verifyOtp(otp);
 
-    if (success && mounted) {
-      Navigator.pushAndRemoveUntil(
-        context,
-        MaterialPageRoute(builder: (_) => const FamilyDashboardScreen()),
-        (route) => false,
-      );
+      if (success && mounted) {
+        Navigator.pushAndRemoveUntil(
+          context,
+          MaterialPageRoute(builder: (_) => const FamilyDashboardScreen()),
+          (route) => false,
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Verification error: $e')),
+        );
+      }
     }
   }
 

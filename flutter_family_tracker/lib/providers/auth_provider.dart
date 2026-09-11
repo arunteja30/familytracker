@@ -55,7 +55,28 @@ class AppAuthProvider extends ChangeNotifier {
           setError(e.message ?? 'Phone verification failed');
         },
         onVerificationCompleted: (PhoneAuthCredential credential) async {
-          // Auto-resolution
+          // Instant SMS verification on Android
+          try {
+            final userCredential = await _authService.signInWithCredential(credential);
+            final user = userCredential.user;
+            if (user != null) {
+              final phone = user.phoneNumber ?? _currentPhoneNumber ?? '';
+              await PreferencesService.saveUserPhone(phone);
+              await PreferencesService.setLoggedIn(true);
+
+              final regModel = RegistrationModel(
+                phone: phone,
+                name: user.displayName ?? 'User',
+                uid: user.uid,
+              );
+              await _dbService.registerPhone(regModel);
+              setLoading(false);
+              notifyListeners();
+            }
+          } catch (e) {
+            setLoading(false);
+            setError(e.toString());
+          }
         },
       );
       return true;

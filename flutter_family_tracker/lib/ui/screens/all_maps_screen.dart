@@ -15,6 +15,7 @@ import '../../services/profile_image_service.dart';
 import '../../utils/marker_generator.dart';
 import '../widgets/adaptive_map_view.dart';
 import 'location_history_screen.dart';
+import 'family_chat_screen.dart';
 
 class AllMapsScreen extends StatefulWidget {
   final String familyName;
@@ -332,13 +333,6 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
 
   Future<void> _makeCall(String phone) async {
     final uri = Uri.parse('tel:$phone');
-    if (await canLaunchUrl(uri)) {
-      await launchUrl(uri);
-    }
-  }
-
-  Future<void> _sendSms(String phone) async {
-    final uri = Uri.parse('sms:$phone');
     if (await canLaunchUrl(uri)) {
       await launchUrl(uri);
     }
@@ -751,9 +745,20 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
                         children: [
                           Expanded(
                             child: OutlinedButton.icon(
-                              onPressed: () => _sendSms(_selectedMember!.mobile),
-                              icon: const Icon(Icons.sms_rounded, size: 16),
-                              label: const Text('SMS', style: TextStyle(fontSize: 12)),
+                              onPressed: () {
+                                if (_selectedMember != null) {
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (_) => FamilyChatScreen(
+                                        targetMember: _selectedMember,
+                                      ),
+                                    ),
+                                  );
+                                }
+                              },
+                              icon: const Icon(Icons.chat_bubble_outline_rounded, size: 16),
+                              label: const Text('Chat', style: TextStyle(fontSize: 12)),
                               style: OutlinedButton.styleFrom(
                                 foregroundColor: AppColors.primary,
                                 padding: const EdgeInsets.symmetric(vertical: 8),

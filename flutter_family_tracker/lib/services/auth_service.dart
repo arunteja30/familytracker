@@ -38,6 +38,11 @@ class AuthService {
     return await _auth.signInWithCredential(credential);
   }
 
+  // Sign In with PhoneAuthCredential (Auto-Verification)
+  Future<UserCredential> signInWithCredential(PhoneAuthCredential credential) async {
+    return await _auth.signInWithCredential(credential);
+  }
+
   // Sign Out
   Future<void> signOut() async {
     await _auth.signOut();

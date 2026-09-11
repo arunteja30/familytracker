@@ -719,4 +719,66 @@ class DatabaseService {
       debugPrint('[FamilyTracker] Failed to delete chat message: $e');
     }
   }
+
+  // =========================================================================
+  // 👤 1-ON-1 DIRECT CHAT (Between Two Individual Family Members)
+  // =========================================================================
+
+  /// Generate a symmetric room ID for two phone numbers
+  static String getDirectChatRoomId(String phone1, String phone2) {
+    final p1 = PhoneUtils.normalize(phone1);
+    final p2 = PhoneUtils.normalize(phone2);
+    final list = [p1, p2]..sort();
+    return '${list[0]}__${list[1]}';
+  }
+
+  /// Send a 1-on-1 direct chat message
+  Future<void> sendDirectChatMessage(String roomId, ChatMessageModel message) async {
+    if (roomId.isEmpty) return;
+    try {
+      final ref = _db.ref('direct_chats').child(roomId).push();
+      await ref.set(message.toJson());
+      debugPrint('[FamilyTracker] 👤 Direct chat message sent to $roomId');
+    } catch (e) {
+      debugPrint('[FamilyTracker] Failed to send direct chat message: $e');
+      rethrow;
+    }
+  }
+
+  /// Stream 1-on-1 direct chat messages
+  Stream<List<ChatMessageModel>> streamDirectChatMessages(String roomId, {int limit = 100}) {
+    if (roomId.isEmpty) return Stream.value([]);
+    return _db
+        .ref('direct_chats')
+        .child(roomId)
+        .limitToLast(limit)
+        .onValue
+        .map((event) {
+      final snapshot = event.snapshot;
+      if (!snapshot.exists || snapshot.value == null || snapshot.value is! Map) {
+        return <ChatMessageModel>[];
+      }
+      final data = snapshot.value as Map;
+      final List<ChatMessageModel> messages = [];
+      data.forEach((key, val) {
+        if (val is Map) {
+          try {
+            messages.add(ChatMessageModel.fromJson(key.toString(), val));
+          } catch (_) {}
+        }
+      });
+      messages.sort((a, b) => a.timestamp.compareTo(b.timestamp));
+      return messages;
+    });
+  }
+
+  /// Delete a single 1-on-1 chat message
+  Future<void> deleteDirectChatMessage(String roomId, String messageId) async {
+    if (roomId.isEmpty || messageId.isEmpty) return;
+    try {
+      await _db.ref('direct_chats').child(roomId).child(messageId).remove();
+    } catch (e) {
+      debugPrint('[FamilyTracker] Failed to delete direct chat message: $e');
+    }
+  }
 }
