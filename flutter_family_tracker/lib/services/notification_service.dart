@@ -81,16 +81,29 @@ class NotificationService {
     }
   }
 
-  /// Show high-priority Emergency SOS heads-up notification
+  /// Show high-priority Emergency SOS heads-up notification with rich distress text
   static Future<void> showSosAlert({
     required String senderName,
     required String senderPhone,
     required String address,
+    String? familyName,
   }) async {
     try {
       await initialize();
 
-      const androidDetails = AndroidNotificationDetails(
+      final locText = address.isNotEmpty ? address : 'Live GPS coordinates available';
+      final famText = familyName != null && familyName.isNotEmpty ? ' in $familyName' : '';
+      final body = '🚨 SOS DISTRESS ALERT$famText!\n👤 $senderName ($senderPhone) needs urgent help.\n📍 Location: $locText\n\nTap to open live map tracking immediately.';
+
+      final bigTextStyle = BigTextStyleInformation(
+        body,
+        contentTitle: '🚨 SOS EMERGENCY: $senderName',
+        summaryText: '🚨 SOS Emergency Alert',
+        htmlFormatBigText: false,
+        htmlFormatContentTitle: false,
+      );
+
+      final androidDetails = AndroidNotificationDetails(
         'family_emergency_channel',
         'Family Emergency & SOS Alerts',
         channelDescription:
@@ -100,7 +113,9 @@ class NotificationService {
         fullScreenIntent: true,
         playSound: true,
         enableVibration: true,
-        styleInformation: BigTextStyleInformation(''),
+        vibrationPattern: Int64List.fromList([0, 1000, 500, 1000, 500, 1000]),
+        styleInformation: bigTextStyle,
+        category: AndroidNotificationCategory.alarm,
       );
 
       const darwinDetails = DarwinNotificationDetails(
@@ -110,14 +125,10 @@ class NotificationService {
         interruptionLevel: InterruptionLevel.critical,
       );
 
-      const details = NotificationDetails(
+      final details = NotificationDetails(
         android: androidDetails,
         iOS: darwinDetails,
       );
-
-      final body = address.isNotEmpty
-          ? '📍 Near: $address\nTap to open live location immediately.'
-          : 'Tap to view live location immediately.';
 
       await _notificationsPlugin.show(
         999,
@@ -125,8 +136,73 @@ class NotificationService {
         body,
         details,
       );
+      debugPrint('[NotificationService] 🚨 Heads-up SOS notification displayed for $senderName');
     } catch (e) {
       debugPrint('[NotificationService] Show SOS alert error: $e');
+    }
+  }
+
+  /// Show active SOS broadcast status notification for the sender
+  static Future<void> showSosBroadcastActiveNotification({
+    required String familyName,
+    required String address,
+  }) async {
+    try {
+      await initialize();
+
+      final locText = address.isNotEmpty ? address : 'Acquiring GPS location';
+      final body = '🚨 Emergency distress alert broadcasted to $familyName.\n📍 Location: $locText\nFamily members are being notified.';
+
+      final bigTextStyle = BigTextStyleInformation(
+        body,
+        contentTitle: '🚨 SOS BROADCAST ACTIVE',
+        summaryText: 'SOS Distress Active',
+      );
+
+      final androidDetails = AndroidNotificationDetails(
+        'family_emergency_channel',
+        'Family Emergency & SOS Alerts',
+        channelDescription:
+            'Critical high-priority emergency alerts from family members',
+        importance: Importance.max,
+        priority: Priority.max,
+        ongoing: true,
+        autoCancel: false,
+        playSound: true,
+        enableVibration: true,
+        styleInformation: bigTextStyle,
+      );
+
+      const darwinDetails = DarwinNotificationDetails(
+        presentAlert: true,
+        presentBadge: true,
+        presentSound: true,
+      );
+
+      final details = NotificationDetails(
+        android: androidDetails,
+        iOS: darwinDetails,
+      );
+
+      await _notificationsPlugin.show(
+        998,
+        '🚨 SOS BROADCAST ACTIVE ($familyName)',
+        body,
+        details,
+      );
+    } catch (e) {
+      debugPrint('[NotificationService] Show SOS broadcast error: $e');
+    }
+  }
+
+  /// Cancel any active SOS alerts and broadcast status notifications
+  static Future<void> cancelSosAlert() async {
+    try {
+      await _notificationsPlugin.cancel(999);
+      await _notificationsPlugin.cancel(998);
+      debugPrint('[NotificationService] Cancelled SOS notifications (999, 998)');
+    } catch (e) {
+      debugPrint('[NotificationService] Cancel SOS alert error: $e');
     }
   }
 

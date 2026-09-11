@@ -244,8 +244,11 @@ class FamilyProvider extends ChangeNotifier {
             senderName: alert['senderName']?.toString() ?? 'Family Member',
             senderPhone: PhoneUtils.formatDisplay(senderPhone),
             address: alert['address']?.toString() ?? '',
+            familyName: displayFamilyName,
           );
         }
+      } else {
+        NotificationService.cancelSosAlert();
       }
       _safeNotifyListeners();
     }, onError: (err) {
@@ -501,12 +504,23 @@ class FamilyProvider extends ChangeNotifier {
     } catch (e) {
       debugPrint('[FamilyTracker] SOS sendChatMessage error: $e');
     }
+
+    // 4. Update notification on sender device with SOS Emergency Text
+    try {
+      await NotificationService.showSosBroadcastActiveNotification(
+        familyName: displayFamilyName,
+        address: addr,
+      );
+    } catch (e) {
+      debugPrint('[FamilyTracker] SOS sender notification error: $e');
+    }
   }
 
   // Dismiss Emergency SOS Alert
   Future<void> dismissSos() async {
     await _dbService.clearFamilySos(currentFamilyName);
     _activeEmergencyAlert = null;
+    await NotificationService.cancelSosAlert();
     _safeNotifyListeners();
   }
 

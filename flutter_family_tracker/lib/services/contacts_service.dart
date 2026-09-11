@@ -54,4 +54,9 @@ class ContactsService {
 
     return defaultName;
   }
+
+  // Get matching contact name or empty string if not found
+  static String getContactName(String phone) {
+    return getContactDisplayName(phone, '');
+  }
 }
