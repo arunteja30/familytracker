@@ -38,8 +38,9 @@ class _MemberMapScreenState extends State<MemberMapScreen> {
   File? _profileImageFile;
   String _resolvedAddress = '';
 
-  // Live Tracking Polyline Coordinates
+  // Live Tracking Polyline Coordinates & Update Points
   final List<LatLng> _liveTrailPoints = [];
+  final List<LocationDetailsModel> _sessionUpdates = [];
   final Set<Polyline> _polylines = {};
   final List<AdaptivePolyline> _adaptivePolylines = [];
   MapType _currentMapType = MapType.normal;
@@ -51,6 +52,7 @@ class _MemberMapScreenState extends State<MemberMapScreen> {
     _currentLocation = widget.initialLocation;
     if (_currentLocation != null &&
         (_currentLocation!.latitude != 0.0 || _currentLocation!.longitude != 0.0)) {
+      _sessionUpdates.add(_currentLocation!);
       _liveTrailPoints.add(LatLng(_currentLocation!.latitude, _currentLocation!.longitude));
     }
     _loadProfileAndMarker();
@@ -81,9 +83,11 @@ class _MemberMapScreenState extends State<MemberMapScreen> {
 
   void _clearAndResetTrail() {
     setState(() {
+      _sessionUpdates.clear();
       _liveTrailPoints.clear();
       if (_currentLocation != null &&
           (_currentLocation!.latitude != 0.0 || _currentLocation!.longitude != 0.0)) {
+        _sessionUpdates.add(_currentLocation!);
         _liveTrailPoints.add(
             LatLng(_currentLocation!.latitude, _currentLocation!.longitude));
       }
@@ -143,14 +147,18 @@ class _MemberMapScreenState extends State<MemberMapScreen> {
         setState(() {
           _currentLocation = loc;
           if (hasCoords) {
-            // Append to live trail if coordinates moved
-            if (_liveTrailPoints.isEmpty) {
+            // Append new update marker and trail point if moved
+            if (_sessionUpdates.isEmpty) {
+              _sessionUpdates.add(loc);
               _liveTrailPoints.add(newLatLng);
             } else {
-              final last = _liveTrailPoints.last;
-              if (last.latitude != newLatLng.latitude ||
-                  last.longitude != newLatLng.longitude) {
+              final last = _sessionUpdates.last;
+              if ((last.latitude - loc.latitude).abs() > 0.00001 ||
+                  (last.longitude - loc.longitude).abs() > 0.00001) {
+                _sessionUpdates.add(loc);
                 _liveTrailPoints.add(newLatLng);
+              } else {
+                _sessionUpdates.last = loc;
               }
             }
             _updatePolylineSet();
@@ -265,36 +273,69 @@ class _MemberMapScreenState extends State<MemberMapScreen> {
             ? _currentLocation!.address
             : 'Fetching street address...');
 
-    final markers = <Marker>{
-      // Current Member Position Marker
-      if (_currentLocation != null &&
-          (_currentLocation!.latitude != 0.0 ||
-              _currentLocation!.longitude != 0.0))
-        Marker(
-          markerId: MarkerId(widget.member.mobile),
-          position: pos,
-          zIndexInt: 10,
-          icon: _customMarkerIcon ?? BitmapDescriptor.defaultMarker,
-          infoWindow: InfoWindow(
-            title: widget.member.name,
-            snippet:
-                '$displayAddress\n⚡ ${_currentLocation?.batteryPercentage}%\n🕒 $formattedTime',
-          ),
-        ),
+    // Generate markers for EVERY location update
+    final markers = <Marker>{};
 
-      // Starting Origin Point for this live session (if member moved)
-      if (_liveTrailPoints.length > 1)
-        Marker(
-          markerId: const MarkerId('live_start_origin'),
-          position: _liveTrailPoints.first,
-          icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen),
-          zIndexInt: 5,
-          infoWindow: const InfoWindow(
-            title: '🟢 Starting Point (Map Open)',
-            snippet: 'Movement origin for this live session',
+    for (int i = 0; i < _sessionUpdates.length; i++) {
+      final u = _sessionUpdates[i];
+      if (u.latitude == 0.0 && u.longitude == 0.0) continue;
+
+      final isCurrent = i == _sessionUpdates.length - 1;
+      final isStart = i == 0;
+      final timeStr = u.timeStamp > 0
+          ? DateFormat('hh:mm:ss a').format(
+              DateTime.fromMillisecondsSinceEpoch(u.timeStamp),
+            )
+          : '';
+
+      final addrStr = u.address.isNotEmpty
+          ? u.address
+          : (isCurrent && _resolvedAddress.isNotEmpty ? _resolvedAddress : 'Lat: ${u.latitude.toStringAsFixed(5)}, Lng: ${u.longitude.toStringAsFixed(5)}');
+
+      if (isCurrent) {
+        // Current Latest Position Marker
+        markers.add(
+          Marker(
+            markerId: MarkerId(widget.member.mobile),
+            position: LatLng(u.latitude, u.longitude),
+            zIndexInt: 100,
+            icon: _customMarkerIcon ?? BitmapDescriptor.defaultMarker,
+            infoWindow: InfoWindow(
+              title: '📍 ${widget.member.name} (Current)',
+              snippet: '$addrStr\n⚡ ${u.batteryPercentage}%\n🕒 $timeStr',
+            ),
           ),
-        ),
-    };
+        );
+      } else if (isStart) {
+        // Start Origin Position Marker
+        markers.add(
+          Marker(
+            markerId: const MarkerId('live_step_start'),
+            position: LatLng(u.latitude, u.longitude),
+            icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen),
+            zIndexInt: 30,
+            infoWindow: InfoWindow(
+              title: '🟢 Start Location (#1)',
+              snippet: '$addrStr\n🕒 $timeStr',
+            ),
+          ),
+        );
+      } else {
+        // Intermediate Update Marker for every new update
+        markers.add(
+          Marker(
+            markerId: MarkerId('live_step_$i'),
+            position: LatLng(u.latitude, u.longitude),
+            icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure),
+            zIndexInt: 10,
+            infoWindow: InfoWindow(
+              title: '🔵 Location Update #${i + 1}',
+              snippet: '$addrStr\n🕒 $timeStr • ⚡ ${u.batteryPercentage}%',
+            ),
+          ),
+        );
+      }
+    }
 
     return Scaffold(
       appBar: AppBar(
@@ -345,26 +386,26 @@ class _MemberMapScreenState extends State<MemberMapScreen> {
             initialLng: pos.longitude,
             initialZoom: 15,
             mapType: _currentMapType,
-            points: [
-              AdaptiveMapPoint(
-                id: widget.member.mobile,
-                latitude: pos.latitude,
-                longitude: pos.longitude,
-                title: widget.member.name,
-                snippet: _resolvedAddress.isNotEmpty
-                    ? _resolvedAddress
-                    : (_currentLocation?.address ?? ''),
-                pinColor: AppColors.primary,
-              ),
-              if (_liveTrailPoints.length > 1)
-                AdaptiveMapPoint(
-                  id: 'live_start_origin',
-                  latitude: _liveTrailPoints.first.latitude,
-                  longitude: _liveTrailPoints.first.longitude,
-                  title: '🟢 Start Point',
-                  pinColor: AppColors.success,
-                ),
-            ],
+            points: _sessionUpdates.asMap().entries.map((entry) {
+              final i = entry.key;
+              final u = entry.value;
+              final isCurrent = i == _sessionUpdates.length - 1;
+              final isStart = i == 0;
+              return AdaptiveMapPoint(
+                id: isCurrent ? widget.member.mobile : 'live_step_$i',
+                latitude: u.latitude,
+                longitude: u.longitude,
+                title: isCurrent
+                    ? '${widget.member.name} (Current)'
+                    : (isStart ? '🟢 Start Location (#1)' : '🔵 Update #${i + 1}'),
+                snippet: u.address.isNotEmpty
+                    ? u.address
+                    : (isCurrent && _resolvedAddress.isNotEmpty ? _resolvedAddress : ''),
+                pinColor: isCurrent
+                    ? AppColors.primary
+                    : (isStart ? AppColors.success : AppColors.accent),
+              );
+            }).where((p) => p.latitude != 0.0 && p.longitude != 0.0).toList(),
             polylines: _adaptivePolylines,
             googleMarkers: markers,
             googlePolylines: _polylines,

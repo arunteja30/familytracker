@@ -156,9 +156,6 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
     final marker = await _buildMarkerForMember(member, loc, index);
     if (marker != null && mounted) {
       setState(() {
-        _markers.removeWhere((m) => m.markerId.value == member.mobile);
-        _markers.add(marker);
-
         // Track live movement path for current active session
         final memberTrail =
             _sessionMovements.putIfAbsent(member.mobile, () => []);
@@ -166,11 +163,36 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
         if (memberTrail.isEmpty ||
             memberTrail.last.latitude != newPoint.latitude ||
             memberTrail.last.longitude != newPoint.longitude) {
+          // If there was a previous location, create an intermediate update marker at that previous location
+          if (memberTrail.isNotEmpty) {
+            final stepIndex = memberTrail.length;
+            final prevPoint = memberTrail.last;
+            _markers.add(
+              Marker(
+                markerId: MarkerId('step_${member.mobile}_$stepIndex'),
+                position: prevPoint,
+                icon: BitmapDescriptor.defaultMarkerWithHue(
+                  BitmapDescriptor.hueAzure,
+                ),
+                zIndexInt: 5,
+                infoWindow: InfoWindow(
+                  title: '${member.name} • Update #$stepIndex',
+                  snippet: 'Previous update position',
+                ),
+              ),
+            );
+          }
+
           memberTrail.add(newPoint);
           if (memberTrail.length > 25) {
-            memberTrail.removeAt(0); // keep only recent movement breadcrumbs
+            memberTrail.removeAt(0);
           }
         }
+
+        // Update current member marker
+        _markers.removeWhere((m) => m.markerId.value == member.mobile);
+        _markers.add(marker);
+
         _updateActiveMovementPolylines();
       });
     }
