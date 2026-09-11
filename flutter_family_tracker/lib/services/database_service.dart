@@ -703,7 +703,9 @@ class DatabaseService {
     }
   }
 
-  /// Real-time stream of latest messages for active family circle
+  static const int chatMessageTtlMs = 24 * 60 * 60 * 1000; // 24 Hours
+
+  /// Real-time stream of latest messages for active family circle (Auto-purging > 24 hours old)
   Stream<List<ChatMessageModel>> streamChatMessages(String familyName, {int limit = 100}) {
     if (familyName.isEmpty) return Stream.value([]);
     final cleanFamily = familyName.trim();
@@ -719,13 +721,28 @@ class DatabaseService {
       }
       final data = snapshot.value as Map;
       final List<ChatMessageModel> messages = [];
+      final List<String> expiredMessageIds = [];
+      final int now = DateTime.now().millisecondsSinceEpoch;
+      final int cutoff = now - chatMessageTtlMs;
+
       data.forEach((key, val) {
         if (val is Map) {
           try {
-            messages.add(ChatMessageModel.fromJson(key.toString(), val));
+            final msg = ChatMessageModel.fromJson(key.toString(), val);
+            if (msg.timestamp >= cutoff) {
+              messages.add(msg);
+            } else {
+              expiredMessageIds.add(msg.messageId);
+            }
           } catch (_) {}
         }
       });
+
+      // Silently auto-purge expired messages from Firebase RTDB in background ($0 Spark Tier optimization)
+      if (expiredMessageIds.isNotEmpty) {
+        deleteChatMessages(cleanFamily, expiredMessageIds);
+      }
+
       // Sort in chronological order (oldest first for scrolling down)
       messages.sort((a, b) => a.timestamp.compareTo(b.timestamp));
       return messages;
@@ -824,7 +841,7 @@ class DatabaseService {
     }
   }
 
-  /// Stream 1-on-1 direct chat messages
+  /// Stream 1-on-1 direct chat messages (Auto-purging > 24 hours old)
   Stream<List<ChatMessageModel>> streamDirectChatMessages(String roomId, {int limit = 100}) {
     if (roomId.isEmpty) return Stream.value([]);
     return _db
@@ -839,13 +856,28 @@ class DatabaseService {
       }
       final data = snapshot.value as Map;
       final List<ChatMessageModel> messages = [];
+      final List<String> expiredMessageIds = [];
+      final int now = DateTime.now().millisecondsSinceEpoch;
+      final int cutoff = now - chatMessageTtlMs;
+
       data.forEach((key, val) {
         if (val is Map) {
           try {
-            messages.add(ChatMessageModel.fromJson(key.toString(), val));
+            final msg = ChatMessageModel.fromJson(key.toString(), val);
+            if (msg.timestamp >= cutoff) {
+              messages.add(msg);
+            } else {
+              expiredMessageIds.add(msg.messageId);
+            }
           } catch (_) {}
         }
       });
+
+      // Silently auto-purge expired direct messages from Firebase RTDB in background
+      if (expiredMessageIds.isNotEmpty) {
+        deleteDirectChatMessages(roomId, expiredMessageIds);
+      }
+
       messages.sort((a, b) => a.timestamp.compareTo(b.timestamp));
       return messages;
     });

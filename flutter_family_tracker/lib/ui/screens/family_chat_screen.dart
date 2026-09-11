@@ -615,6 +615,8 @@ class _FamilyChatScreenState extends State<FamilyChatScreen> {
                         child: Column(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
+                            _buildDisappearingNoticeChip(),
+                            const SizedBox(height: 16),
                             Icon(
                               Icons.chat_bubble_outline_rounded,
                               size: 64,
@@ -646,9 +648,12 @@ class _FamilyChatScreenState extends State<FamilyChatScreen> {
                         controller: _scrollController,
                         padding: const EdgeInsets.symmetric(
                             horizontal: 10, vertical: 12),
-                        itemCount: messages.length,
+                        itemCount: messages.length + 1,
                         itemBuilder: (context, index) {
-                          final msg = messages[index];
+                          if (index == 0) {
+                            return _buildDisappearingNoticeChip();
+                          }
+                          final msg = messages[index - 1];
                           final isMe =
                               PhoneUtils.isSame(msg.senderPhone, _userPhone);
                           final isSelected =
@@ -1025,6 +1030,42 @@ class _FamilyChatScreenState extends State<FamilyChatScreen> {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildDisappearingNoticeChip() {
+    return Center(
+      child: Container(
+        margin: const EdgeInsets.only(top: 4, bottom: 12),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(20),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.04),
+              blurRadius: 4,
+              offset: const Offset(0, 1),
+            ),
+          ],
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.history_toggle_off_rounded,
+                size: 15, color: Colors.blueGrey.shade600),
+            const SizedBox(width: 6),
+            Text(
+              'Messages disappear automatically after 24 hours',
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w500,
+                color: Colors.blueGrey.shade700,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
