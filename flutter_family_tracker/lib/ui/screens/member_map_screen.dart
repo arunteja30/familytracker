@@ -282,6 +282,12 @@ class _MemberMapScreenState extends State<MemberMapScreen> {
 
       final isCurrent = i == _sessionUpdates.length - 1;
       final isStart = i == 0;
+      final dateStr = u.date.isNotEmpty
+          ? u.date
+          : (u.timeStamp > 0
+              ? DateFormat('MMM dd, yyyy').format(DateTime.fromMillisecondsSinceEpoch(u.timeStamp))
+              : DateFormat('MMM dd, yyyy').format(DateTime.now()));
+
       final timeStr = u.timeStamp > 0
           ? DateFormat('hh:mm:ss a').format(
               DateTime.fromMillisecondsSinceEpoch(u.timeStamp),
@@ -302,7 +308,7 @@ class _MemberMapScreenState extends State<MemberMapScreen> {
             icon: _customMarkerIcon ?? BitmapDescriptor.defaultMarker,
             infoWindow: InfoWindow(
               title: '📍 ${widget.member.name} (Current)',
-              snippet: '$addrStr\n⚡ ${u.batteryPercentage}%\n🕒 $timeStr',
+              snippet: '📅 $dateStr • 🕒 $timeStr\n📍 $addrStr\n⚡ Battery: ${u.batteryPercentage}%',
             ),
           ),
         );
@@ -316,7 +322,7 @@ class _MemberMapScreenState extends State<MemberMapScreen> {
             zIndexInt: 30,
             infoWindow: InfoWindow(
               title: '🟢 Start Location (#1)',
-              snippet: '$addrStr\n🕒 $timeStr',
+              snippet: '📅 $dateStr • 🕒 $timeStr\n📍 $addrStr\n⚡ Battery: ${u.batteryPercentage}%',
             ),
           ),
         );
@@ -330,7 +336,7 @@ class _MemberMapScreenState extends State<MemberMapScreen> {
             zIndexInt: 10,
             infoWindow: InfoWindow(
               title: '🔵 Location Update #${i + 1}',
-              snippet: '$addrStr\n🕒 $timeStr • ⚡ ${u.batteryPercentage}%',
+              snippet: '📅 $dateStr • 🕒 $timeStr\n📍 $addrStr\n⚡ Battery: ${u.batteryPercentage}%',
             ),
           ),
         );
@@ -420,35 +426,37 @@ class _MemberMapScreenState extends State<MemberMapScreen> {
           Positioned(
             top: 16,
             left: 20,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-              decoration: BoxDecoration(
-                color: AppColors.bgSurface,
-                borderRadius: BorderRadius.circular(20),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.12),
-                    blurRadius: 6,
-                    offset: const Offset(0, 2),
-                  ),
-                ],
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const CircleAvatar(radius: 4, backgroundColor: AppColors.success),
-                  const SizedBox(width: 6),
-                  Text(
-                    _liveTrailPoints.length > 1
-                        ? 'LIVE MOVEMENT (${_liveTrailPoints.length} PTS)'
-                        : 'LIVE TRACKING ACTIVE',
-                    style: const TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.bold,
-                      color: AppColors.success,
+            child: RepaintBoundary(
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(
+                  color: AppColors.bgSurface,
+                  borderRadius: BorderRadius.circular(20),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.12),
+                      blurRadius: 6,
+                      offset: const Offset(0, 2),
                     ),
-                  ),
-                ],
+                  ],
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const CircleAvatar(radius: 4, backgroundColor: AppColors.success),
+                    const SizedBox(width: 6),
+                    Text(
+                      _liveTrailPoints.length > 1
+                          ? 'LIVE MOVEMENT (${_liveTrailPoints.length} PTS)'
+                          : 'LIVE TRACKING ACTIVE',
+                      style: const TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold,
+                        color: AppColors.success,
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
@@ -457,57 +465,59 @@ class _MemberMapScreenState extends State<MemberMapScreen> {
           Positioned(
             top: 16,
             right: 16,
-            child: Column(
-              children: [
-                // Re-center / Auto Follow Toggle
-                FloatingActionButton.small(
-                  heroTag: 'btn_auto_follow',
-                  backgroundColor: _autoFollow ? AppColors.primary : Colors.white,
-                  foregroundColor: _autoFollow ? Colors.white : AppColors.textPrimary,
-                  elevation: 4,
-                  onPressed: () {
-                    setState(() => _autoFollow = !_autoFollow);
-                    if (_autoFollow && _currentLocation != null) {
-                      _animateCamera(
-                          _currentLocation!.latitude, _currentLocation!.longitude);
-                    }
-                  },
-                  child: Icon(
-                    _autoFollow
-                        ? Icons.my_location_rounded
-                        : Icons.location_searching_rounded,
-                    size: 20,
-                  ),
-                ),
-                const SizedBox(height: 8),
-
-                // Fit Full Trail Route (when moving)
-                if (_liveTrailPoints.length > 1) ...[
+            child: RepaintBoundary(
+              child: Column(
+                children: [
+                  // Re-center / Auto Follow Toggle
                   FloatingActionButton.small(
-                    heroTag: 'btn_fit_trail',
-                    backgroundColor: Colors.white,
-                    foregroundColor: AppColors.primary,
+                    heroTag: 'btn_auto_follow',
+                    backgroundColor: _autoFollow ? AppColors.primary : Colors.white,
+                    foregroundColor: _autoFollow ? Colors.white : AppColors.textPrimary,
                     elevation: 4,
                     onPressed: () {
-                      setState(() => _autoFollow = false);
-                      _fitTrailBounds();
+                      setState(() => _autoFollow = !_autoFollow);
+                      if (_autoFollow && _currentLocation != null) {
+                        _animateCamera(
+                            _currentLocation!.latitude, _currentLocation!.longitude);
+                      }
                     },
-                    child: const Icon(Icons.route_rounded, size: 20),
+                    child: Icon(
+                      _autoFollow
+                          ? Icons.my_location_rounded
+                          : Icons.location_searching_rounded,
+                      size: 20,
+                    ),
                   ),
                   const SizedBox(height: 8),
 
-                  // Reset / Start Fresh Session Trail
-                  FloatingActionButton.small(
-                    heroTag: 'btn_reset_trail',
-                    backgroundColor: Colors.white,
-                    foregroundColor: AppColors.danger,
-                    elevation: 4,
-                    tooltip: 'Reset Trail',
-                    onPressed: _clearAndResetTrail,
-                    child: const Icon(Icons.restart_alt_rounded, size: 20),
-                  ),
+                  // Fit Full Trail Route (when moving)
+                  if (_liveTrailPoints.length > 1) ...[
+                    FloatingActionButton.small(
+                      heroTag: 'btn_fit_trail',
+                      backgroundColor: Colors.white,
+                      foregroundColor: AppColors.primary,
+                      elevation: 4,
+                      onPressed: () {
+                        setState(() => _autoFollow = false);
+                        _fitTrailBounds();
+                      },
+                      child: const Icon(Icons.route_rounded, size: 20),
+                    ),
+                    const SizedBox(height: 8),
+
+                    // Reset / Start Fresh Session Trail
+                    FloatingActionButton.small(
+                      heroTag: 'btn_reset_trail',
+                      backgroundColor: Colors.white,
+                      foregroundColor: AppColors.danger,
+                      elevation: 4,
+                      tooltip: 'Reset Trail',
+                      onPressed: _clearAndResetTrail,
+                      child: const Icon(Icons.restart_alt_rounded, size: 20),
+                    ),
+                  ],
                 ],
-              ],
+              ),
             ),
           ),
 
@@ -516,235 +526,237 @@ class _MemberMapScreenState extends State<MemberMapScreen> {
             left: 16,
             right: 16,
             bottom: 24,
-            child: Card(
-              elevation: 10,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(20),
-                side: const BorderSide(color: AppColors.cardBorder, width: 1.5),
-              ),
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Row(
-                      children: [
-                        CircleAvatar(
-                          radius: 24,
-                          backgroundColor:
-                              AppColors.primaryLight.withValues(alpha: 0.2),
-                          backgroundImage: _profileImageFile != null
-                              ? FileImage(_profileImageFile!)
-                              : null,
-                          child: _profileImageFile == null
-                              ? Text(
-                                  widget.member.name.isNotEmpty
-                                      ? widget.member.name[0].toUpperCase()
-                                      : 'M',
-                                  style: const TextStyle(
-                                    color: AppColors.primary,
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 18,
-                                  ),
-                                )
-                              : null,
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                widget.member.name,
-                                style: const TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.bold,
-                                  color: AppColors.textPrimary,
-                                ),
-                              ),
-                              Text(
-                                widget.member.mobile,
-                                style: const TextStyle(
-                                  fontSize: 12,
-                                  color: AppColors.textSecondary,
-                                ),
-                              ),
-                            ],
+            child: RepaintBoundary(
+              child: Card(
+                elevation: 10,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(20),
+                  side: const BorderSide(color: AppColors.cardBorder, width: 1.5),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Row(
+                        children: [
+                          CircleAvatar(
+                            radius: 24,
+                            backgroundColor:
+                                AppColors.primaryLight.withValues(alpha: 0.2),
+                            backgroundImage: _profileImageFile != null
+                                ? FileImage(_profileImageFile!)
+                                : null,
+                            child: _profileImageFile == null
+                                ? Text(
+                                    widget.member.name.isNotEmpty
+                                        ? widget.member.name[0].toUpperCase()
+                                        : 'M',
+                                    style: const TextStyle(
+                                      color: AppColors.primary,
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 18,
+                                    ),
+                                  )
+                                : null,
                           ),
-                        ),
-                        if (_currentLocation != null &&
-                            _currentLocation!.batteryPercentage > 0)
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 10,
-                              vertical: 4,
-                            ),
-                            decoration: BoxDecoration(
-                              color: _currentLocation!.batteryPercentage > 20
-                                  ? AppColors.successBg
-                                  : AppColors.dangerBg,
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            child: Row(
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Icon(
-                                  _currentLocation!.batteryPercentage > 20
-                                      ? Icons.battery_full_rounded
-                                      : Icons.battery_alert_rounded,
-                                  size: 14,
-                                  color: _currentLocation!.batteryPercentage > 20
-                                      ? AppColors.success
-                                      : AppColors.danger,
-                                ),
-                                const SizedBox(width: 4),
                                 Text(
-                                  '${_currentLocation!.batteryPercentage}%',
-                                  style: TextStyle(
-                                    fontSize: 12,
+                                  widget.member.name,
+                                  style: const TextStyle(
+                                    fontSize: 16,
                                     fontWeight: FontWeight.bold,
-                                    color: _currentLocation!.batteryPercentage > 20
-                                        ? AppColors.success
-                                        : AppColors.danger,
+                                    color: AppColors.textPrimary,
+                                  ),
+                                ),
+                                Text(
+                                  widget.member.mobile,
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    color: AppColors.textSecondary,
                                   ),
                                 ),
                               ],
                             ),
                           ),
-                      ],
-                    ),
-                    const SizedBox(height: 10),
-                    const Divider(height: 1, color: AppColors.cardBorder),
-                    const SizedBox(height: 8),
+                          if (_currentLocation != null &&
+                              _currentLocation!.batteryPercentage > 0)
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 10,
+                                vertical: 4,
+                              ),
+                              decoration: BoxDecoration(
+                                color: _currentLocation!.batteryPercentage > 20
+                                    ? AppColors.successBg
+                                    : AppColors.dangerBg,
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: Row(
+                                children: [
+                                  Icon(
+                                    _currentLocation!.batteryPercentage > 20
+                                        ? Icons.battery_full_rounded
+                                        : Icons.battery_alert_rounded,
+                                    size: 14,
+                                    color: _currentLocation!.batteryPercentage > 20
+                                        ? AppColors.success
+                                        : AppColors.danger,
+                                  ),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    '${_currentLocation!.batteryPercentage}%',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.bold,
+                                      color: _currentLocation!.batteryPercentage > 20
+                                          ? AppColors.success
+                                          : AppColors.danger,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+                      const Divider(height: 1, color: AppColors.cardBorder),
+                      const SizedBox(height: 8),
 
-                    // 1. Lat & Lng Coordinates
-                    Row(
-                      children: [
-                        const Icon(
-                          Icons.gps_fixed_rounded,
-                          size: 14,
-                          color: AppColors.accent,
-                        ),
-                        const SizedBox(width: 6),
-                        Text(
-                          'Lat: ${lat.toStringAsFixed(6)}, Lng: ${lng.toStringAsFixed(6)}',
-                          style: const TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
-                            color: AppColors.textSecondary,
-                            fontFamily: 'monospace',
+                      // 1. Lat & Lng Coordinates
+                      Row(
+                        children: [
+                          const Icon(
+                            Icons.gps_fixed_rounded,
+                            size: 14,
+                            color: AppColors.accent,
                           ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 6),
-
-                    // 2. Full Street Address (Below Lat & Lng)
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Icon(
-                          Icons.location_on_rounded,
-                          size: 16,
-                          color: AppColors.primary,
-                        ),
-                        const SizedBox(width: 6),
-                        Expanded(
-                          child: Text(
-                            displayAddress,
+                          const SizedBox(width: 6),
+                          Text(
+                            'Lat: ${lat.toStringAsFixed(6)}, Lng: ${lng.toStringAsFixed(6)}',
                             style: const TextStyle(
                               fontSize: 12,
-                              fontWeight: FontWeight.w500,
-                              color: AppColors.textPrimary,
+                              fontWeight: FontWeight.w600,
+                              color: AppColors.textSecondary,
+                              fontFamily: 'monospace',
                             ),
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
                           ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 6),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
 
-                    // 3. Last Updated
-                    Row(
-                      children: [
-                        const Icon(
-                          Icons.access_time_rounded,
-                          size: 13,
-                          color: AppColors.textMuted,
-                        ),
-                        const SizedBox(width: 6),
-                        Text(
-                          'Last updated: $formattedTime',
-                          style: const TextStyle(
-                            fontSize: 11,
-                            color: AppColors.textSecondary,
+                      // 2. Full Street Address (Below Lat & Lng)
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Icon(
+                            Icons.location_on_rounded,
+                            size: 16,
+                            color: AppColors.primary,
                           ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: Text(
+                              displayAddress,
+                              style: const TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w500,
+                                color: AppColors.textPrimary,
+                              ),
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
 
-                    // Call & SMS & History buttons
-                    Row(
-                      children: [
-                        Expanded(
-                          child: OutlinedButton.icon(
-                            onPressed: () => _makeCall(widget.member.mobile),
-                            icon: const Icon(Icons.call_rounded, size: 16),
-                            label: const Text('Call'),
-                            style: OutlinedButton.styleFrom(
-                              foregroundColor: AppColors.primary,
-                              padding: const EdgeInsets.symmetric(vertical: 8),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(10),
-                              ),
+                      // 3. Last Updated
+                      Row(
+                        children: [
+                          const Icon(
+                            Icons.access_time_rounded,
+                            size: 13,
+                            color: AppColors.textMuted,
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            'Last updated: $formattedTime',
+                            style: const TextStyle(
+                              fontSize: 11,
+                              color: AppColors.textSecondary,
                             ),
                           ),
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: OutlinedButton.icon(
-                            onPressed: () => _sendSms(widget.member.mobile),
-                            icon: const Icon(Icons.message_rounded, size: 16),
-                            label: const Text('SMS'),
-                            style: OutlinedButton.styleFrom(
-                              foregroundColor: AppColors.primary,
-                              padding: const EdgeInsets.symmetric(vertical: 8),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(10),
-                              ),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: ElevatedButton.icon(
-                            onPressed: () {
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (_) => LocationHistoryScreen(
-                                    member: widget.member,
-                                  ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+
+                      // Call & SMS & History buttons
+                      Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              onPressed: () => _makeCall(widget.member.mobile),
+                              icon: const Icon(Icons.call_rounded, size: 16),
+                              label: const Text('Call'),
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: AppColors.primary,
+                                padding: const EdgeInsets.symmetric(vertical: 8),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(10),
                                 ),
-                              );
-                            },
-                            icon: const Icon(Icons.route_rounded, size: 16),
-                            label: const Text('History'),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: AppColors.primary,
-                              foregroundColor: Colors.white,
-                              padding: const EdgeInsets.symmetric(vertical: 8),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(10),
                               ),
                             ),
                           ),
-                        ),
-                      ],
-                    ),
-                  ],
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              onPressed: () => _sendSms(widget.member.mobile),
+                              icon: const Icon(Icons.message_rounded, size: 16),
+                              label: const Text('SMS'),
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: AppColors.primary,
+                                padding: const EdgeInsets.symmetric(vertical: 8),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: ElevatedButton.icon(
+                              onPressed: () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (_) => LocationHistoryScreen(
+                                      member: widget.member,
+                                    ),
+                                  ),
+                                );
+                              },
+                              icon: const Icon(Icons.route_rounded, size: 16),
+                              label: const Text('History'),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: AppColors.primary,
+                                foregroundColor: Colors.white,
+                                padding: const EdgeInsets.symmetric(vertical: 8),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ),

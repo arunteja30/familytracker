@@ -280,7 +280,7 @@ class StickyTrackerService : Service(), LocationListener {
             locationManager?.requestLocationUpdates(
                 LocationManager.GPS_PROVIDER,
                 30000L, // 30 seconds
-                10f,    // 10 meters
+                40f,    // 40 meters
                 this
             )
         } catch (e: SecurityException) {
@@ -293,7 +293,7 @@ class StickyTrackerService : Service(), LocationListener {
             locationManager?.requestLocationUpdates(
                 LocationManager.NETWORK_PROVIDER,
                 30000L,
-                10f,
+                40f,    // 40 meters
                 this
             )
         } catch (e: SecurityException) {
@@ -301,6 +301,16 @@ class StickyTrackerService : Service(), LocationListener {
         } catch (e: Exception) {
             Log.w(TAG, "Network provider request failed: ${e.message}")
         }
+
+        // Push last known location immediately on launch so Firebase is updated instantly
+        try {
+            val lastGps = locationManager?.getLastKnownLocation(LocationManager.GPS_PROVIDER)
+            val lastNet = locationManager?.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
+            val best = lastGps ?: lastNet
+            if (best != null) {
+                onLocationChanged(best)
+            }
+        } catch (_: Exception) {}
     }
 
     override fun onLocationChanged(location: Location) {

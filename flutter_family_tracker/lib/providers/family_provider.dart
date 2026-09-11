@@ -85,9 +85,22 @@ class FamilyProvider extends ChangeNotifier {
     return false;
   }
 
-  void _safeNotifyListeners() {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      notifyListeners();
+  Timer? _notifyDebounceTimer;
+
+  void _safeNotifyListeners({bool immediate = false}) {
+    if (immediate) {
+      _notifyDebounceTimer?.cancel();
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        notifyListeners();
+      });
+      return;
+    }
+
+    if (_notifyDebounceTimer?.isActive ?? false) return;
+    _notifyDebounceTimer = Timer(const Duration(milliseconds: 50), () {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        notifyListeners();
+      });
     });
   }
 
@@ -279,6 +292,7 @@ class FamilyProvider extends ChangeNotifier {
 
   @override
   void dispose() {
+    _notifyDebounceTimer?.cancel();
     _locationService.stopContinuousTracking();
     _membersSubscription?.cancel();
     for (var sub in _locationSubscriptions.values) {

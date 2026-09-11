@@ -536,4 +536,25 @@ class DatabaseService {
       rethrow;
     }
   }
+
+  // Clear Location History for a Member (Specific Date or All History)
+  Future<void> clearLocationHistory(String mobile, {String? date}) async {
+    final clean = mobile.replaceAll(RegExp(r'[^0-9]'), '');
+    final last10 = clean.length >= 10 ? clean.substring(clean.length - 10) : clean;
+    final phoneCandidates = {mobile, clean, if (last10.isNotEmpty) last10, '+$clean'};
+    final tableCandidates = ['locationHistory', 'LocationHistory', 'location_history'];
+
+    for (var table in tableCandidates) {
+      for (var phone in phoneCandidates) {
+        if (phone.isEmpty) continue;
+        try {
+          if (date != null && date.isNotEmpty) {
+            await _db.ref(table).child(phone).child(date).remove();
+          } else {
+            await _db.ref(table).child(phone).remove();
+          }
+        } catch (_) {}
+      }
+    }
+  }
 }

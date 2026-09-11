@@ -9,6 +9,14 @@ import 'package:latlong2/latlong.dart' as ll;
 import '../../services/geocoding_service.dart';
 import '../widgets/adaptive_map_view.dart';
 
+enum HistoryTimeFilter {
+  all,
+  morning, // 06:00 - 12:00
+  afternoon, // 12:00 - 18:00
+  evening, // 18:00 - 24:00
+  night, // 00:00 - 06:00
+}
+
 class LocationHistoryScreen extends StatefulWidget {
   final FamilyMemberModel member;
 
@@ -22,7 +30,9 @@ class _LocationHistoryScreenState extends State<LocationHistoryScreen> {
   final DatabaseService _dbService = DatabaseService();
   final ScrollController _scrollController = ScrollController();
   DateTime _selectedDate = DateTime.now();
-  List<LocationDetailsModel> _historyPoints = [];
+  List<LocationDetailsModel> _rawHistoryPoints = [];
+  List<LocationDetailsModel> _displayedPoints = [];
+  HistoryTimeFilter _selectedTimeFilter = HistoryTimeFilter.all;
   int? _selectedIndex;
   bool _isLoading = false;
 
@@ -50,11 +60,55 @@ class _LocationHistoryScreenState extends State<LocationHistoryScreen> {
     final dateStr = DateFormat('yyyy-MM-dd').format(_selectedDate);
     final points = await _dbService.getLocationHistory(widget.member.mobile, dateStr);
 
+    if (mounted) {
+      setState(() {
+        _rawHistoryPoints = points;
+        _applyTimeFilterAndRebuild();
+        _isLoading = false;
+      });
+    }
+
+    // Asynchronously resolve any addresses missing full details
+    _resolveAddresses(points);
+  }
+
+  void _applyTimeFilterAndRebuild() {
+    List<LocationDetailsModel> filtered;
+
+    if (_selectedTimeFilter == HistoryTimeFilter.all) {
+      filtered = List.from(_rawHistoryPoints);
+    } else {
+      filtered = _rawHistoryPoints.where((p) {
+        if (p.timeStamp <= 0) return true;
+        final hour = DateTime.fromMillisecondsSinceEpoch(p.timeStamp).hour;
+        switch (_selectedTimeFilter) {
+          case HistoryTimeFilter.morning:
+            return hour >= 6 && hour < 12;
+          case HistoryTimeFilter.afternoon:
+            return hour >= 12 && hour < 18;
+          case HistoryTimeFilter.evening:
+            return hour >= 18 && hour < 24;
+          case HistoryTimeFilter.night:
+            return hour >= 0 && hour < 6;
+          case HistoryTimeFilter.all:
+            return true;
+        }
+      }).toList();
+    }
+
+    // 1. Sort latest update on top (Newest to Oldest)
+    filtered.sort((a, b) => b.timeStamp.compareTo(a.timeStamp));
+    _displayedPoints = filtered;
+
+    // 2. Build Polyline based on chronological route (oldest to newest)
+    final chronological = List<LocationDetailsModel>.from(filtered)
+      ..sort((a, b) => a.timeStamp.compareTo(b.timeStamp));
+
     _polylines.clear();
     final polylineCoords = <LatLng>[];
 
-    for (int i = 0; i < points.length; i++) {
-      final p = points[i];
+    for (int i = 0; i < chronological.length; i++) {
+      final p = chronological[i];
       if (p.latitude != 0.0 && p.longitude != 0.0) {
         polylineCoords.add(LatLng(p.latitude, p.longitude));
       }
@@ -70,37 +124,27 @@ class _LocationHistoryScreenState extends State<LocationHistoryScreen> {
         ),
       );
 
-      // Fit map to polyline bounds
       _fitMapToBounds(polylineCoords);
     }
 
-    if (mounted) {
-      setState(() {
-        _historyPoints = points;
-        _isLoading = false;
-        _buildMarkers();
-      });
-    }
-
-    // Asynchronously enrich missing street addresses
-    _resolveAddresses(points);
+    _buildMarkers();
   }
 
   void _buildMarkers() {
     _markers.clear();
+    final formattedDate = DateFormat('MMM dd, yyyy').format(_selectedDate);
 
-    for (int i = 0; i < _historyPoints.length; i++) {
-      final p = _historyPoints[i];
+    for (int i = 0; i < _displayedPoints.length; i++) {
+      final p = _displayedPoints[i];
       if (p.latitude != 0.0 && p.longitude != 0.0) {
         final pos = LatLng(p.latitude, p.longitude);
         final isSelected = _selectedIndex == i;
-        final isStart = i == 0;
-        final isEnd = i == _historyPoints.length - 1;
+        final isLatest = i == 0; // Top item is latest
+        final isStart = i == _displayedPoints.length - 1; // Bottom item is start
 
-        // Always include start, end, selected point, or sampled points
-        if (isSelected || isStart || isEnd || _historyPoints.length <= 15 || i % 4 == 0) {
+        if (isSelected || isLatest || isStart || _displayedPoints.length <= 15 || i % 3 == 0) {
           final timeStr = p.timeStamp > 0
-              ? DateFormat('hh:mm a').format(
+              ? DateFormat('hh:mm:ss a').format(
                   DateTime.fromMillisecondsSinceEpoch(p.timeStamp),
                 )
               : '';
@@ -110,31 +154,31 @@ class _LocationHistoryScreenState extends State<LocationHistoryScreen> {
           BitmapDescriptor icon;
           if (isSelected) {
             icon = BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueYellow);
+          } else if (isLatest) {
+            icon = BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed);
           } else if (isStart) {
             icon = BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen);
-          } else if (isEnd) {
-            icon = BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed);
           } else {
             icon = BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure);
           }
+
+          final label = isLatest
+              ? '🔴 Latest Location (#1)'
+              : (isStart ? '🟢 Start Location' : 'Update #${_displayedPoints.length - i}');
+
+          final addr = p.address.isNotEmpty
+              ? p.address
+              : 'Lat: ${p.latitude.toStringAsFixed(5)}, Lng: ${p.longitude.toStringAsFixed(5)}';
 
           _markers.add(
             Marker(
               markerId: markerId,
               position: pos,
               icon: icon,
-              zIndexInt: isSelected ? 100 : (isEnd ? 10 : (isStart ? 9 : 1)),
+              zIndexInt: isSelected ? 100 : (isLatest ? 20 : (isStart ? 15 : 5)),
               infoWindow: InfoWindow(
-                title: isSelected
-                    ? '📍 Selected (#${i + 1}) • $timeStr'
-                    : (isStart
-                        ? '🟢 Start Location ($timeStr)'
-                        : isEnd
-                            ? '🔴 Latest Location ($timeStr)'
-                            : 'Point #${i + 1} ($timeStr)'),
-                snippet: p.address.isNotEmpty
-                    ? p.address
-                    : 'Lat: ${p.latitude.toStringAsFixed(5)}, Lng: ${p.longitude.toStringAsFixed(5)}',
+                title: isSelected ? '📍 Selected • $timeStr' : label,
+                snippet: '📅 $formattedDate • 🕒 $timeStr\n📍 $addr\n⚡ Battery: ${p.batteryPercentage}%',
               ),
               onTap: () {
                 _onMarkerTapped(i);
@@ -147,8 +191,8 @@ class _LocationHistoryScreenState extends State<LocationHistoryScreen> {
   }
 
   void _onCardTapped(int index) {
-    if (index >= _historyPoints.length) return;
-    final p = _historyPoints[index];
+    if (index >= _displayedPoints.length) return;
+    final p = _displayedPoints[index];
     if (p.latitude == 0.0 && p.longitude == 0.0) return;
 
     setState(() {
@@ -210,7 +254,7 @@ class _LocationHistoryScreenState extends State<LocationHistoryScreen> {
     }
     if (updated && mounted) {
       setState(() {
-        _historyPoints = List.from(points);
+        _applyTimeFilterAndRebuild();
       });
     }
   }
@@ -230,7 +274,6 @@ class _LocationHistoryScreenState extends State<LocationHistoryScreen> {
       if (pos.longitude > maxLng) maxLng = pos.longitude;
     }
 
-    // Add slight padding to bounds
     final bounds = LatLngBounds(
       southwest: LatLng(minLat - 0.005, minLng - 0.005),
       northeast: LatLng(maxLat + 0.005, maxLng + 0.005),
@@ -259,6 +302,96 @@ class _LocationHistoryScreenState extends State<LocationHistoryScreen> {
     _fetchHistory();
   }
 
+  // Clear / Delete Location History Dialog
+  Future<void> _showClearHistoryDialog() async {
+    final formattedDate = DateFormat('yyyy-MM-dd').format(_selectedDate);
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Row(
+          children: const [
+            Icon(Icons.delete_sweep_rounded, color: AppColors.danger),
+            SizedBox(width: 8),
+            Text('Clear History', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+          ],
+        ),
+        content: Text(
+          'Choose which location history to delete for ${widget.member.name}:',
+          style: const TextStyle(fontSize: 14, color: AppColors.textSecondary),
+        ),
+        actionsPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        actions: [
+          // Cancel
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel', style: TextStyle(color: AppColors.textMuted)),
+          ),
+
+          // Delete this date only
+          OutlinedButton(
+            onPressed: () async {
+              Navigator.pop(ctx);
+              await _performClearHistory(dateStr: formattedDate);
+            },
+            style: OutlinedButton.styleFrom(
+              foregroundColor: AppColors.danger,
+              side: const BorderSide(color: AppColors.danger),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            ),
+            child: Text('Delete $formattedDate'),
+          ),
+
+          // Delete all history
+          ElevatedButton(
+            onPressed: () async {
+              Navigator.pop(ctx);
+              await _performClearHistory(dateStr: null);
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.danger,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            ),
+            child: const Text('Delete All History'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _performClearHistory({String? dateStr}) async {
+    setState(() => _isLoading = true);
+    try {
+      await _dbService.clearLocationHistory(widget.member.mobile, date: dateStr);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              dateStr != null
+                  ? 'History for $dateStr cleared.'
+                  : 'All location history cleared for ${widget.member.name}.',
+            ),
+            backgroundColor: AppColors.success,
+          ),
+        );
+      }
+      await _fetchHistory();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to clear history: $e'),
+            backgroundColor: AppColors.danger,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final formattedDate = DateFormat('EEE, MMM dd, yyyy').format(_selectedDate);
@@ -273,12 +406,20 @@ class _LocationHistoryScreenState extends State<LocationHistoryScreen> {
       appBar: AppBar(
         title: Text('${widget.member.name} History'),
         actions: [
+          // Clear / Delete History Button
+          IconButton(
+            icon: const Icon(Icons.delete_sweep_rounded),
+            tooltip: 'Clear History',
+            onPressed: _showClearHistoryDialog,
+          ),
           IconButton(
             icon: const Icon(Icons.calendar_month_rounded),
+            tooltip: 'Select Date',
             onPressed: _selectDate,
           ),
           IconButton(
             icon: const Icon(Icons.refresh_rounded),
+            tooltip: 'Refresh',
             onPressed: _fetchHistory,
           ),
         ],
@@ -288,7 +429,7 @@ class _LocationHistoryScreenState extends State<LocationHistoryScreen> {
           // Date Filter Banner with Quick Prev/Next Navigation
           Container(
             color: AppColors.bgSurface,
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
@@ -339,32 +480,30 @@ class _LocationHistoryScreenState extends State<LocationHistoryScreen> {
                     initialLat: initialPos.latitude,
                     initialLng: initialPos.longitude,
                     initialZoom: 14,
-                    points: _historyPoints.asMap().entries.map((entry) {
+                    points: _displayedPoints.asMap().entries.map((entry) {
                       final i = entry.key;
                       final p = entry.value;
-                      final isStart = i == 0;
-                      final isEnd = i == _historyPoints.length - 1;
+                      final isLatest = i == 0;
+                      final isStart = i == _displayedPoints.length - 1;
                       return AdaptiveMapPoint(
                         id: 'point_$i',
                         latitude: p.latitude,
                         longitude: p.longitude,
-                        title: isStart
-                            ? 'Start (${p.timeStamp > 0 ? DateFormat('hh:mm a').format(DateTime.fromMillisecondsSinceEpoch(p.timeStamp)) : ''})'
-                            : isEnd
-                                ? 'Latest (${p.timeStamp > 0 ? DateFormat('hh:mm a').format(DateTime.fromMillisecondsSinceEpoch(p.timeStamp)) : ''})'
-                                : 'Point #${i + 1}',
+                        title: isLatest
+                            ? '🔴 Latest (${p.timeStamp > 0 ? DateFormat('hh:mm a').format(DateTime.fromMillisecondsSinceEpoch(p.timeStamp)) : ''})'
+                            : (isStart
+                                ? '🟢 Start (${p.timeStamp > 0 ? DateFormat('hh:mm a').format(DateTime.fromMillisecondsSinceEpoch(p.timeStamp)) : ''})'
+                                : 'Update #${_displayedPoints.length - i}'),
                         snippet: p.address,
-                        pinColor: isStart
-                            ? AppColors.success
-                            : isEnd
-                                ? AppColors.danger
-                                : AppColors.primary,
+                        pinColor: isLatest
+                            ? AppColors.danger
+                            : (isStart ? AppColors.success : AppColors.primary),
                       );
                     }).toList(),
                     polylines: [
                       AdaptivePolyline(
                         id: 'history_route',
-                        points: _historyPoints
+                        points: _displayedPoints
                             .where((p) => p.latitude != 0.0 && p.longitude != 0.0)
                             .map((p) => ll.LatLng(p.latitude, p.longitude))
                             .toList(),
@@ -384,52 +523,74 @@ class _LocationHistoryScreenState extends State<LocationHistoryScreen> {
                   ),
           ),
 
-          // Timeline Section
+          // Timeline Section with Time Filter Chips & Latest Updates on Top
           Expanded(
-            flex: 2,
+            flex: 3,
             child: Container(
               color: AppColors.bgApp,
-              padding: const EdgeInsets.all(16),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  // 1. Header with Total Points & Time Span
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       Text(
-                        'Recorded Points (${_historyPoints.length})',
+                        'Updates (${_displayedPoints.length})',
                         style: const TextStyle(
-                          fontSize: 16,
+                          fontSize: 15,
                           fontWeight: FontWeight.bold,
                           color: AppColors.textPrimary,
                         ),
                       ),
-                      if (_historyPoints.isNotEmpty)
+                      if (_displayedPoints.isNotEmpty)
                         Text(
-                          '${_historyPoints.first.timeStamp > 0 ? DateFormat('hh:mm a').format(DateTime.fromMillisecondsSinceEpoch(_historyPoints.first.timeStamp)) : ''} - ${_historyPoints.last.timeStamp > 0 ? DateFormat('hh:mm a').format(DateTime.fromMillisecondsSinceEpoch(_historyPoints.last.timeStamp)) : ''}',
+                          'Latest: ${_displayedPoints.first.timeStamp > 0 ? DateFormat('hh:mm a').format(DateTime.fromMillisecondsSinceEpoch(_displayedPoints.first.timeStamp)) : ''}',
                           style: const TextStyle(
                             fontSize: 12,
-                            color: AppColors.textSecondary,
-                            fontWeight: FontWeight.w600,
+                            color: AppColors.primary,
+                            fontWeight: FontWeight.bold,
                           ),
                         ),
                     ],
                   ),
                   const SizedBox(height: 8),
+
+                  // 2. Time Filter Chips Row
+                  SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      children: [
+                        _buildFilterChip('All (${_rawHistoryPoints.length})', HistoryTimeFilter.all),
+                        const SizedBox(width: 6),
+                        _buildFilterChip('🌅 Morning (6AM-12PM)', HistoryTimeFilter.morning),
+                        const SizedBox(width: 6),
+                        _buildFilterChip('☀️ Afternoon (12PM-6PM)', HistoryTimeFilter.afternoon),
+                        const SizedBox(width: 6),
+                        _buildFilterChip('🌆 Evening (6PM-12AM)', HistoryTimeFilter.evening),
+                        const SizedBox(width: 6),
+                        _buildFilterChip('🌙 Night (12AM-6AM)', HistoryTimeFilter.night),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+
+                  // 3. Timeline Cards List (Newest on Top)
                   Expanded(
-                    child: _historyPoints.isEmpty
+                    child: _displayedPoints.isEmpty
                         ? Center(
                             child: Column(
                               mainAxisAlignment: MainAxisAlignment.center,
                               children: [
                                 Icon(
                                   Icons.location_off_rounded,
-                                  size: 40,
+                                  size: 36,
                                   color: AppColors.textMuted.withValues(alpha: 0.5),
                                 ),
-                                const SizedBox(height: 8),
+                                const SizedBox(height: 6),
                                 const Text(
-                                  'No location points recorded on this date.',
+                                  'No recorded points in this time range.',
                                   style: TextStyle(
                                     color: AppColors.textSecondary,
                                     fontSize: 13,
@@ -440,19 +601,19 @@ class _LocationHistoryScreenState extends State<LocationHistoryScreen> {
                           )
                         : ListView.builder(
                             controller: _scrollController,
-                            itemCount: _historyPoints.length,
+                            itemCount: _displayedPoints.length,
                             itemBuilder: (context, index) {
-                              final p = _historyPoints[index];
+                              final p = _displayedPoints[index];
                               final timeStr = p.timeStamp > 0
                                   ? DateFormat('hh:mm:ss a').format(
                                       DateTime.fromMillisecondsSinceEpoch(
                                         p.timeStamp,
                                       ),
                                     )
-                                  : 'Point ${index + 1}';
+                                  : 'Update ${index + 1}';
 
-                              final isStart = index == 0;
-                              final isEnd = index == _historyPoints.length - 1;
+                              final isLatest = index == 0;
+                              final isStart = index == _displayedPoints.length - 1;
                               final isSelected = _selectedIndex == index;
 
                               return AnimatedContainer(
@@ -466,7 +627,9 @@ class _LocationHistoryScreenState extends State<LocationHistoryScreen> {
                                   border: Border.all(
                                     color: isSelected
                                         ? AppColors.primary
-                                        : AppColors.cardBorder,
+                                        : (isLatest
+                                            ? AppColors.danger.withValues(alpha: 0.5)
+                                            : AppColors.cardBorder),
                                     width: isSelected ? 2.0 : 1.0,
                                   ),
                                   boxShadow: isSelected
@@ -494,56 +657,107 @@ class _LocationHistoryScreenState extends State<LocationHistoryScreen> {
                                     radius: 18,
                                     backgroundColor: isSelected
                                         ? const Color(0xFFF59E0B) // Amber highlight
-                                        : (isStart
-                                            ? AppColors.success
-                                            : isEnd
-                                                ? AppColors.danger
-                                                : AppColors.primaryLight),
+                                        : (isLatest
+                                            ? AppColors.danger
+                                            : (isStart
+                                                ? AppColors.success
+                                                : AppColors.primaryLight)),
                                     child: isSelected
                                         ? const Icon(
                                             Icons.location_on_rounded,
                                             color: Colors.white,
                                             size: 20,
                                           )
-                                        : Text(
-                                            '${index + 1}',
-                                            style: const TextStyle(
-                                              color: Colors.white,
-                                              fontSize: 12,
-                                              fontWeight: FontWeight.bold,
-                                            ),
-                                          ),
+                                        : (isLatest
+                                            ? const Icon(
+                                                Icons.my_location_rounded,
+                                                color: Colors.white,
+                                                size: 18,
+                                              )
+                                            : Text(
+                                                '${_displayedPoints.length - index}',
+                                                style: const TextStyle(
+                                                  color: Colors.white,
+                                                  fontSize: 11,
+                                                  fontWeight: FontWeight.bold,
+                                                ),
+                                              )),
                                   ),
                                   title: Column(
                                     crossAxisAlignment: CrossAxisAlignment.start,
                                     children: [
-                                      // 1. Lat & Lng Coordinates
+                                      // Status Badge & Lat/Lng Coordinates
                                       Row(
                                         children: [
+                                          if (isLatest) ...[
+                                            Container(
+                                              padding: const EdgeInsets.symmetric(
+                                                horizontal: 6,
+                                                vertical: 1,
+                                              ),
+                                              margin: const EdgeInsets.only(right: 6),
+                                              decoration: BoxDecoration(
+                                                color: AppColors.dangerBg,
+                                                borderRadius: BorderRadius.circular(6),
+                                              ),
+                                              child: const Text(
+                                                'LATEST',
+                                                style: TextStyle(
+                                                  fontSize: 9,
+                                                  fontWeight: FontWeight.bold,
+                                                  color: AppColors.danger,
+                                                ),
+                                              ),
+                                            ),
+                                          ] else if (isStart) ...[
+                                            Container(
+                                              padding: const EdgeInsets.symmetric(
+                                                horizontal: 6,
+                                                vertical: 1,
+                                              ),
+                                              margin: const EdgeInsets.only(right: 6),
+                                              decoration: BoxDecoration(
+                                                color: AppColors.successBg,
+                                                borderRadius: BorderRadius.circular(6),
+                                              ),
+                                              child: const Text(
+                                                'START',
+                                                style: TextStyle(
+                                                  fontSize: 9,
+                                                  fontWeight: FontWeight.bold,
+                                                  color: AppColors.success,
+                                                ),
+                                              ),
+                                            ),
+                                          ],
                                           const Icon(
                                             Icons.gps_fixed_rounded,
                                             size: 11,
                                             color: AppColors.accent,
                                           ),
                                           const SizedBox(width: 4),
-                                          Text(
-                                            'Lat: ${p.latitude.toStringAsFixed(6)}, Lng: ${p.longitude.toStringAsFixed(6)}',
-                                            style: TextStyle(
-                                              fontSize: 11,
-                                              fontFamily: 'monospace',
-                                              fontWeight: isSelected
-                                                  ? FontWeight.bold
-                                                  : FontWeight.w600,
-                                              color: isSelected
-                                                  ? AppColors.primary
-                                                  : AppColors.textSecondary,
+                                          Expanded(
+                                            child: Text(
+                                              'Lat: ${p.latitude.toStringAsFixed(5)}, Lng: ${p.longitude.toStringAsFixed(5)}',
+                                              style: TextStyle(
+                                                fontSize: 11,
+                                                fontFamily: 'monospace',
+                                                fontWeight: isSelected
+                                                    ? FontWeight.bold
+                                                    : FontWeight.w600,
+                                                color: isSelected
+                                                    ? AppColors.primary
+                                                    : AppColors.textSecondary,
+                                              ),
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
                                             ),
                                           ),
                                         ],
                                       ),
                                       const SizedBox(height: 3),
 
-                                      // 2. Street Address below Lat and Lng
+                                      // Street Address below Lat and Lng
                                       Text(
                                         p.address.isNotEmpty
                                             ? p.address
@@ -569,6 +783,8 @@ class _LocationHistoryScreenState extends State<LocationHistoryScreen> {
                                         color: AppColors.textMuted,
                                         fontWeight: FontWeight.w500,
                                       ),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
                                     ),
                                   ),
                                   trailing: isSelected
@@ -602,6 +818,49 @@ class _LocationHistoryScreenState extends State<LocationHistoryScreen> {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildFilterChip(String label, HistoryTimeFilter filter) {
+    final isSelected = _selectedTimeFilter == filter;
+    return InkWell(
+      onTap: () {
+        setState(() {
+          _selectedTimeFilter = filter;
+          _selectedIndex = null;
+          _applyTimeFilterAndRebuild();
+        });
+      },
+      borderRadius: BorderRadius.circular(16),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+        decoration: BoxDecoration(
+          color: isSelected ? AppColors.primary : Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: isSelected ? AppColors.primary : AppColors.cardBorder,
+            width: 1,
+          ),
+          boxShadow: isSelected
+              ? [
+                  BoxShadow(
+                    color: AppColors.primary.withValues(alpha: 0.25),
+                    blurRadius: 4,
+                    offset: const Offset(0, 1),
+                  ),
+                ]
+              : null,
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            fontSize: 11,
+            fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
+            color: isSelected ? Colors.white : AppColors.textSecondary,
+          ),
+        ),
       ),
     );
   }

@@ -57,6 +57,10 @@
 		<string>https</string>
 		<string>http</string>
 	</array>
+	<key>GoogleMapsAPIKey</key>
+	<string>AIzaSyCqdmb42a0bZ6wtrfad_wmGe0SeseMx5KQ</string>
+	<key>GoogleGeocodingAPIKey</key>
+	<string>AIzaSyBbI2vk6FrUB7xPCKROW1wP__xsaUn-JiA</string>
 	<key>io.flutter.embedded_views_preview</key>
 	<true/>
 	<key>UIBackgroundModes</key>
@@ -64,6 +68,7 @@
 		<string>location</string>
 		<string>fetch</string>
 		<string>remote-notification</string>
+		<string>processing</string>
 	</array>
 	<key>UIApplicationSceneManifest</key>
 	<dict>

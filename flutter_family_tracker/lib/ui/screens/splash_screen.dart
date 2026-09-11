@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../constants/app_colors.dart';
+import '../../services/geocoding_service.dart';
 import '../../services/preferences_service.dart';
 import 'phone_login_screen.dart';
 import 'family_dashboard_screen.dart';
@@ -15,6 +16,8 @@ class _SplashScreenState extends State<SplashScreen> {
   @override
   void initState() {
     super.initState();
+    // Warm up and pre-load all shared cloud geocache entries to local disk
+    GeocodingService.syncCloudCacheToLocal();
     _checkAuth();
   }
 

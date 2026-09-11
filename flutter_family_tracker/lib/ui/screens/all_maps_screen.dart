@@ -45,6 +45,7 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
   FamilyMemberModel? _selectedMember;
   final Map<String, String> _resolvedAddresses = {};
   final Map<String, File?> _memberPhotos = {};
+  final Set<String> _checkedPhotos = {};
   bool _isCardExpanded = false;
   bool _showBottomCard = true;
 
@@ -107,9 +108,14 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
     if (loc == null || (loc.latitude == 0.0 && loc.longitude == 0.0)) return null;
 
     final color = _markerColors[index % _markerColors.length];
-    final photoFile = _memberPhotos[member.mobile] ??
-        await ProfileImageService.getProfileImageFile(member.mobile);
-    _memberPhotos[member.mobile] = photoFile;
+    File? photoFile;
+    if (_checkedPhotos.contains(member.mobile)) {
+      photoFile = _memberPhotos[member.mobile];
+    } else {
+      photoFile = await ProfileImageService.getProfileImageFile(member.mobile);
+      _memberPhotos[member.mobile] = photoFile;
+      _checkedPhotos.add(member.mobile);
+    }
 
     // Resolve address in background if missing
     if (loc.address.isEmpty || loc.address.startsWith('Lat:')) {
@@ -143,7 +149,7 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
       icon: customIcon,
       infoWindow: InfoWindow(
         title: member.name,
-        snippet: '⚡ ${loc.batteryPercentage}% • $displayAddr\n🕒 $lastUpdated',
+        snippet: '🕒 $lastUpdated\n📍 $displayAddr\n⚡ Battery: ${loc.batteryPercentage}%',
       ),
       onTap: () {
         _focusMember(member);
@@ -167,6 +173,7 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
           if (memberTrail.isNotEmpty) {
             final stepIndex = memberTrail.length;
             final prevPoint = memberTrail.last;
+            final nowStr = DateFormat('MMM dd, yyyy • hh:mm:ss a').format(DateTime.now());
             _markers.add(
               Marker(
                 markerId: MarkerId('step_${member.mobile}_$stepIndex'),
@@ -177,7 +184,7 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
                 zIndexInt: 5,
                 infoWindow: InfoWindow(
                   title: '${member.name} • Update #$stepIndex',
-                  snippet: 'Previous update position',
+                  snippet: '🕒 $nowStr\n📍 Update Position',
                 ),
               ),
             );
@@ -439,73 +446,75 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
             top: 12,
             left: 12,
             right: 12,
-            child: Container(
-              height: 54,
-              decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.95),
-                borderRadius: BorderRadius.circular(27),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.12),
-                    blurRadius: 10,
-                    offset: const Offset(0, 4),
+            child: RepaintBoundary(
+              child: Container(
+                height: 54,
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.95),
+                  borderRadius: BorderRadius.circular(27),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.12),
+                      blurRadius: 10,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
+                  border: Border.all(
+                    color: AppColors.cardBorder.withValues(alpha: 0.8),
+                    width: 1,
                   ),
-                ],
-                border: Border.all(
-                  color: AppColors.cardBorder.withValues(alpha: 0.8),
-                  width: 1,
                 ),
-              ),
-              child: ListView(
-                scrollDirection: Axis.horizontal,
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
-                children: [
-                  // "All Members" Filter Pill
-                  Padding(
-                    padding: const EdgeInsets.only(right: 6),
-                    child: InkWell(
-                      onTap: _fitAllBounds,
-                      borderRadius: BorderRadius.circular(20),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 12),
-                        decoration: BoxDecoration(
-                          color: _selectedMember == null
-                              ? AppColors.primary
-                              : AppColors.bgSurfaceElevated,
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(
-                              Icons.people_alt_rounded,
-                              size: 16,
-                              color: _selectedMember == null
-                                  ? Colors.white
-                                  : AppColors.textSecondary,
-                            ),
-                            const SizedBox(width: 5),
-                            Text(
-                              'All (${widget.members.length})',
-                              style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.bold,
+                child: ListView(
+                  scrollDirection: Axis.horizontal,
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
+                  children: [
+                    // "All Members" Filter Pill
+                    Padding(
+                      padding: const EdgeInsets.only(right: 6),
+                      child: InkWell(
+                        onTap: _fitAllBounds,
+                        borderRadius: BorderRadius.circular(20),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 12),
+                          decoration: BoxDecoration(
+                            color: _selectedMember == null
+                                ? AppColors.primary
+                                : AppColors.bgSurfaceElevated,
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                Icons.people_alt_rounded,
+                                size: 16,
                                 color: _selectedMember == null
                                     ? Colors.white
-                                    : AppColors.textPrimary,
+                                    : AppColors.textSecondary,
                               ),
-                            ),
-                          ],
+                              const SizedBox(width: 5),
+                              Text(
+                                'All (${widget.members.length})',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.bold,
+                                  color: _selectedMember == null
+                                      ? Colors.white
+                                      : AppColors.textPrimary,
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
                       ),
                     ),
-                  ),
 
-                  // Individual Member Avatar Pills
-                  for (int i = 0; i < widget.members.length; i++) ...[
-                    _buildMemberChip(widget.members[i], i),
+                    // Individual Member Avatar Pills
+                    for (int i = 0; i < widget.members.length; i++) ...[
+                      _buildMemberChip(widget.members[i], i),
+                    ],
                   ],
-                ],
+                ),
               ),
             ),
           ),
@@ -516,24 +525,25 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
               left: 14,
               right: 14,
               bottom: 16,
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 250),
-                curve: Curves.easeInOut,
-                decoration: BoxDecoration(
-                  color: AppColors.bgSurface,
-                  borderRadius: BorderRadius.circular(22),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.15),
-                      blurRadius: 16,
-                      offset: const Offset(0, 6),
+              child: RepaintBoundary(
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 250),
+                  curve: Curves.easeInOut,
+                  decoration: BoxDecoration(
+                    color: AppColors.bgSurface,
+                    borderRadius: BorderRadius.circular(22),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.15),
+                        blurRadius: 16,
+                        offset: const Offset(0, 6),
+                      ),
+                    ],
+                    border: Border.all(
+                      color: AppColors.cardBorder,
+                      width: 1.2,
                     ),
-                  ],
-                  border: Border.all(
-                    color: AppColors.cardBorder,
-                    width: 1.2,
                   ),
-                ),
                 padding: const EdgeInsets.all(14),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
@@ -785,6 +795,7 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
                 ),
               ),
             ),
+          ),
         ],
       ),
     );

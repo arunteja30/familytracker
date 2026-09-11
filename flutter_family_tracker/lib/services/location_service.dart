@@ -106,6 +106,9 @@ class LocationService {
   void startContinuousBackgroundLocationTracking(String mobile) {
     if (mobile.isEmpty) return;
 
+    // 1. Immediately fetch & push location on launch so Firebase is updated without waiting for movement
+    updateAndPushLocation(mobile);
+
     _positionStreamSubscription?.cancel();
 
     late LocationSettings locationSettings;
@@ -113,7 +116,7 @@ class LocationService {
     if (defaultTargetPlatform == TargetPlatform.android) {
       locationSettings = AndroidSettings(
         accuracy: LocationAccuracy.high,
-        distanceFilter: 10,
+        distanceFilter: 40,
         forceLocationManager: true,
         intervalDuration: const Duration(seconds: 30),
       );
@@ -122,7 +125,7 @@ class LocationService {
       locationSettings = AppleSettings(
         accuracy: LocationAccuracy.high,
         activityType: ActivityType.fitness,
-        distanceFilter: 10,
+        distanceFilter: 40,
         pauseLocationUpdatesAutomatically: false,
         showBackgroundLocationIndicator: true,
         allowBackgroundLocationUpdates: true,
@@ -130,7 +133,7 @@ class LocationService {
     } else {
       locationSettings = const LocationSettings(
         accuracy: LocationAccuracy.high,
-        distanceFilter: 10,
+        distanceFilter: 40,
       );
     }
 
