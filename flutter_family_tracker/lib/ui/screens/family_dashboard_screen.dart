@@ -166,7 +166,12 @@ class _FamilyDashboardScreenState extends State<FamilyDashboardScreen> {
           children: [
             Icon(Icons.warning_amber_rounded, color: Colors.red, size: 28),
             SizedBox(width: 8),
-            Text('Send Emergency SOS?'),
+            Expanded(
+              child: Text(
+                'Send Emergency SOS?',
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
           ],
         ),
         content: Text(
