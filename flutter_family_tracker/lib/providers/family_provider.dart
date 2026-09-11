@@ -415,8 +415,8 @@ class FamilyProvider extends ChangeNotifier {
         if (cached != null && (cached.latitude != 0.0 || cached.longitude != 0.0)) {
           lat = cached.latitude;
           lng = cached.longitude;
-          if (addr.isEmpty && cached.address != null && cached.address!.isNotEmpty) {
-            addr = cached.address!;
+          if (addr.isEmpty && cached.address.isNotEmpty) {
+            addr = cached.address;
           }
         }
       }
@@ -646,9 +646,19 @@ class FamilyProvider extends ChangeNotifier {
     await _dbService.sendChatMessage(currentFamilyName, message);
   }
 
+  // Edit a Chat Message
+  Future<void> editChatMessage(String messageId, String newText) async {
+    await _dbService.editChatMessage(currentFamilyName, messageId, newText);
+  }
+
   // Delete a Chat Message
   Future<void> deleteMessage(String messageId) async {
     await _dbService.deleteChatMessage(currentFamilyName, messageId);
+  }
+
+  // Delete Multiple Chat Messages in batch
+  Future<void> deleteChatMessages(List<String> messageIds) async {
+    await _dbService.deleteChatMessages(currentFamilyName, messageIds);
   }
 
   // Set whether user is actively viewing chat screen

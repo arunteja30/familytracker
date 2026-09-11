@@ -732,6 +732,23 @@ class DatabaseService {
     });
   }
 
+  /// Edit a single chat message in family group
+  Future<void> editChatMessage(String familyName, String messageId, String newText) async {
+    if (familyName.isEmpty || messageId.isEmpty || newText.trim().isEmpty) return;
+    try {
+      final now = DateTime.now().millisecondsSinceEpoch;
+      await _db.ref('family_chats').child(familyName.trim()).child(messageId).update({
+        'text': newText.trim(),
+        'isEdited': true,
+        'editedTimestamp': now,
+      });
+      debugPrint('[FamilyTracker] ✏️ Chat message $messageId edited in $familyName');
+    } catch (e) {
+      debugPrint('[FamilyTracker] Failed to edit chat message: $e');
+      rethrow;
+    }
+  }
+
   /// Delete a single chat message
   Future<void> deleteChatMessage(String familyName, String messageId) async {
     if (familyName.isEmpty || messageId.isEmpty) return;
@@ -739,6 +756,29 @@ class DatabaseService {
       await _db.ref('family_chats').child(familyName.trim()).child(messageId).remove();
     } catch (e) {
       debugPrint('[FamilyTracker] Failed to delete chat message: $e');
+    }
+  }
+
+  /// Delete multiple chat messages in batch
+  Future<void> deleteChatMessages(String familyName, List<String> messageIds) async {
+    if (familyName.isEmpty || messageIds.isEmpty) return;
+    try {
+      final Map<String, Object?> updates = {};
+      for (final id in messageIds) {
+        if (id.isNotEmpty) {
+          updates['family_chats/${familyName.trim()}/$id'] = null;
+        }
+      }
+      if (updates.isNotEmpty) {
+        await _db.ref().update(updates);
+        debugPrint('[FamilyTracker] 🗑️ Deleted ${messageIds.length} messages in $familyName');
+      }
+    } catch (e) {
+      debugPrint('[FamilyTracker] Failed to batch delete chat messages: $e');
+      // Fallback to sequential deletion
+      for (final id in messageIds) {
+        await deleteChatMessage(familyName, id);
+      }
     }
   }
 
@@ -763,6 +803,23 @@ class DatabaseService {
       debugPrint('[FamilyTracker] 👤 Direct chat message sent to $roomId');
     } catch (e) {
       debugPrint('[FamilyTracker] Failed to send direct chat message: $e');
+      rethrow;
+    }
+  }
+
+  /// Edit a 1-on-1 direct chat message
+  Future<void> editDirectChatMessage(String roomId, String messageId, String newText) async {
+    if (roomId.isEmpty || messageId.isEmpty || newText.trim().isEmpty) return;
+    try {
+      final now = DateTime.now().millisecondsSinceEpoch;
+      await _db.ref('direct_chats').child(roomId).child(messageId).update({
+        'text': newText.trim(),
+        'isEdited': true,
+        'editedTimestamp': now,
+      });
+      debugPrint('[FamilyTracker] ✏️ Direct chat message $messageId edited in $roomId');
+    } catch (e) {
+      debugPrint('[FamilyTracker] Failed to edit direct chat message: $e');
       rethrow;
     }
   }
@@ -801,6 +858,28 @@ class DatabaseService {
       await _db.ref('direct_chats').child(roomId).child(messageId).remove();
     } catch (e) {
       debugPrint('[FamilyTracker] Failed to delete direct chat message: $e');
+    }
+  }
+
+  /// Delete multiple 1-on-1 chat messages in batch
+  Future<void> deleteDirectChatMessages(String roomId, List<String> messageIds) async {
+    if (roomId.isEmpty || messageIds.isEmpty) return;
+    try {
+      final Map<String, Object?> updates = {};
+      for (final id in messageIds) {
+        if (id.isNotEmpty) {
+          updates['direct_chats/$roomId/$id'] = null;
+        }
+      }
+      if (updates.isNotEmpty) {
+        await _db.ref().update(updates);
+        debugPrint('[FamilyTracker] 🗑️ Deleted ${messageIds.length} direct messages in $roomId');
+      }
+    } catch (e) {
+      debugPrint('[FamilyTracker] Failed to batch delete direct messages: $e');
+      for (final id in messageIds) {
+        await deleteDirectChatMessage(roomId, id);
+      }
     }
   }
 }
