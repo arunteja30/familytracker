@@ -150,10 +150,14 @@ class _MemberCardState extends State<MemberCard> {
       margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
       elevation: 2,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          children: [
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: widget.onTrackOnMap,
+        borderRadius: BorderRadius.circular(16),
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            children: [
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -478,6 +482,7 @@ class _MemberCardState extends State<MemberCard> {
             ),
           ],
         ),
+      ),
       ),
     );
   }
