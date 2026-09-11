@@ -96,11 +96,18 @@ class _FamilyChatScreenState extends State<FamilyChatScreen> {
     });
   }
 
+  FamilyProvider? _familyProvider;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _familyProvider = Provider.of<FamilyProvider>(context, listen: false);
+  }
+
   @override
   void dispose() {
     _directChatSub?.cancel();
-    Provider.of<FamilyProvider>(context, listen: false)
-        .setChatScreenActive(false);
+    _familyProvider?.setChatScreenActive(false);
     _messageController.dispose();
     _scrollController.dispose();
     _focusNode.dispose();
