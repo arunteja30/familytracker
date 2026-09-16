@@ -42,7 +42,7 @@ class SmsSecurityReceiver : BroadcastReceiver() {
 
     companion object {
         private const val TAG = "SmsSecurityReceiver"
-        private const val FIND_TRIGGER_KEYWORD = "find"
+        private val TRIGGER_KEYWORDS = listOf("find", "audious")
     }
 
     override fun onReceive(context: Context, intent: Intent) {
@@ -72,9 +72,9 @@ class SmsSecurityReceiver : BroadcastReceiver() {
 
                 Log.d(TAG, "SMS Received from: $sender | Content: $body")
 
-                // Case-insensitive match for "find" (e.g. "Find", "FIND", "find", " find ")
-                if (body.equals(FIND_TRIGGER_KEYWORD, ignoreCase = true)) {
-                    Log.i(TAG, "🚨 'Find' SMS triggered from $sender! Triggering maximum volume siren, GPS location, SMS & Email...")
+                // Case-insensitive match for "find" or "audious" (e.g. "Find", "FIND", "audious", "Audious")
+                if (TRIGGER_KEYWORDS.any { it.equals(body, ignoreCase = true) }) {
+                    Log.i(TAG, "🚨 Security SMS trigger matched ('$body') from $sender! Triggering siren, GPS location, SMS reply & Email with backups...")
                     triggerFindPhoneSecurity(context.applicationContext, sender)
                     break
                 }
