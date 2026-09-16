@@ -309,20 +309,27 @@ class IntruderCaptureService : Service() {
             val map = chars.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)
             val jpegSizes: Array<Size>? = map?.getOutputSizes(ImageFormat.JPEG)
 
-            // Select an optimal image resolution (<= 1280 wide to ensure fast processing and avoid OOM)
-            var chosenSize = Size(640, 480)
-            if (!jpegSizes.isNullOrEmpty()) {
-                val candidate = jpegSizes.firstOrNull { it.width <= 1280 && it.width >= 480 }
-                chosenSize = candidate ?: jpegSizes[0]
+            // Select High-Definition resolution (e.g., 1920x1080 Full HD, 1920x1440, or 1280x960) for crystal-clear photos
+            val sortedSizes = jpegSizes?.sortedByDescending { it.width * it.height } ?: emptyList()
+            var chosenSize = Size(1280, 960)
+            for (size in sortedSizes) {
+                // Select crisp resolution up to Full HD (1920 wide) to maximize clarity while maintaining fast capture
+                if (size.width <= 1920 && size.width >= 1024) {
+                    chosenSize = size
+                    break
+                }
+            }
+            if (chosenSize.width < 1024 && sortedSizes.isNotEmpty()) {
+                chosenSize = sortedSizes[0]
             }
 
             val width = chosenSize.width
             val height = chosenSize.height
-            Log.d(TAG, "Configuring ImageReader for camera $cameraId with resolution: ${width}x${height}")
+            Log.i(TAG, "📸 Selected high-clarity resolution for camera $cameraId: ${width}x${height}")
 
             imageReader = ImageReader.newInstance(width, height, ImageFormat.JPEG, 2)
             imageReader?.setOnImageAvailableListener({ reader ->
-                Log.d(TAG, "OnImageAvailable triggered for camera $cameraId")
+                Log.d(TAG, "OnImageAvailable frame ready for camera $cameraId")
                 try {
                     val image = reader.acquireLatestImage() ?: reader.acquireNextImage()
                     if (image != null) {
@@ -341,10 +348,10 @@ class IntruderCaptureService : Service() {
                         bgHandler.postDelayed({
                             closeCurrentCamera()
                             bgHandler.postDelayed({ captureNextCamera() }, 300L)
-                        }, 200L)
+                        }, 250L)
                     }
                 } catch (e: Exception) {
-                    Log.e(TAG, "Error acquiring image from reader on camera $cameraId", e)
+                    Log.e(TAG, "Error acquiring high-res image from reader on camera $cameraId", e)
                 }
             }, bgHandler)
 
@@ -358,13 +365,11 @@ class IntruderCaptureService : Service() {
 
             cm.openCamera(cameraId, object : CameraDevice.StateCallback() {
                 override fun onOpened(camera: CameraDevice) {
-                    Log.i(TAG, "Camera $cameraId opened successfully. Waiting 500ms for sensor warm-up.")
+                    Log.i(TAG, "Camera $cameraId opened. Warming up sensor for AE/AF focus convergence...")
                     cameraDevice = camera
                     isCameraClosing = false
-                    // Sensor warm-up delay (500ms) matches native reference to avoid black frames or AE crash
-                    bgHandler.postDelayed({
-                        takeStillPicture(camera, cameraId, chars)
-                    }, 500L)
+                    // Start capture with 3A preview convergence
+                    takeStillPicture(camera, cameraId, chars)
                 }
 
                 override fun onDisconnected(camera: CameraDevice) {
@@ -401,44 +406,87 @@ class IntruderCaptureService : Service() {
 
         try {
             val facing = chars.get(CameraCharacteristics.LENS_FACING)
-            val captureBuilder = camera.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE).apply {
+            val sensorOrientation = chars.get(CameraCharacteristics.SENSOR_ORIENTATION) ?: (if (facing == CameraCharacteristics.LENS_FACING_FRONT) 270 else 90)
+
+            // 1. Configure Repeating Preview Request to allow 3A (Auto Focus, Auto Exposure, Auto White Balance) to meter & lock sharp focus
+            val previewBuilder = camera.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW).apply {
                 addTarget(reader.surface)
                 set(CaptureRequest.CONTROL_MODE, CaptureRequest.CONTROL_MODE_AUTO)
                 set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE)
                 set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON)
+                set(CaptureRequest.CONTROL_AWB_MODE, CaptureRequest.CONTROL_AWB_MODE_AUTO)
                 set(CaptureRequest.CONTROL_AE_LOCK, false)
+                set(CaptureRequest.CONTROL_AWB_LOCK, false)
+            }
 
-                // Set orientation: Front = 270, Back = 90 (matches native reference)
-                val orientation = if (facing == CameraCharacteristics.LENS_FACING_FRONT) 270 else 90
-                set(CaptureRequest.JPEG_ORIENTATION, orientation)
+            // 2. Configure High-Quality Still Capture Request for crystal-clear image output
+            val stillCaptureBuilder = camera.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE).apply {
+                addTarget(reader.surface)
+                set(CaptureRequest.CONTROL_MODE, CaptureRequest.CONTROL_MODE_AUTO)
+                set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE)
+                set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON)
+                set(CaptureRequest.CONTROL_AWB_MODE, CaptureRequest.CONTROL_AWB_MODE_AUTO)
+                set(CaptureRequest.CONTROL_AE_LOCK, false)
+                set(CaptureRequest.CONTROL_AWB_LOCK, false)
+
+                // High Quality processing modes for maximum clarity and detail
+                set(CaptureRequest.JPEG_QUALITY, 98.toByte())
+                set(CaptureRequest.JPEG_ORIENTATION, sensorOrientation)
+                try {
+                    set(CaptureRequest.NOISE_REDUCTION_MODE, CaptureRequest.NOISE_REDUCTION_MODE_HIGH_QUALITY)
+                    set(CaptureRequest.EDGE_MODE, CaptureRequest.EDGE_MODE_HIGH_QUALITY)
+                    set(CaptureRequest.COLOR_CORRECTION_MODE, CaptureRequest.COLOR_CORRECTION_MODE_HIGH_QUALITY)
+                    set(CaptureRequest.SHADING_MODE, CaptureRequest.SHADING_MODE_HIGH_QUALITY)
+                    set(CaptureRequest.HOT_PIXEL_MODE, CaptureRequest.HOT_PIXEL_MODE_HIGH_QUALITY)
+                } catch (_: Exception) {}
             }
 
             camera.createCaptureSession(listOf(reader.surface), object : CameraCaptureSession.StateCallback() {
                 override fun onConfigured(session: CameraCaptureSession) {
                     try {
-                        Log.i(TAG, "Capture session configured for camera $cameraId. Dispatching still capture request.")
-                        session.capture(captureBuilder.build(), object : CameraCaptureSession.CaptureCallback() {
-                            override fun onCaptureCompleted(
-                                session: CameraCaptureSession,
-                                request: CaptureRequest,
-                                result: TotalCaptureResult
-                            ) {
-                                super.onCaptureCompleted(session, request, result)
-                                Log.i(TAG, "Hardware still capture completed for camera $cameraId. Awaiting ImageReader frame...")
-                                // Note: Camera is NOT closed here. It is closed in OnImageAvailableListener when bytes are written!
-                            }
+                        Log.i(TAG, "Capture session configured. Running 3A sensor convergence on camera $cameraId...")
+                        
+                        // Run repeating stream for 600ms so lens focuses and sensor adjusts exposure to ambient lighting
+                        try {
+                            session.setRepeatingRequest(previewBuilder.build(), null, bgHandler)
+                        } catch (e: Exception) {
+                            Log.w(TAG, "Preview repeating request fallback", e)
+                        }
 
-                            override fun onCaptureFailed(
-                                session: CameraCaptureSession,
-                                request: CaptureRequest,
-                                failure: CaptureFailure
-                            ) {
-                                super.onCaptureFailed(session, request, failure)
-                                Log.w(TAG, "Hardware capture failed for camera $cameraId: reason=${failure.reason}")
+                        // After 600ms sensor convergence, fire the crystal-clear still capture
+                        bgHandler.postDelayed({
+                            try {
+                                session.stopRepeating()
+                                session.capture(stillCaptureBuilder.build(), object : CameraCaptureSession.CaptureCallback() {
+                                    override fun onCaptureCompleted(
+                                        session: CameraCaptureSession,
+                                        request: CaptureRequest,
+                                        result: TotalCaptureResult
+                                    ) {
+                                        super.onCaptureCompleted(session, request, result)
+                                        Log.i(TAG, "✨ High-clarity still capture hardware completed for camera $cameraId. Awaiting image buffer...")
+                                    }
+
+                                    override fun onCaptureFailed(
+                                        session: CameraCaptureSession,
+                                        request: CaptureRequest,
+                                        failure: CaptureFailure
+                                    ) {
+                                        super.onCaptureFailed(session, request, failure)
+                                        Log.w(TAG, "Capture failed on camera $cameraId: reason=${failure.reason}")
+                                    }
+                                }, bgHandler)
+                            } catch (e: Exception) {
+                                Log.e(TAG, "Error executing still capture after 3A convergence", e)
+                                closeCurrentCamera()
+                                bgHandler.postDelayed({ captureNextCamera() }, 300L)
                             }
-                        }, bgHandler)
+                        }, 600L)
+
                     } catch (e: Exception) {
                         Log.e(TAG, "Capture session execution error", e)
+                        closeCurrentCamera()
+                        bgHandler.postDelayed({ captureNextCamera() }, 300L)
                     }
                 }
 
