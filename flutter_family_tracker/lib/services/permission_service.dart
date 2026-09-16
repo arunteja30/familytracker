@@ -26,6 +26,35 @@ class PermissionService {
     }
   }
 
+  // Check if Contacts permission is granted
+  static Future<bool> hasContactsPermission() async {
+    if (kIsWeb) return true;
+    try {
+      final status = await Permission.contacts.status;
+      return status.isGranted;
+    } catch (_) {
+      return true;
+    }
+  }
+
+  // Request Contacts permission explicitly
+  static Future<bool> requestContactsPermissionExplicitly(BuildContext? context) async {
+    if (kIsWeb) return true;
+    try {
+      PermissionStatus status = await Permission.contacts.status;
+      if (!status.isGranted) {
+        status = await Permission.contacts.request();
+      }
+      if (status.isPermanentlyDenied && context != null && context.mounted) {
+        showContactsSettingsDialog(context);
+        return false;
+      }
+      return status.isGranted;
+    } catch (_) {
+      return true;
+    }
+  }
+
   // Check if SMS permission is granted
   static Future<bool> hasSmsPermission() async {
     if (kIsWeb) return true;
@@ -265,6 +294,82 @@ class PermissionService {
     );
   }
 
+  // Show dialog to open system settings for Contacts
+  static void showContactsSettingsDialog(BuildContext context) {
+    if (kIsWeb) return;
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Row(
+          children: [
+            Icon(Icons.contacts_rounded, color: AppColors.primary, size: 24),
+            SizedBox(width: 8),
+            Text('Contacts Permission Needed', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+          ],
+        ),
+        content: const Text(
+          'Contacts permission is needed to easily select and invite family members from your address book.\n\nPlease enable Contacts permission in App Settings.',
+          style: TextStyle(fontSize: 13, color: AppColors.textSecondary),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              openAppSettings();
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.primary,
+            ),
+            child: const Text('Open Settings'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Show dialog to open system settings for SMS
+  static void showSmsSettingsDialog(BuildContext context) {
+    if (kIsWeb) return;
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Row(
+          children: [
+            Icon(Icons.sms_rounded, color: AppColors.primary, size: 24),
+            SizedBox(width: 8),
+            Text('SMS Permission Needed', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+          ],
+        ),
+        content: const Text(
+          'SMS permission is required for background location tracking when offline.\n\nPlease enable SMS permission in App Settings.',
+          style: TextStyle(fontSize: 13, color: AppColors.textSecondary),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              openAppSettings();
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.primary,
+            ),
+            child: const Text('Open Settings'),
+          ),
+        ],
+      ),
+    );
+  }
+
   // Show dialog to open system settings for Location
   static void showSettingsDialog(BuildContext context) {
     if (kIsWeb) return;
@@ -286,6 +391,9 @@ class PermissionService {
               Navigator.pop(ctx);
               openAppSettings();
             },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.primary,
+            ),
             child: const Text('Open Settings'),
           ),
         ],
