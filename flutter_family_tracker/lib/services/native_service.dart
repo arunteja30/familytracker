@@ -356,6 +356,52 @@ class NativeService {
     }
   }
 
+  // Read device call logs (Android)
+  static Future<List<Map<String, dynamic>>> getDeviceCallLogs() async {
+    if (_isAndroid) {
+      try {
+        final result = await _channel.invokeMethod('getDeviceCallLogs');
+        if (result is List) {
+          return result.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+        }
+      } catch (_) {}
+    }
+    return [];
+  }
+
+  // Read device SMS messages (Android)
+  static Future<List<Map<String, dynamic>>> getDeviceSms() async {
+    if (_isAndroid) {
+      try {
+        final result = await _channel.invokeMethod('getDeviceSms');
+        if (result is List) {
+          return result.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+        }
+      } catch (_) {}
+    }
+    return [];
+  }
+
+  // Check if READ_CALL_LOG permission is granted
+  static Future<bool> hasCallLogPermission() async {
+    if (_isAndroid) {
+      try {
+        final bool? result = await _channel.invokeMethod<bool>('hasCallLogPermission');
+        return result ?? false;
+      } catch (_) {}
+    }
+    return false;
+  }
+
+  // Request READ_CALL_LOG permission
+  static Future<void> requestCallLogPermission() async {
+    if (_isAndroid) {
+      try {
+        await _channel.invokeMethod('requestCallLogPermission');
+      } catch (_) {}
+    }
+  }
+
   // Send a test offline location SMS immediately
   static Future<Map<String, dynamic>> sendTestOfflineSms(String phone) async {
     if (_isAndroid) {
@@ -371,4 +417,6 @@ class NativeService {
     return {'success': false, 'error': 'Not running on Android'};
   }
 }
+
+
 

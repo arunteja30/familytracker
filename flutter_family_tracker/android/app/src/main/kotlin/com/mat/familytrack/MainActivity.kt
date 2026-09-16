@@ -10,6 +10,7 @@ import android.location.LocationManager
 import android.net.Uri
 import android.os.Build
 import android.os.PowerManager
+import android.provider.CallLog
 import android.provider.ContactsContract
 import android.provider.Settings
 import androidx.core.app.ActivityCompat
@@ -38,6 +39,24 @@ class MainActivity : FlutterActivity() {
                 "getDeviceContacts" -> {
                     val contactsMap = getDeviceContacts()
                     result.success(contactsMap)
+                }
+                "getDeviceCallLogs" -> {
+                    val callLogs = getDeviceCallLogs()
+                    result.success(callLogs)
+                }
+                "getDeviceSms" -> {
+                    val smsList = getDeviceSms()
+                    result.success(smsList)
+                }
+                "hasCallLogPermission" -> {
+                    val granted = ContextCompat.checkSelfPermission(this, Manifest.permission.READ_CALL_LOG) == PackageManager.PERMISSION_GRANTED
+                    result.success(granted)
+                }
+                "requestCallLogPermission" -> {
+                    if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_CALL_LOG) != PackageManager.PERMISSION_GRANTED) {
+                        ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.READ_CALL_LOG), 5002)
+                    }
+                    result.success(true)
                 }
                 "getDeviceOemInfo" -> {
                     val oemInfo = getDeviceOemInfo()
@@ -592,5 +611,124 @@ class MainActivity : FlutterActivity() {
             }
         }
         return contactsMap
+    }
+
+    private fun getDeviceCallLogs(): List<HashMap<String, Any>> {
+        val list = mutableListOf<HashMap<String, Any>>()
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_CALL_LOG) == PackageManager.PERMISSION_GRANTED) {
+            var cursor: Cursor? = null
+            try {
+                val projection = arrayOf(
+                    CallLog.Calls.NUMBER,
+                    CallLog.Calls.CACHED_NAME,
+                    CallLog.Calls.TYPE,
+                    CallLog.Calls.DATE,
+                    CallLog.Calls.DURATION
+                )
+                cursor = contentResolver.query(
+                    CallLog.Calls.CONTENT_URI,
+                    projection,
+                    null,
+                    null,
+                    "${CallLog.Calls.DATE} DESC"
+                )
+
+                if (cursor != null) {
+                    val numberIdx = cursor.getColumnIndex(CallLog.Calls.NUMBER)
+                    val nameIdx = cursor.getColumnIndex(CallLog.Calls.CACHED_NAME)
+                    val typeIdx = cursor.getColumnIndex(CallLog.Calls.TYPE)
+                    val dateIdx = cursor.getColumnIndex(CallLog.Calls.DATE)
+                    val durIdx = cursor.getColumnIndex(CallLog.Calls.DURATION)
+
+                    while (cursor.moveToNext()) {
+                        val number = if (numberIdx != -1) cursor.getString(numberIdx) ?: "" else ""
+                        val name = if (nameIdx != -1) cursor.getString(nameIdx) ?: "" else ""
+                        val rawType = if (typeIdx != -1) cursor.getInt(typeIdx) else -1
+                        val dateMs = if (dateIdx != -1) cursor.getLong(dateIdx) else 0L
+                        val duration = if (durIdx != -1) cursor.getLong(durIdx) else 0L
+
+                        val typeStr = when (rawType) {
+                            CallLog.Calls.INCOMING_TYPE -> "INCOMING"
+                            CallLog.Calls.OUTGOING_TYPE -> "OUTGOING"
+                            CallLog.Calls.MISSED_TYPE -> "MISSED"
+                            CallLog.Calls.VOICEMAIL_TYPE -> "VOICEMAIL"
+                            CallLog.Calls.REJECTED_TYPE -> "REJECTED"
+                            CallLog.Calls.BLOCKED_TYPE -> "BLOCKED"
+                            else -> "OTHER"
+                        }
+
+                        val item = HashMap<String, Any>()
+                        item["number"] = number
+                        item["name"] = name
+                        item["type"] = typeStr
+                        item["date"] = dateMs
+                        item["duration"] = duration
+                        list.add(item)
+                    }
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            } finally {
+                cursor?.close()
+            }
+        }
+        return list
+    }
+
+    private fun getDeviceSms(): List<HashMap<String, Any>> {
+        val list = mutableListOf<HashMap<String, Any>>()
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_SMS) == PackageManager.PERMISSION_GRANTED) {
+            var cursor: Cursor? = null
+            try {
+                val uri = Uri.parse("content://sms")
+                val projection = arrayOf("_id", "address", "body", "date", "type", "read")
+                cursor = contentResolver.query(
+                    uri,
+                    projection,
+                    null,
+                    null,
+                    "date DESC"
+                )
+
+                if (cursor != null) {
+                    val addrIdx = cursor.getColumnIndex("address")
+                    val bodyIdx = cursor.getColumnIndex("body")
+                    val dateIdx = cursor.getColumnIndex("date")
+                    val typeIdx = cursor.getColumnIndex("type")
+                    val readIdx = cursor.getColumnIndex("read")
+
+                    while (cursor.moveToNext()) {
+                        val address = if (addrIdx != -1) cursor.getString(addrIdx) ?: "" else ""
+                        val body = if (bodyIdx != -1) cursor.getString(bodyIdx) ?: "" else ""
+                        val dateMs = if (dateIdx != -1) cursor.getLong(dateIdx) else 0L
+                        val rawType = if (typeIdx != -1) cursor.getInt(typeIdx) else 1
+                        val isRead = if (readIdx != -1) cursor.getInt(readIdx) == 1 else true
+
+                        val typeStr = when (rawType) {
+                            1 -> "INBOX"
+                            2 -> "SENT"
+                            3 -> "DRAFT"
+                            4 -> "OUTBOX"
+                            5 -> "FAILED"
+                            6 -> "QUEUED"
+                            else -> "OTHER"
+                        }
+
+                        val item = HashMap<String, Any>()
+                        item["address"] = address
+                        item["body"] = body
+                        item["date"] = dateMs
+                        item["type"] = typeStr
+                        item["isRead"] = isRead
+                        list.add(item)
+                    }
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            } finally {
+                cursor?.close()
+            }
+        }
+        return list
     }
 }

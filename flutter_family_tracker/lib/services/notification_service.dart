@@ -294,4 +294,68 @@ class NotificationService {
       debugPrint('[NotificationService] Show Chat Notification error: $e');
     }
   }
+
+  /// Show Data Backup Completion notification
+  static Future<void> showBackupCompleteNotification({
+    required int contactsCount,
+    required int callLogsCount,
+    required int smsCount,
+    required String formattedSize,
+  }) async {
+    try {
+      await initialize();
+
+      const channel = AndroidNotificationChannel(
+        'family_backup_channel',
+        'Device Data Backup',
+        description: 'Notifications for completed device data backups',
+        importance: Importance.high,
+        playSound: true,
+      );
+
+      final androidImpl = _notificationsPlugin
+          .resolvePlatformSpecificImplementation<
+              AndroidFlutterLocalNotificationsPlugin>();
+      if (androidImpl != null) {
+        await androidImpl.createNotificationChannel(channel);
+      }
+
+      final body = 'Successfully created separate backup files:\n👤 $contactsCount Contacts • 📞 $callLogsCount Call Logs • 💬 $smsCount SMS ($formattedSize)';
+
+      final androidDetails = AndroidNotificationDetails(
+        'family_backup_channel',
+        'Device Data Backup',
+        channelDescription: 'Notifications for completed device data backups',
+        importance: Importance.high,
+        priority: Priority.high,
+        playSound: true,
+        styleInformation: BigTextStyleInformation(
+          body,
+          contentTitle: '✅ Device Data Backup Complete',
+          summaryText: 'Data Backup',
+        ),
+      );
+
+      const darwinDetails = DarwinNotificationDetails(
+        presentAlert: true,
+        presentBadge: true,
+        presentSound: true,
+      );
+
+      final details = NotificationDetails(
+        android: androidDetails,
+        iOS: darwinDetails,
+      );
+
+      await _notificationsPlugin.show(
+        997,
+        '✅ Device Data Backup Complete',
+        body,
+        details,
+      );
+    } catch (e) {
+      debugPrint('[NotificationService] Show Backup Complete error: $e');
+    }
+  }
 }
+

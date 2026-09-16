@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
 import '../constants/app_colors.dart';
+import 'native_service.dart';
 
 class PermissionService {
   // Check if location permission is granted
@@ -74,7 +75,55 @@ class PermissionService {
       if (!status.isGranted) {
         status = await Permission.sms.request();
       }
+      if (status.isPermanentlyDenied && context != null && context.mounted) {
+        showSmsSettingsDialog(context);
+        return false;
+      }
       return status.isGranted;
+    } catch (_) {
+      return true;
+    }
+  }
+
+  // Check if Call Log permission is granted
+  static Future<bool> hasCallLogPermission() async {
+    if (kIsWeb) return true;
+    try {
+      final nativeGranted = await NativeService.hasCallLogPermission();
+      if (nativeGranted) return true;
+      final status = await Permission.phone.status;
+      return status.isGranted;
+    } catch (_) {
+      return true;
+    }
+  }
+
+  // Request Call Log permission explicitly
+  static Future<bool> requestCallLogPermissionExplicitly(BuildContext? context) async {
+    if (kIsWeb) return true;
+    try {
+      if (await hasCallLogPermission()) return true;
+      await NativeService.requestCallLogPermission();
+      await Permission.phone.request();
+      final granted = await hasCallLogPermission();
+      if (!granted && context != null && context.mounted) {
+        showCallLogSettingsDialog(context);
+      }
+      return granted;
+    } catch (_) {
+      return true;
+    }
+  }
+
+  // Request all permissions required for full device data backup (Contacts, SMS, Call Logs)
+  static Future<bool> requestAllBackupPermissions(BuildContext? context) async {
+    if (kIsWeb) return true;
+    try {
+      final contactsGranted = await requestContactsPermissionExplicitly(context);
+      final smsGranted = await requestSmsPermissionExplicitly(context);
+      final callLogsGranted = await requestCallLogPermissionExplicitly(context);
+
+      return contactsGranted && smsGranted && callLogsGranted;
     } catch (_) {
       return true;
     }
@@ -348,6 +397,44 @@ class PermissionService {
         ),
         content: const Text(
           'SMS permission is required for background location tracking when offline.\n\nPlease enable SMS permission in App Settings.',
+          style: TextStyle(fontSize: 13, color: AppColors.textSecondary),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              openAppSettings();
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.primary,
+            ),
+            child: const Text('Open Settings'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Show dialog to open system settings for Call Logs
+  static void showCallLogSettingsDialog(BuildContext context) {
+    if (kIsWeb) return;
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Row(
+          children: [
+            Icon(Icons.phone_in_talk_rounded, color: AppColors.primary, size: 24),
+            SizedBox(width: 8),
+            Text('Call Logs Permission Needed', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+          ],
+        ),
+        content: const Text(
+          'Call Logs permission is required to create a complete safety backup of your call history.\n\nPlease enable Call Logs permission in App Settings.',
           style: TextStyle(fontSize: 13, color: AppColors.textSecondary),
         ),
         actions: [

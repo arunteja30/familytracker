@@ -1,4 +1,6 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import '../../constants/app_colors.dart';
 import '../../constants/app_constants.dart';
@@ -9,6 +11,7 @@ import '../../services/native_service.dart';
 import '../../services/permission_service.dart';
 import '../../services/database_service.dart';
 import '../../services/app_update_service.dart';
+import '../../services/backup_service.dart';
 import '../widgets/oem_autostart_modal.dart';
 import '../widgets/intruder_photos_modal.dart';
 import 'phone_login_screen.dart';
@@ -35,6 +38,8 @@ class _SettingsScreenState extends State<SettingsScreen> with WidgetsBindingObse
   bool _offlineSmsEnabled = true;
   bool _isTestingSms = false;
   bool _isCheckingUpdate = false;
+  bool _isCreatingBackup = false;
+  BackupResult? _lastBackup;
 
   // Track expanded state for accordion sections (closed by default)
   final Set<String> _expandedSections = {};
@@ -53,7 +58,25 @@ class _SettingsScreenState extends State<SettingsScreen> with WidgetsBindingObse
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    BackupService.isBackupInProgress.addListener(_onBackupProgressChanged);
+    BackupService.latestBackupNotifier.addListener(_onLatestBackupChanged);
     _loadAntiTheftConfig();
+  }
+
+  void _onBackupProgressChanged() {
+    if (mounted) {
+      setState(() {
+        _isCreatingBackup = BackupService.isBackupInProgress.value;
+      });
+    }
+  }
+
+  void _onLatestBackupChanged() {
+    if (mounted) {
+      setState(() {
+        _lastBackup = BackupService.latestBackupNotifier.value;
+      });
+    }
   }
 
   @override
@@ -66,6 +89,8 @@ class _SettingsScreenState extends State<SettingsScreen> with WidgetsBindingObse
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    BackupService.isBackupInProgress.removeListener(_onBackupProgressChanged);
+    BackupService.latestBackupNotifier.removeListener(_onLatestBackupChanged);
     _emailController.dispose();
     _offlineSmsPhoneController.dispose();
     super.dispose();
@@ -89,10 +114,14 @@ class _SettingsScreenState extends State<SettingsScreen> with WidgetsBindingObse
     final smsEnabled = await NativeService.isOfflineSmsEnabled();
     final savedSmsPhone = await NativeService.getOfflineSmsPhone();
 
+    // 4. Fetch latest backup info
+    final backupInfo = await BackupService.getLatestBackupInfo();
+
     if (mounted) {
       setState(() {
         _isDeviceAdminActive = isAdmin;
         _offlineSmsEnabled = smsEnabled;
+        _lastBackup = backupInfo;
         if (savedSmsPhone.isNotEmpty && _offlineSmsPhoneController.text.isEmpty) {
           _offlineSmsPhoneController.text = savedSmsPhone;
         }
@@ -126,6 +155,156 @@ class _SettingsScreenState extends State<SettingsScreen> with WidgetsBindingObse
           }
         }
       });
+    }
+  }
+
+  Future<void> _handleCreateBackup() async {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        backgroundColor: Color(0xFF0D9488),
+        content: Row(
+          children: [
+            SizedBox(
+              width: 14,
+              height: 14,
+              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+            ),
+            SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                'Data backup started in background... You can continue using the app.',
+                style: TextStyle(fontSize: 12.5),
+              ),
+            ),
+          ],
+        ),
+        duration: Duration(seconds: 3),
+      ),
+    );
+
+    final result = await BackupService.runBackgroundBackup(context);
+    if (mounted) {
+      if (result.success) {
+        showDialog(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            title: const Row(
+              children: [
+                Icon(Icons.check_circle_rounded, color: AppColors.success),
+                SizedBox(width: 8),
+                Text('Backup Complete!'),
+              ],
+            ),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Successfully generated separate data backup files to local device storage:',
+                  style: TextStyle(fontSize: 13, height: 1.4),
+                ),
+                const SizedBox(height: 12),
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: AppColors.bgApp,
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: AppColors.cardBorder),
+                  ),
+                  child: Column(
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Row(
+                            children: [
+                              Icon(Icons.contacts_rounded, size: 15, color: AppColors.primary),
+                              SizedBox(width: 6),
+                              Text('Contacts', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+                            ],
+                          ),
+                          Text('${result.contactsCount}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                        ],
+                      ),
+                      const Divider(height: 12),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Row(
+                            children: [
+                              Icon(Icons.phone_in_talk_rounded, size: 15, color: Color(0xFF0EA5E9)),
+                              SizedBox(width: 6),
+                              Text('Call Logs', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+                            ],
+                          ),
+                          Text('${result.callLogsCount}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                        ],
+                      ),
+                      const Divider(height: 12),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Row(
+                            children: [
+                              Icon(Icons.sms_rounded, size: 15, color: Color(0xFF8B5CF6)),
+                              SizedBox(width: 6),
+                              Text('SMS Messages', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+                            ],
+                          ),
+                          Text('${result.smsCount}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                        ],
+                      ),
+                      const Divider(height: 12),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Text('Total File Size', style: TextStyle(fontSize: 11.5, color: AppColors.textSecondary)),
+                          Text(result.formattedSize, style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold, color: AppColors.success)),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: AppColors.bgApp,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Created 3 separate files in /backups:',
+                        style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
+                      ),
+                      const SizedBox(height: 4),
+                      if (result.contactsFilePath != null)
+                        Text('• ${result.contactsFilePath!.split(Platform.pathSeparator).last}', style: const TextStyle(fontSize: 10.5, color: AppColors.textSecondary)),
+                      if (result.callLogsFilePath != null)
+                        Text('• ${result.callLogsFilePath!.split(Platform.pathSeparator).last}', style: const TextStyle(fontSize: 10.5, color: AppColors.textSecondary)),
+                      if (result.smsFilePath != null)
+                        Text('• ${result.smsFilePath!.split(Platform.pathSeparator).last}', style: const TextStyle(fontSize: 10.5, color: AppColors.textSecondary)),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Done')),
+            ],
+          ),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: AppColors.danger,
+            content: Text(result.error ?? 'Failed to create backup.'),
+          ),
+        );
+      }
     }
   }
 
@@ -452,7 +631,23 @@ class _SettingsScreenState extends State<SettingsScreen> with WidgetsBindingObse
             ),
             const SizedBox(height: 12),
 
-            // 4. Background & OEM Battery Section (Expandable)
+            // 4. Device Data Backup Section (Expandable)
+            _buildExpandableSection(
+              sectionKey: 'data_backup',
+              title: 'Device Data Backup',
+              subtitle: 'Export Contacts, Call Logs & SMS to local storage',
+              icon: Icons.backup_rounded,
+              iconColor: const Color(0xFF0D9488),
+              iconBgColor: const Color(0xFFCCFBF1),
+              statusBadge: _buildStatusBadge(
+                label: _lastBackup != null ? 'Backed Up' : 'No Backup',
+                isActive: _lastBackup != null,
+              ),
+              child: _buildBackupBody(),
+            ),
+            const SizedBox(height: 12),
+
+            // 5. Background & OEM Battery Section (Expandable)
             _buildExpandableSection(
               sectionKey: 'battery_autostart',
               title: 'Auto-Start & Battery Optimization',
@@ -1213,7 +1408,197 @@ class _SettingsScreenState extends State<SettingsScreen> with WidgetsBindingObse
   }
 
   // --------------------------------------------------------------------------
-  // SECTION 3: BATTERY & AUTO-START BODY
+  // SECTION 3: DEVICE DATA BACKUP BODY
+  // --------------------------------------------------------------------------
+  Widget _buildBackupBody() {
+    final hasBackup = _lastBackup != null;
+    final formattedDate = hasBackup
+        ? DateFormat('dd MMM yyyy, hh:mm a').format(_lastBackup!.timestamp.toLocal())
+        : 'Never';
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Summary & Status Box
+        Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: hasBackup
+                ? const Color(0xFF0D9488).withValues(alpha: 0.05)
+                : AppColors.bgApp,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: hasBackup
+                  ? const Color(0xFF0D9488).withValues(alpha: 0.25)
+                  : AppColors.cardBorder,
+            ),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Row(
+                    children: [
+                      Icon(
+                        hasBackup
+                            ? Icons.verified_user_rounded
+                            : Icons.info_outline_rounded,
+                        size: 16,
+                        color: hasBackup
+                            ? const Color(0xFF0D9488)
+                            : AppColors.textMuted,
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        hasBackup ? 'Latest Backup' : 'No Backup Yet',
+                        style: TextStyle(
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.bold,
+                          color: hasBackup
+                              ? const Color(0xFF0F766E)
+                              : AppColors.textPrimary,
+                        ),
+                      ),
+                    ],
+                  ),
+                  if (hasBackup)
+                    Text(
+                      _lastBackup!.formattedSize,
+                      style: const TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                        color: Color(0xFF0F766E),
+                      ),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              Text(
+                hasBackup
+                    ? 'Generated: $formattedDate'
+                    : 'Tap the button below to export your Contacts, Call Logs, and SMS messages into a safe local backup.',
+                style: const TextStyle(
+                  fontSize: 11.5,
+                  color: AppColors.textSecondary,
+                  height: 1.3,
+                ),
+              ),
+              if (hasBackup) ...[
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    _buildBackupStatPill(
+                      icon: Icons.contacts_rounded,
+                      label: '${_lastBackup!.contactsCount} Contacts',
+                      color: AppColors.primary,
+                    ),
+                    const SizedBox(width: 6),
+                    _buildBackupStatPill(
+                      icon: Icons.phone_in_talk_rounded,
+                      label: '${_lastBackup!.callLogsCount} Calls',
+                      color: const Color(0xFF0EA5E9),
+                    ),
+                    const SizedBox(width: 6),
+                    _buildBackupStatPill(
+                      icon: Icons.sms_rounded,
+                      label: '${_lastBackup!.smsCount} SMS',
+                      color: const Color(0xFF8B5CF6),
+                    ),
+                  ],
+                ),
+              ],
+            ],
+          ),
+        ),
+        const SizedBox(height: 14),
+
+        // Action Button: Take Backup Now
+        SizedBox(
+          width: double.infinity,
+          child: ElevatedButton.icon(
+            onPressed: _isCreatingBackup ? null : _handleCreateBackup,
+            icon: _isCreatingBackup
+                ? const SizedBox(
+                    width: 14,
+                    height: 14,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Colors.white,
+                    ),
+                  )
+                : const Icon(Icons.backup_rounded, size: 16),
+            label: Text(
+              _isCreatingBackup ? 'Exporting Backup...' : 'Take Backup Now',
+              style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold),
+            ),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF0D9488),
+              foregroundColor: Colors.white,
+              elevation: 0,
+              padding: const EdgeInsets.symmetric(vertical: 12),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(height: 8),
+        const Row(
+          children: [
+            Icon(Icons.shield_outlined, size: 13, color: AppColors.textMuted),
+            SizedBox(width: 4),
+            Expanded(
+              child: Text(
+                'Files are stored securely in local app storage (backups/) in readable .txt and .json formats.',
+                style: TextStyle(fontSize: 10.5, color: AppColors.textMuted),
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildBackupStatPill({
+    required IconData icon,
+    required String label,
+    required Color color,
+  }) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 4),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.08),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: color.withValues(alpha: 0.2)),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, size: 13, color: color),
+            const SizedBox(width: 4),
+            Flexible(
+              child: Text(
+                label,
+                style: TextStyle(
+                  fontSize: 10.5,
+                  fontWeight: FontWeight.bold,
+                  color: color,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // --------------------------------------------------------------------------
+  // SECTION 4: BATTERY & AUTO-START BODY
   // --------------------------------------------------------------------------
   Widget _buildBatteryBody() {
     return Column(
