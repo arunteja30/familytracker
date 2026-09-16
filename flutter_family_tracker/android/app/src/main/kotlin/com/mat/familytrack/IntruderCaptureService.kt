@@ -552,7 +552,22 @@ class IntruderCaptureService : Service() {
                 out.flush()
             }
             capturedFiles.add(file)
-            Log.i(TAG, "✅ Successfully saved intruder photo: ${file.name} (${file.length()} bytes)")
+
+            // Save companion metadata JSON with location coordinates and timestamp
+            try {
+                val jsonFile = File(dir, filename.replace(".jpg", ".json"))
+                val jsonObj = org.json.JSONObject().apply {
+                    put("latitude", latitude)
+                    put("longitude", longitude)
+                    put("timestamp", System.currentTimeMillis())
+                    put("tag", tag)
+                }
+                jsonFile.writeText(jsonObj.toString())
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to write companion location metadata JSON: ${e.message}")
+            }
+
+            Log.i(TAG, "✅ Successfully saved intruder photo: ${file.name} (lat=$latitude, lng=$longitude, size=${file.length()} bytes)")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to write photo file for $tag", e)
         }

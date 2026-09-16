@@ -213,6 +213,8 @@ class MainActivity : FlutterActivity() {
                     val filePath = call.argument<String>("filePath")
                     if (filePath != null) {
                         val file = java.io.File(filePath)
+                        val jsonFile = java.io.File(filePath.replace(".jpg", ".json"))
+                        if (jsonFile.exists()) jsonFile.delete()
                         val deleted = if (file.exists()) file.delete() else false
                         result.success(deleted)
                     } else {
@@ -289,13 +291,27 @@ class MainActivity : FlutterActivity() {
             val files = dir.listFiles() ?: arrayOf()
             files.sortByDescending { it.lastModified() }
             for (f in files) {
-                if (f.isFile && f.name != ".nomedia") {
+                if (f.isFile && f.name.endsWith(".jpg", ignoreCase = true) && f.name != ".nomedia") {
                     val item = HashMap<String, Any>()
                     item["path"] = f.absolutePath
                     item["name"] = f.name
                     item["size"] = f.length()
                     item["timestamp"] = f.lastModified()
                     item["isFront"] = f.name.contains("FRONT") || (f.name.contains("INTRUDER_1") && !f.name.contains("BACK") && !f.name.contains("INTRUDER_0"))
+
+                    var lat = 0.0
+                    var lng = 0.0
+                    val jsonFile = java.io.File(dir, f.name.replace(".jpg", ".json"))
+                    if (jsonFile.exists()) {
+                        try {
+                            val jsonObj = org.json.JSONObject(jsonFile.readText())
+                            lat = jsonObj.optDouble("latitude", 0.0)
+                            lng = jsonObj.optDouble("longitude", 0.0)
+                        } catch (_: Exception) {}
+                    }
+                    item["latitude"] = lat
+                    item["longitude"] = lng
+
                     list.add(item)
                 }
             }
