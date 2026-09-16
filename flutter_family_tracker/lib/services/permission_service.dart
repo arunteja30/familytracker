@@ -15,6 +15,35 @@ class PermissionService {
     }
   }
 
+  // Check if camera permission is granted
+  static Future<bool> hasCameraPermission() async {
+    if (kIsWeb) return true;
+    try {
+      final status = await Permission.camera.status;
+      return status.isGranted;
+    } catch (_) {
+      return true;
+    }
+  }
+
+  // Request camera permission explicitly with fallback explanation dialog
+  static Future<bool> requestCameraPermissionExplicitly(BuildContext? context) async {
+    if (kIsWeb) return true;
+    try {
+      PermissionStatus status = await Permission.camera.status;
+      if (!status.isGranted) {
+        status = await Permission.camera.request();
+      }
+      if (status.isPermanentlyDenied && context != null && context.mounted) {
+        showCameraSettingsDialog(context);
+        return false;
+      }
+      return status.isGranted;
+    } catch (_) {
+      return true;
+    }
+  }
+
   // Request all essential permissions sequentially with proper handling
   static Future<bool> requestEssentialPermissions(BuildContext? context) async {
     if (kIsWeb) return true;
@@ -37,7 +66,7 @@ class PermissionService {
         await Permission.phone.request();
       }
 
-      // 4. Request Camera Permission (for Anti-Theft intruder selfie & profile pics)
+      // 4. Request Camera Permission explicitly (for Anti-Theft intruder selfie & defense)
       if (await Permission.camera.status.isDenied) {
         await Permission.camera.request();
       }
@@ -108,6 +137,19 @@ class PermissionService {
             SizedBox(height: 10),
             Row(
               children: [
+                Icon(Icons.camera_alt_rounded, color: Color(0xFF8B5CF6), size: 20),
+                SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'Camera: Secretly capture intruder photos when lock-screen PIN/password is failed.',
+                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                  ),
+                ),
+              ],
+            ),
+            SizedBox(height: 10),
+            Row(
+              children: [
                 Icon(Icons.notifications_active_rounded, color: AppColors.accent, size: 20),
                 SizedBox(width: 10),
                 Expanded(
@@ -154,7 +196,45 @@ class PermissionService {
     );
   }
 
-  // Show dialog to open system settings
+  // Show dialog to open system settings for Camera
+  static void showCameraSettingsDialog(BuildContext context) {
+    if (kIsWeb) return;
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Row(
+          children: [
+            Icon(Icons.camera_alt_rounded, color: Color(0xFF8B5CF6), size: 24),
+            SizedBox(width: 8),
+            Text('Camera Permission Needed', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+          ],
+        ),
+        content: const Text(
+          'Camera access is required for Anti-Theft Intruder Defense to capture secret photos when incorrect passwords are entered on the lock screen.\n\nPlease enable Camera permission in App Settings.',
+          style: TextStyle(fontSize: 13, color: AppColors.textSecondary),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              openAppSettings();
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.primary,
+            ),
+            child: const Text('Open Settings'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Show dialog to open system settings for Location
   static void showSettingsDialog(BuildContext context) {
     if (kIsWeb) return;
     showDialog(

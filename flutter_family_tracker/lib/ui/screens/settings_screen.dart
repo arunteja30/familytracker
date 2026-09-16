@@ -6,6 +6,7 @@ import '../../providers/auth_provider.dart';
 import '../../providers/family_provider.dart';
 import '../../services/preferences_service.dart';
 import '../../services/native_service.dart';
+import '../../services/permission_service.dart';
 import '../../services/app_update_service.dart';
 import 'package:permission_handler/permission_handler.dart';
 import '../widgets/oem_autostart_modal.dart';
@@ -94,9 +95,7 @@ class _SettingsScreenState extends State<SettingsScreen> with WidgetsBindingObse
     if (_isDeviceAdminActive) {
       await NativeService.removeDeviceAdmin();
     } else {
-      if (await Permission.camera.status.isDenied) {
-        await Permission.camera.request();
-      }
+      await PermissionService.requestCameraPermissionExplicitly(context);
       await NativeService.requestDeviceAdmin();
     }
     await Future.delayed(const Duration(milliseconds: 1000));
@@ -406,7 +405,11 @@ class _SettingsScreenState extends State<SettingsScreen> with WidgetsBindingObse
                       ),
                       value: _dualCamEnabled,
                       activeThumbColor: AppColors.primary,
-                      onChanged: (val) {
+                      onChanged: (val) async {
+                        if (val) {
+                          final granted = await PermissionService.requestCameraPermissionExplicitly(context);
+                          if (!granted) return;
+                        }
                         setState(() => _dualCamEnabled = val);
                         _saveAntiTheftConfig();
                       },
@@ -476,6 +479,8 @@ class _SettingsScreenState extends State<SettingsScreen> with WidgetsBindingObse
                             onPressed: _isTestingAlarm
                                 ? null
                                 : () async {
+                                    final hasCam = await PermissionService.requestCameraPermissionExplicitly(context);
+                                    if (!hasCam) return;
                                     final email = _emailController.text.trim();
                                     if (email.isEmpty) {
                                       ScaffoldMessenger.of(context)

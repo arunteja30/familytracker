@@ -592,9 +592,7 @@ class _FamilyDashboardScreenState extends State<FamilyDashboardScreen> with Widg
                   const SizedBox(width: 8),
                   ElevatedButton(
                     onPressed: () async {
-                      if (await Permission.camera.status.isDenied) {
-                        await Permission.camera.request();
-                      }
+                      await PermissionService.requestCameraPermissionExplicitly(context);
                       await NativeService.requestDeviceAdmin();
                       await Future.delayed(const Duration(seconds: 1));
                       _checkAdminStatus();

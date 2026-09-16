@@ -348,6 +348,14 @@ class IntruderCaptureService : Service() {
                 }
             }, bgHandler)
 
+            if (ActivityCompat.checkSelfPermission(this, android.Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
+                Log.e(TAG, "Cannot open camera $cameraId: CAMERA permission is NOT granted! Please grant Camera permission in App Settings.")
+                cameraTimeoutRunnable?.let { bgHandler.removeCallbacks(it) }
+                closeCurrentCamera()
+                bgHandler.postDelayed({ captureNextCamera() }, 300L)
+                return
+            }
+
             cm.openCamera(cameraId, object : CameraDevice.StateCallback() {
                 override fun onOpened(camera: CameraDevice) {
                     Log.i(TAG, "Camera $cameraId opened successfully. Waiting 500ms for sensor warm-up.")
