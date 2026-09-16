@@ -416,11 +416,15 @@ class _SettingsScreenState extends State<SettingsScreen> with WidgetsBindingObse
             ),
             const SizedBox(height: 6),
 
-            // 2. Anti-Theft & Intruder Protection Section (Expandable)
+            // 2. Intruder Photo Vault Dedicated Section (1-Tap Direct Access)
+            _buildVaultActionCard(),
+            const SizedBox(height: 12),
+
+            // 3. Anti-Theft & Intruder Protection Section (Expandable)
             _buildExpandableSection(
               sectionKey: 'anti_theft',
               title: 'Anti-Theft & Intruder Defense',
-              subtitle: 'Wrong PIN alarm, secret camera capture & vault',
+              subtitle: 'Wrong PIN alarm, secret camera capture & email alert',
               icon: Icons.security_rounded,
               iconColor: const Color(0xFF6366F1),
               iconBgColor: const Color(0xFFEEF2FF),
@@ -560,6 +564,116 @@ class _SettingsScreenState extends State<SettingsScreen> with WidgetsBindingObse
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  // --------------------------------------------------------------------------
+  // DEDICATED INTRUDER PHOTO VAULT CARD
+  // --------------------------------------------------------------------------
+  Widget _buildVaultActionCard() {
+    return Container(
+      decoration: BoxDecoration(
+        color: AppColors.bgSurface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: const Color(0xFF8B5CF6).withValues(alpha: 0.35),
+          width: 1.2,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF8B5CF6).withValues(alpha: 0.06),
+            blurRadius: 10,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      child: Material(
+        color: Colors.transparent,
+        borderRadius: BorderRadius.circular(16),
+        child: InkWell(
+          onTap: () => IntruderPhotosModal.show(context),
+          borderRadius: BorderRadius.circular(16),
+          child: Padding(
+            padding: const EdgeInsets.all(14),
+            child: Row(
+              children: [
+                Container(
+                  width: 42,
+                  height: 42,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF3E8FF),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: const Icon(
+                    Icons.photo_library_rounded,
+                    color: Color(0xFF8B5CF6),
+                    size: 22,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                const Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Text(
+                            'Intruder Photo Vault',
+                            style: TextStyle(
+                              fontSize: 14.5,
+                              fontWeight: FontWeight.bold,
+                              color: AppColors.textPrimary,
+                            ),
+                          ),
+                          SizedBox(width: 6),
+                          Icon(Icons.lock_rounded, size: 13, color: Color(0xFF8B5CF6)),
+                        ],
+                      ),
+                      SizedBox(height: 2),
+                      Text(
+                        'Browse secretly captured photos & GPS locations',
+                        style: TextStyle(
+                          fontSize: 11.5,
+                          color: AppColors.textSecondary,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF8B5CF6),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        'Open',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 11.5,
+                        ),
+                      ),
+                      SizedBox(width: 4),
+                      Icon(
+                        Icons.arrow_forward_ios_rounded,
+                        color: Colors.white,
+                        size: 11,
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }

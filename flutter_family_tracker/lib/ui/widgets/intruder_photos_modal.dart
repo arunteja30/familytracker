@@ -131,49 +131,54 @@ class _IntruderPhotosModalState extends State<IntruderPhotosModal> {
                 ),
                 const SizedBox(height: 14),
                 Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Row(
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.all(8),
-                          decoration: BoxDecoration(
-                            color: AppColors.primary.withValues(alpha: 0.15),
-                            shape: BoxShape.circle,
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: AppColors.primary.withValues(alpha: 0.15),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(Icons.photo_library_rounded,
+                          color: AppColors.primary, size: 20),
+                    ),
+                    const SizedBox(width: 12),
+                    const Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Intruder Photo Vault',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                              color: AppColors.textPrimary,
+                            ),
                           ),
-                          child: const Icon(Icons.photo_library_rounded,
-                              color: AppColors.primary, size: 20),
-                        ),
-                        const SizedBox(width: 12),
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text(
-                              'Intruder Photo Vault',
-                              style: TextStyle(
-                                fontSize: 17,
-                                fontWeight: FontWeight.bold,
-                                color: AppColors.textPrimary,
-                              ),
+                          Text(
+                            'Stored securely in app private memory',
+                            style: TextStyle(
+                              fontSize: 11.5,
+                              color: AppColors.textSecondary,
                             ),
-                            Text(
-                              'Stored securely in app private memory',
-                              style: TextStyle(
-                                  fontSize: 12,
-                                  color: AppColors.textSecondary),
-                            ),
-                          ],
-                        ),
-                      ],
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ],
+                      ),
                     ),
                     if (_photos.isNotEmpty)
                       TextButton.icon(
                         onPressed: _clearAll,
                         icon: const Icon(Icons.delete_sweep_rounded,
-                            color: AppColors.danger, size: 18),
+                            color: AppColors.danger, size: 16),
                         label: const Text('Clear All',
                             style: TextStyle(
-                                color: AppColors.danger, fontSize: 13)),
+                                color: AppColors.danger, fontSize: 12)),
+                        style: TextButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          minimumSize: Size.zero,
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        ),
                       ),
                   ],
                 ),
@@ -642,21 +647,26 @@ class _FullScreenPhotoViewerState extends State<_FullScreenPhotoViewer> {
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                          decoration: BoxDecoration(
-                            color: isFront ? AppColors.primary : Colors.teal,
-                            borderRadius: BorderRadius.circular(6),
-                          ),
-                          child: Text(
-                            isFront ? '📷 FRONT CAMERA (FACE)' : '📸 REAR CAMERA (ENVIRONMENT)',
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 11,
-                              fontWeight: FontWeight.bold,
+                        Flexible(
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                            decoration: BoxDecoration(
+                              color: isFront ? AppColors.primary : Colors.teal,
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Text(
+                              isFront ? '📷 FRONT CAMERA (FACE)' : '📸 REAR CAMERA (ENV)',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 10.5,
+                                fontWeight: FontWeight.bold,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
                             ),
                           ),
                         ),
+                        const SizedBox(width: 8),
                         Text(
                           dateFormatted,
                           style: const TextStyle(color: Colors.white70, fontSize: 11),
