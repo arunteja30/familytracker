@@ -36,8 +36,8 @@ class _SettingsScreenState extends State<SettingsScreen> with WidgetsBindingObse
   bool _isTestingSms = false;
   bool _isCheckingUpdate = false;
 
-  // Track expanded state for accordion sections
-  final Set<String> _expandedSections = {'anti_theft', 'offline_sms'};
+  // Track expanded state for accordion sections (closed by default)
+  final Set<String> _expandedSections = {};
 
   void _toggleSection(String sectionKey) {
     setState(() {
@@ -381,10 +381,15 @@ class _SettingsScreenState extends State<SettingsScreen> with WidgetsBindingObse
       appBar: AppBar(
         title: const Text(
           'Settings & Security',
-          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+          style: TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.bold,
+            fontSize: 18,
+          ),
         ),
         elevation: 0,
-        backgroundColor: Colors.transparent,
+        backgroundColor: AppColors.primary,
+        iconTheme: const IconThemeData(color: Colors.white),
       ),
       body: SingleChildScrollView(
         physics: const BouncingScrollPhysics(),
