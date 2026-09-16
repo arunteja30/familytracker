@@ -2,29 +2,20 @@ package com.mat.familytrack
 
 import android.content.Context
 import android.media.AudioAttributes
-import android.media.AudioFormat
 import android.media.AudioManager
-import android.media.AudioTrack
-import android.media.Ringtone
-import android.media.RingtoneManager
-import android.os.Build
+import android.media.MediaPlayer
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
-import kotlin.concurrent.thread
-import kotlin.math.PI
-import kotlin.math.sin
 
 object AlarmPlayer {
     private const val TAG = "AlarmPlayer"
     private val handler = Handler(Looper.getMainLooper())
     private var stopRunnable: Runnable? = null
+    private var mediaPlayer: MediaPlayer? = null
 
     @Volatile
     private var isAlarmActive = false
-    private var audioTrack: AudioTrack? = null
-    private var ringtone: Ringtone? = null
-    private var sirenThread: Thread? = null
 
     @Synchronized
     fun startAlarm(context: Context, durationSeconds: Int = 30) {
@@ -32,8 +23,10 @@ object AlarmPlayer {
         isAlarmActive = true
 
         try {
+            val appContext = context.applicationContext
+
             // 1. Maximize Alarm and Music Audio Stream Volume
-            val audioManager = context.applicationContext.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+            val audioManager = appContext.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
             audioManager?.let { am ->
                 try {
                     val maxAlarmVol = am.getStreamMaxVolume(AudioManager.STREAM_ALARM)
@@ -45,114 +38,30 @@ object AlarmPlayer {
                 }
             }
 
-            // 2. Play System Alarm Ringtone via RingtoneManager
-            try {
-                var alarmUri = RingtoneManager.getActualDefaultRingtoneUri(context, RingtoneManager.TYPE_ALARM)
-                if (alarmUri == null) {
-                    alarmUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
-                }
-                if (alarmUri == null) {
-                    alarmUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
-                }
-
-                if (alarmUri != null) {
-                    val r = RingtoneManager.getRingtone(context.applicationContext, alarmUri)
-                    r?.let {
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-                            it.audioAttributes = AudioAttributes.Builder()
-                                .setUsage(AudioAttributes.USAGE_ALARM)
-                                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                                .build()
-                        }
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                            it.isLooping = true
-                        }
-                        it.play()
-                        ringtone = it
-                    }
-                }
-            } catch (e: Exception) {
-                Log.w(TAG, "RingtoneManager playback note: ${e.message}")
+            // 2. Play native alert sound from res/raw/alarm.wav
+            val mp = MediaPlayer.create(appContext, R.raw.alarm)
+            if (mp != null) {
+                mp.setAudioAttributes(
+                    AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_ALARM)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                        .build()
+                )
+                mp.isLooping = true
+                mp.start()
+                mediaPlayer = mp
+                Log.i(TAG, "🚨 Native intruder alarm sound (R.raw.alarm) started successfully (duration: ${durationSeconds}s)")
+            } else {
+                Log.e(TAG, "MediaPlayer.create(context, R.raw.alarm) returned null")
             }
 
-            // 3. Guaranteed High-Decibel Wailing Siren Generator (AudioTrack Hardware Stream)
-            sirenThread = thread(start = true, name = "IntruderSirenEngine") {
-                playWailingSiren()
-            }
-
-            Log.i(TAG, "🚨 Intruder alarm siren started (duration: ${durationSeconds}s)")
-
-            // 4. Auto-stop after durationSeconds
+            // 3. Auto-stop after durationSeconds
             stopRunnable = Runnable {
                 stopAlarm()
             }
             handler.postDelayed(stopRunnable!!, durationSeconds * 1000L)
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to start intruder alarm", e)
-        }
-    }
-
-    private fun playWailingSiren() {
-        val sampleRate = 44100
-        val minBufferSize = AudioTrack.getMinBufferSize(
-            sampleRate,
-            AudioFormat.CHANNEL_OUT_MONO,
-            AudioFormat.ENCODING_PCM_16BIT
-        )
-        val bufferSize = maxOf(minBufferSize, sampleRate / 4)
-
-        val attributes = AudioAttributes.Builder()
-            .setUsage(AudioAttributes.USAGE_ALARM)
-            .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-            .build()
-
-        val format = AudioFormat.Builder()
-            .setSampleRate(sampleRate)
-            .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
-            .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
-            .build()
-
-        try {
-            val track = AudioTrack(
-                attributes,
-                format,
-                bufferSize,
-                AudioTrack.MODE_STREAM,
-                AudioManager.AUDIO_SESSION_ID_GENERATE
-            )
-            audioTrack = track
-            track.play()
-
-            val samples = ShortArray(bufferSize)
-            var phase = 0.0
-            var sirenProgress = 0.0
-            val sirenCyclePeriod = sampleRate * 1.2 // 1.2s per wail cycle
-
-            while (isAlarmActive) {
-                for (i in 0 until bufferSize) {
-                    // Oscillate frequency between 700 Hz (low wail) and 1600 Hz (high scream)
-                    val mod = (sin(2.0 * PI * sirenProgress / sirenCyclePeriod) + 1.0) / 2.0
-                    val currentFreq = 700.0 + (900.0 * mod)
-
-                    val sampleValue = sin(2.0 * PI * phase) * Short.MAX_VALUE * 0.95
-                    samples[i] = sampleValue.toInt().toShort()
-
-                    phase += currentFreq / sampleRate
-                    if (phase > 1.0) phase -= 1.0
-
-                    sirenProgress += 1.0
-                    if (sirenProgress >= sirenCyclePeriod) sirenProgress = 0.0
-                }
-                track.write(samples, 0, bufferSize)
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "Siren AudioTrack loop ended: ${e.message}")
-        } finally {
-            try {
-                audioTrack?.stop()
-                audioTrack?.release()
-            } catch (e: Exception) {}
-            audioTrack = null
+            Log.e(TAG, "Failed to start intruder alarm sound", e)
         }
     }
 
@@ -163,34 +72,23 @@ object AlarmPlayer {
             stopRunnable?.let { handler.removeCallbacks(it) }
             stopRunnable = null
 
-            // Stop Ringtone
-            try {
-                ringtone?.let {
-                    if (it.isPlaying) {
-                        it.stop()
+            mediaPlayer?.let { mp ->
+                try {
+                    if (mp.isPlaying) {
+                        mp.stop()
                     }
+                    mp.release()
+                } catch (e: Exception) {
+                    Log.w(TAG, "Error releasing MediaPlayer: ${e.message}")
                 }
-            } catch (e: Exception) {}
-            ringtone = null
-
-            // Stop AudioTrack
-            try {
-                audioTrack?.let {
-                    it.pause()
-                    it.flush()
-                    it.stop()
-                    it.release()
-                }
-            } catch (e: Exception) {}
-            audioTrack = null
-
-            sirenThread = null
-            Log.i(TAG, "Intruder alarm siren stopped")
+            }
+            mediaPlayer = null
+            Log.i(TAG, "Intruder alarm sound stopped")
         } catch (e: Exception) {
             Log.e(TAG, "Error stopping alarm", e)
         }
     }
 
     val isPlaying: Boolean
-        get() = isAlarmActive
+        get() = isAlarmActive || (mediaPlayer?.isPlaying == true)
 }
