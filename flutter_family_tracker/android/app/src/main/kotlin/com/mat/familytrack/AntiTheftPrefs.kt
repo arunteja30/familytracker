@@ -34,7 +34,7 @@ object AntiTheftPrefs {
     }
 
     fun isSirenEnabled(context: Context): Boolean {
-        return getPrefs(context).getBoolean(KEY_SIREN, true)
+        return getPrefs(context).getBoolean(KEY_SIREN, false)
     }
 
     fun setSirenEnabled(context: Context, enabled: Boolean) {

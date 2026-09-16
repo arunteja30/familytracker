@@ -21,7 +21,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final _emailController = TextEditingController();
   bool _isDeviceAdminActive = false;
   bool _antiTheftEnabled = true;
-  bool _sirenEnabled = true;
+  bool _sirenEnabled = false;
   bool _dualCamEnabled = true;
   int _failedAttemptsThreshold = 2;
   bool _isLoadingAdmin = false;
@@ -45,7 +45,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             _emailController.text = savedEmail;
           }
           _antiTheftEnabled = (config['enabled'] as bool?) ?? true;
-          _sirenEnabled = (config['siren'] as bool?) ?? true;
+          _sirenEnabled = (config['siren'] as bool?) ?? false;
           _dualCamEnabled = (config['dualCam'] as bool?) ?? true;
           _failedAttemptsThreshold = (config['failedAttempts'] as int?) ?? 2;
         }
