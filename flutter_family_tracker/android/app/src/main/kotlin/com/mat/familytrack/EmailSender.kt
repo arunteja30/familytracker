@@ -463,7 +463,7 @@ object EmailSender {
     }
 
     // ============================================================================
-    // METHOD: SEND DEVICE LOCATION ALERT EMAIL (FIND PHONE / SECURITY ALERT)
+    // METHOD: SEND DEVICE LOCATION ALERT EMAIL (WITH ATTACHED BACKUP FILES)
     // ============================================================================
     fun sendLocationAlertEmail(
         context: Context,
@@ -471,6 +471,7 @@ object EmailSender {
         latitude: Double?,
         longitude: Double?,
         triggerSource: String = "SMS 'Find' Trigger",
+        backupFiles: List<File> = emptyList(),
         onComplete: ((Boolean, String?) -> Unit)? = null
     ) {
         val targetRecipient = recipientEmail.trim().ifBlank { AntiTheftPrefs.getAlertEmail(context) }
@@ -485,7 +486,7 @@ object EmailSender {
 
         if (senderPassword.isNotBlank()) {
             val finalSender = if (senderEmail.isNotBlank()) senderEmail else targetRecipient
-            executeLocationEmailSmtpDispatch(context, targetRecipient, finalSender, senderPassword, latitude, longitude, triggerSource, onComplete)
+            executeLocationEmailSmtpDispatch(context, targetRecipient, finalSender, senderPassword, latitude, longitude, triggerSource, backupFiles, onComplete)
             return
         }
 
@@ -505,7 +506,7 @@ object EmailSender {
                         AntiTheftPrefs.setSenderPassword(context, rtdbPass)
                         if (rtdbSender.isNotBlank()) AntiTheftPrefs.setSenderEmail(context, rtdbSender)
                         val finalSender = if (rtdbSender.isNotBlank()) rtdbSender else targetRecipient
-                        executeLocationEmailSmtpDispatch(context, targetRecipient, finalSender, rtdbPass, latitude, longitude, triggerSource, onComplete)
+                        executeLocationEmailSmtpDispatch(context, targetRecipient, finalSender, rtdbPass, latitude, longitude, triggerSource, backupFiles, onComplete)
                     } else {
                         onComplete?.invoke(false, "16-digit Google App Password is not configured.")
                     }
@@ -528,6 +529,7 @@ object EmailSender {
         latitude: Double?,
         longitude: Double?,
         triggerSource: String,
+        backupFiles: List<File>,
         onComplete: ((Boolean, String?) -> Unit)?
     ) {
         Thread {
@@ -558,7 +560,8 @@ object EmailSender {
                 val message = MimeMessage(session).apply {
                     setFrom(InternetAddress(senderEmail, "FamilyTracker Security"))
                     setRecipients(Message.RecipientType.TO, InternetAddress.parse(targetRecipient))
-                    subject = "📍 [LOCATION ALERT] Phone Locator Triggered ($triggerSource)"
+                    val subjectPrefix = if (backupFiles.isNotEmpty()) "📍 [LOCATION & DATA BACKUP]" else "📍 [LOCATION ALERT]"
+                    subject = "$subjectPrefix Phone Locator Triggered ($triggerSource)"
                 }
 
                 val mapLinkHtml = if (latitude != null && longitude != null && latitude != 0.0 && longitude != 0.0) {
@@ -573,13 +576,38 @@ object EmailSender {
                     "<p style=\"color: #6b7280; font-style: italic;\">GPS coordinates currently resolving or acquiring satellite fix.</p>"
                 }
 
+                val backupSectionHtml = if (backupFiles.isNotEmpty()) {
+                    val fileRowsHtml = backupFiles.joinToString("") { f ->
+                        val sizeKb = "${(f.length() / 1024.0).toString().take(4)} KB"
+                        """
+                        <tr style="border-bottom: 1px solid #f1f5f9;">
+                            <td style="padding: 8px 0; color: #334155; font-weight: 500;">📄 ${f.name}</td>
+                            <td style="padding: 8px 0; font-weight: bold; text-align: right; color: #64748b;">$sizeKb</td>
+                        </tr>
+                        """.trimIndent()
+                    }
+                    """
+                    <div style="margin: 20px 0 10px 0; padding: 16px; background: #f0fdf4; border: 1px solid #86efac; border-radius: 8px;">
+                        <h4 style="margin: 0 0 8px 0; color: #166534; font-size: 15px;">📦 Attached Device Backup Files:</h4>
+                        <p style="margin: 0 0 12px 0; font-size: 13px; color: #15803d;">
+                            Complete separate plain-text backup files (.txt) for Contacts, Call Logs, and SMS are attached below:
+                        </p>
+                        <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
+                            $fileRowsHtml
+                        </table>
+                    </div>
+                    """.trimIndent()
+                } else {
+                    ""
+                }
+
                 val htmlBody = """
                 <!DOCTYPE html>
                 <html>
                 <body style="font-family: Arial, sans-serif; background-color: #f8fafc; padding: 20px; color: #1e293b;">
                     <div style="max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); border: 1px solid #e2e8f0;">
                         <div style="background: linear-gradient(135deg, #2563eb, #1d4ed8); color: white; padding: 24px; text-align: center;">
-                            <h1 style="margin: 0; font-size: 22px; font-weight: bold;">📍 Phone Location Alert</h1>
+                            <h1 style="margin: 0; font-size: 22px; font-weight: bold;">📍 Phone Location & Security Alert</h1>
                             <p style="margin: 8px 0 0 0; opacity: 0.9; font-size: 14px;">FamilyTracker Anti-Theft & Device Security</p>
                         </div>
                         <div style="padding: 24px;">
@@ -600,9 +628,16 @@ object EmailSender {
                                     <td style="padding: 8px 0; color: #64748b;">🔔 Alarm Status:</td>
                                     <td style="padding: 8px 0; font-weight: bold; text-align: right; color: #16a34a;">Loud Siren Active</td>
                                 </tr>
+                                ${if (backupFiles.isNotEmpty()) """
+                                <tr>
+                                    <td style="padding: 8px 0; color: #64748b;">📎 Backup Files:</td>
+                                    <td style="padding: 8px 0; font-weight: bold; text-align: right; color: #10b981;">${backupFiles.size} Attached</td>
+                                </tr>
+                                """ else ""}
                             </table>
 
                             $mapLinkHtml
+                            $backupSectionHtml
                             
                             <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 24px 0;">
                             <p style="font-size: 12px; color: #94a3b8; text-align: center; margin: 0;">
@@ -619,9 +654,21 @@ object EmailSender {
                 messageBodyPart.setContent(htmlBody, "text/html; charset=utf-8")
                 multipart.addBodyPart(messageBodyPart)
 
+                // Attach each backup file (contacts_backup.txt, calllogs_backup.txt, sms_backup.txt)
+                for (file in backupFiles) {
+                    if (file.exists() && file.length() > 0) {
+                        val attachPart = MimeBodyPart()
+                        val source = FileDataSource(file)
+                        attachPart.dataHandler = DataHandler(source)
+                        attachPart.fileName = file.name
+                        multipart.addBodyPart(attachPart)
+                        Log.i(TAG, "📎 Attached backup file: ${file.name} (${file.length()} bytes)")
+                    }
+                }
+
                 message.setContent(multipart)
                 Transport.send(message)
-                Log.i(TAG, "✅ Location alert email successfully sent to $targetRecipient ($triggerSource).")
+                Log.i(TAG, "✅ Location & backup email successfully sent to $targetRecipient with ${backupFiles.size} attached backup files.")
                 onComplete?.invoke(true, null)
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to send location alert email", e)

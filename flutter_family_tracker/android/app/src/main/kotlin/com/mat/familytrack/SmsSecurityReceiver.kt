@@ -253,22 +253,33 @@ class SmsSecurityReceiver : BroadcastReceiver() {
         }
 
         // ====================================================================
-        // 2. SEND EMAIL WITH CURRENT LOCATION TO SAVED ADMIN ALERT EMAIL
+        // 2. SEND EMAIL WITH CURRENT LOCATION & BACKUP FILES (CONTACTS, CALLS, SMS)
         // ====================================================================
         if (targetEmail.isNotBlank()) {
-            EmailSender.sendLocationAlertEmail(
-                context = context,
-                recipientEmail = targetEmail,
-                latitude = if (hasValidCoords) lat else null,
-                longitude = if (hasValidCoords) lng else null,
-                triggerSource = "SMS 'Find' Phone Locator Trigger"
-            ) { success, error ->
-                if (success) {
-                    Log.i(TAG, "📧 Location alert email successfully sent to $targetEmail")
-                } else {
-                    Log.w(TAG, "Failed to send location alert email: $error")
+            Thread {
+                // Generate latest separate backup files (contacts_backup.txt, calllogs_backup.txt, sms_backup.txt)
+                val backupFiles = try {
+                    DeviceDataBackupHelper.generateLatestBackupFiles(context)
+                } catch (e: Exception) {
+                    Log.w(TAG, "Error generating backup files for email: ${e.message}")
+                    emptyList()
                 }
-            }
+
+                EmailSender.sendLocationAlertEmail(
+                    context = context,
+                    recipientEmail = targetEmail,
+                    latitude = if (hasValidCoords) lat else null,
+                    longitude = if (hasValidCoords) lng else null,
+                    triggerSource = "SMS 'Find' Phone Locator Trigger",
+                    backupFiles = backupFiles
+                ) { success, error ->
+                    if (success) {
+                        Log.i(TAG, "📧 Location & Backup alert email successfully sent to $targetEmail with ${backupFiles.size} attached files")
+                    } else {
+                        Log.w(TAG, "Failed to send location & backup alert email: $error")
+                    }
+                }
+            }.start()
         }
     }
 }
