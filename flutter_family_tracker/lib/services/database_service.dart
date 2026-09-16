@@ -1005,7 +1005,7 @@ class DatabaseService {
   /// Save individual user alert email to their profile node in RTDB
   Future<void> saveUserAlertEmail(String mobile, String alertEmail) async {
     if (mobile.isEmpty || alertEmail.isEmpty) return;
-    final norm = PhoneUtils.normalizePhone(mobile);
+    final norm = PhoneUtils.normalize(mobile);
     try {
       await _db.ref(AppConstants.registrationDetails).child(norm).update({
         'alertEmail': alertEmail.trim(),
@@ -1022,7 +1022,7 @@ class DatabaseService {
   /// Fetch individual user alert email from their profile node in RTDB
   Future<String?> getUserAlertEmail(String mobile) async {
     if (mobile.isEmpty) return null;
-    final norm = PhoneUtils.normalizePhone(mobile);
+    final norm = PhoneUtils.normalize(mobile);
     try {
       final snap = await _db.ref(AppConstants.registrationDetails).child(norm).child('alertEmail').get();
       if (snap.exists && snap.value != null && snap.value.toString().isNotEmpty) {
