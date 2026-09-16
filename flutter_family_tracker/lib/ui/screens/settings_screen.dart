@@ -655,28 +655,25 @@ class _SettingsScreenState extends State<SettingsScreen> with WidgetsBindingObse
                       ),
                     ),
                     const SizedBox(height: 8),
-                    Row(
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                          decoration: BoxDecoration(
-                            color: Colors.green.withValues(alpha: 0.12),
-                            borderRadius: BorderRadius.circular(8),
-                            border: Border.all(color: Colors.green.withValues(alpha: 0.3)),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: Colors.green.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.green.withValues(alpha: 0.3)),
+                      ),
+                      child: const Row(
+                        children: [
+                          Icon(Icons.cloud_done_rounded, color: Colors.green, size: 14),
+                          SizedBox(width: 6),
+                          Expanded(
+                            child: Text(
+                              'Server Dispatch: Auto-configured via RTDB (/EmailConfig)',
+                              style: TextStyle(color: Colors.green, fontSize: 11, fontWeight: FontWeight.bold),
+                            ),
                           ),
-                          child: const Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(Icons.cloud_done_rounded, color: Colors.green, size: 14),
-                              SizedBox(width: 6),
-                              Text(
-                                'Server Dispatch: Auto-configured via RTDB (/EmailConfig)',
-                                style: TextStyle(color: Colors.green, fontSize: 11, fontWeight: FontWeight.bold),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
                     const SizedBox(height: 12),
 
