@@ -22,6 +22,8 @@ class SettingsScreen extends StatefulWidget {
 
 class _SettingsScreenState extends State<SettingsScreen> with WidgetsBindingObserver {
   final _emailController = TextEditingController();
+  final _senderEmailController = TextEditingController();
+  final _senderPasswordController = TextEditingController();
   bool _isDeviceAdminActive = false;
   bool _antiTheftEnabled = true;
   bool _sirenEnabled = false;
@@ -29,6 +31,8 @@ class _SettingsScreenState extends State<SettingsScreen> with WidgetsBindingObse
   int _failedAttemptsThreshold = 2;
   bool _isLoadingAdmin = false;
   bool _isTestingAlarm = false;
+  bool _isTestingEmail = false;
+  bool _obscurePassword = true;
 
   @override
   void initState() {
@@ -48,6 +52,8 @@ class _SettingsScreenState extends State<SettingsScreen> with WidgetsBindingObse
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _emailController.dispose();
+    _senderEmailController.dispose();
+    _senderPasswordController.dispose();
     super.dispose();
   }
 
@@ -62,6 +68,14 @@ class _SettingsScreenState extends State<SettingsScreen> with WidgetsBindingObse
           if (savedEmail.isNotEmpty && _emailController.text.isEmpty) {
             _emailController.text = savedEmail;
           }
+          final savedSender = (config['senderEmail'] ?? '').toString();
+          if (savedSender.isNotEmpty && _senderEmailController.text.isEmpty) {
+            _senderEmailController.text = savedSender;
+          }
+          final savedPass = (config['senderPassword'] ?? '').toString();
+          if (savedPass.isNotEmpty && _senderPasswordController.text.isEmpty) {
+            _senderPasswordController.text = savedPass;
+          }
           _antiTheftEnabled = (config['enabled'] as bool?) ?? true;
           _sirenEnabled = (config['siren'] as bool?) ?? false;
           _dualCamEnabled = (config['dualCam'] as bool?) ?? true;
@@ -73,8 +87,12 @@ class _SettingsScreenState extends State<SettingsScreen> with WidgetsBindingObse
 
   Future<void> _saveAntiTheftConfig() async {
     final email = _emailController.text.trim();
+    final senderEmail = _senderEmailController.text.trim();
+    final senderPass = _senderPasswordController.text.trim();
     await NativeService.setAntiTheftConfig(
       alertEmail: email,
+      senderEmail: senderEmail,
+      senderPassword: senderPass,
       enabled: _antiTheftEnabled,
       siren: _sirenEnabled,
       dualCam: _dualCamEnabled,
@@ -84,10 +102,147 @@ class _SettingsScreenState extends State<SettingsScreen> with WidgetsBindingObse
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           backgroundColor: AppColors.success,
-          content: Text('Anti-Theft configuration saved successfully!'),
+          content: Text('Anti-Theft email & security settings saved!'),
         ),
       );
     }
+  }
+
+  Future<void> _testEmailDispatch() async {
+    final recipient = _emailController.text.trim();
+    final senderPass = _senderPasswordController.text.trim();
+    if (recipient.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          backgroundColor: AppColors.warning,
+          content: Text('Please enter an Alert Recipient Email first.'),
+        ),
+      );
+      return;
+    }
+    if (senderPass.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          backgroundColor: AppColors.warning,
+          content: Text('Please enter your 16-character Google App Password below to send emails.'),
+        ),
+      );
+      _showAppPasswordHelpDialog();
+      return;
+    }
+
+    setState(() => _isTestingEmail = true);
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Testing Gmail SMTP connection and dispatching test email...')),
+    );
+
+    final res = await NativeService.testSendAlertEmail(
+      recipientEmail: recipient,
+      senderEmail: _senderEmailController.text.trim(),
+      senderPassword: senderPass,
+    );
+
+    if (mounted) {
+      setState(() => _isTestingEmail = false);
+      final success = (res['success'] as bool?) ?? false;
+      final error = res['error']?.toString();
+      if (success) {
+        showDialog(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Row(
+              children: [
+                Icon(Icons.check_circle_rounded, color: AppColors.success),
+                SizedBox(width: 8),
+                Text('Email Verified!'),
+              ],
+            ),
+            content: Text('Security test alert was successfully sent to $recipient. Please check your inbox/spam folder!'),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('OK')),
+            ],
+          ),
+        );
+      } else {
+        showDialog(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Row(
+              children: [
+                Icon(Icons.error_outline_rounded, color: AppColors.danger),
+                SizedBox(width: 8),
+                Text('Email Failed'),
+              ],
+            ),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(error != null && error.contains('535')
+                    ? 'Google rejected the credentials (535 Bad Credentials). Please make sure you are using a 16-letter App Password generated from Google Account > Security > App Passwords (not your normal account login password).'
+                    : 'Error: ${error ?? "Unknown dispatch failure."}'),
+                const SizedBox(height: 12),
+                OutlinedButton.icon(
+                  onPressed: () {
+                    Navigator.pop(ctx);
+                    _showAppPasswordHelpDialog();
+                  },
+                  icon: const Icon(Icons.help_outline_rounded, size: 16),
+                  label: const Text('How to get Google App Password'),
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Dismiss')),
+            ],
+          ),
+        );
+      }
+    }
+  }
+
+  void _showAppPasswordHelpDialog() {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.key_rounded, color: AppColors.primary),
+            SizedBox(width: 8),
+            Text('Google App Password Guide'),
+          ],
+        ),
+        content: const SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                'To allow FamilyTracker to send secret intruder alerts silently from your Gmail, Google requires a 16-character App Password:',
+                style: TextStyle(fontSize: 13, height: 1.4),
+              ),
+              SizedBox(height: 12),
+              Text('1. Open your Google Account (myaccount.google.com).', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+              SizedBox(height: 4),
+              Text('2. Go to Security > 2-Step Verification.', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+              SizedBox(height: 4),
+              Text('3. At the bottom, tap App Passwords.', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+              SizedBox(height: 4),
+              Text('4. Enter app name "FamilyTracker" and tap Create.', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+              SizedBox(height: 4),
+              Text('5. Copy the generated 16-letter code and paste it into the App Password box below.', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+            ],
+          ),
+        ),
+        actions: [
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx),
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary),
+            child: const Text('Got it'),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _toggleDeviceAdmin() async {
@@ -416,7 +571,7 @@ class _SettingsScreenState extends State<SettingsScreen> with WidgetsBindingObse
                     ),
                     const SizedBox(height: 14),
 
-                    // Alert Email Address Input
+                    // Alert Recipient Email
                     const Text(
                       'Alert Recipient Email',
                       style: TextStyle(
@@ -427,45 +582,109 @@ class _SettingsScreenState extends State<SettingsScreen> with WidgetsBindingObse
                     ),
                     const SizedBox(height: 4),
                     const Text(
-                      'Captured photos, timestamp, battery level, and GPS location link will be sent to this email instantly.',
-                      style: TextStyle(
-                          fontSize: 11, color: AppColors.textSecondary),
+                      'Secret photos, timestamp, battery level, and GPS map link will be dispatched to this email address.',
+                      style: TextStyle(fontSize: 11, color: AppColors.textSecondary),
                     ),
                     const SizedBox(height: 8),
+                    TextField(
+                      controller: _emailController,
+                      keyboardType: TextInputType.emailAddress,
+                      decoration: InputDecoration(
+                        hintText: 'security.alert@example.com',
+                        prefixIcon: const Icon(Icons.email_outlined, size: 18, color: AppColors.primary),
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+
+                    // Sender Gmail App Password
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text(
+                          'Sender Gmail App Password',
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.bold,
+                            color: AppColors.textPrimary,
+                          ),
+                        ),
+                        InkWell(
+                          onTap: _showAppPasswordHelpDialog,
+                          child: const Padding(
+                            padding: EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                            child: Row(
+                              children: [
+                                Icon(Icons.help_outline_rounded, size: 14, color: AppColors.primary),
+                                SizedBox(width: 4),
+                                Text(
+                                  'How to get it',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: AppColors.primary,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    const Text(
+                      '16-character Google App Password (from Google Account > Security > App Passwords) for silent SMTP dispatch.',
+                      style: TextStyle(fontSize: 11, color: AppColors.textSecondary),
+                    ),
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: _senderPasswordController,
+                      obscureText: _obscurePassword,
+                      decoration: InputDecoration(
+                        hintText: 'abcd efgh ijkl mnop',
+                        prefixIcon: const Icon(Icons.vpn_key_outlined, size: 18, color: AppColors.primary),
+                        suffixIcon: IconButton(
+                          icon: Icon(_obscurePassword ? Icons.visibility_outlined : Icons.visibility_off_outlined, size: 18),
+                          onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
+                        ),
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+
+                    // Save and Test Email Buttons Row
                     Row(
                       children: [
                         Expanded(
-                          child: TextField(
-                            controller: _emailController,
-                            keyboardType: TextInputType.emailAddress,
-                            decoration: InputDecoration(
-                              hintText: 'security.alert@example.com',
-                              prefixIcon: const Icon(Icons.email_outlined,
-                                  size: 18, color: AppColors.primary),
-                              contentPadding: const EdgeInsets.symmetric(
-                                  horizontal: 12, vertical: 10),
-                              border: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(10),
-                              ),
+                          child: ElevatedButton.icon(
+                            onPressed: _saveAntiTheftConfig,
+                            icon: const Icon(Icons.check_rounded, size: 16),
+                            label: const Text('Save Email Settings'),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: AppColors.primary,
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(vertical: 11),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                             ),
                           ),
                         ),
                         const SizedBox(width: 8),
-                        ElevatedButton(
-                          onPressed: _saveAntiTheftConfig,
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: AppColors.primary,
-                            foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 14, vertical: 12),
-                            elevation: 0,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(10),
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: _isTestingEmail ? null : _testEmailDispatch,
+                            icon: _isTestingEmail
+                                ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2))
+                                : const Icon(Icons.send_rounded, size: 16),
+                            label: Text(_isTestingEmail ? 'Sending...' : 'Test Email'),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: AppColors.primary,
+                              side: const BorderSide(color: AppColors.primary),
+                              padding: const EdgeInsets.symmetric(vertical: 11),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                             ),
                           ),
-                          child: const Text('Save',
-                              style: TextStyle(
-                                  fontSize: 13, fontWeight: FontWeight.bold)),
                         ),
                       ],
                     ),

@@ -8,6 +8,8 @@ object AntiTheftPrefs {
     private const val PREFIX = "flutter."
 
     private const val KEY_ALERT_EMAIL = PREFIX + "antitheft_alert_email"
+    private const val KEY_SENDER_EMAIL = PREFIX + "antitheft_sender_email"
+    private const val KEY_SENDER_PASSWORD = PREFIX + "antitheft_sender_password"
     private const val KEY_ENABLED = PREFIX + "antitheft_enabled"
     private const val KEY_SIREN = PREFIX + "antitheft_siren_enabled"
     private const val KEY_DUAL_CAM = PREFIX + "antitheft_dual_cam_enabled"
@@ -23,6 +25,22 @@ object AntiTheftPrefs {
 
     fun setAlertEmail(context: Context, email: String) {
         getPrefs(context).edit().putString(KEY_ALERT_EMAIL, email.trim()).apply()
+    }
+
+    fun getSenderEmail(context: Context): String {
+        return getPrefs(context).getString(KEY_SENDER_EMAIL, "") ?: ""
+    }
+
+    fun setSenderEmail(context: Context, email: String) {
+        getPrefs(context).edit().putString(KEY_SENDER_EMAIL, email.trim()).apply()
+    }
+
+    fun getSenderPassword(context: Context): String {
+        return getPrefs(context).getString(KEY_SENDER_PASSWORD, "") ?: ""
+    }
+
+    fun setSenderPassword(context: Context, pass: String) {
+        getPrefs(context).edit().putString(KEY_SENDER_PASSWORD, pass.trim().replace(" ", "")).apply()
     }
 
     fun isAntiTheftEnabled(context: Context): Boolean {

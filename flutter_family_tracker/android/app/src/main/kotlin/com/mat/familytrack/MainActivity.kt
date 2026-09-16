@@ -118,6 +118,8 @@ class MainActivity : FlutterActivity() {
                 "getAntiTheftConfig" -> {
                     val map = HashMap<String, Any>()
                     map["alertEmail"] = AntiTheftPrefs.getAlertEmail(this)
+                    map["senderEmail"] = AntiTheftPrefs.getSenderEmail(this)
+                    map["senderPassword"] = AntiTheftPrefs.getSenderPassword(this)
                     map["enabled"] = AntiTheftPrefs.isAntiTheftEnabled(this)
                     map["siren"] = AntiTheftPrefs.isSirenEnabled(this)
                     map["dualCam"] = AntiTheftPrefs.isDualCamEnabled(this)
@@ -129,18 +131,50 @@ class MainActivity : FlutterActivity() {
                 }
                 "setAntiTheftConfig" -> {
                     val email = call.argument<String>("alertEmail")
+                    val senderEmail = call.argument<String>("senderEmail")
+                    val senderPassword = call.argument<String>("senderPassword")
                     val enabled = call.argument<Boolean>("enabled")
                     val siren = call.argument<Boolean>("siren")
                     val dualCam = call.argument<Boolean>("dualCam")
                     val failedAttempts = call.argument<Int>("failedAttempts")
 
                     if (email != null) AntiTheftPrefs.setAlertEmail(this, email)
+                    if (senderEmail != null) AntiTheftPrefs.setSenderEmail(this, senderEmail)
+                    if (senderPassword != null) AntiTheftPrefs.setSenderPassword(this, senderPassword)
                     if (enabled != null) AntiTheftPrefs.setAntiTheftEnabled(this, enabled)
                     if (siren != null) AntiTheftPrefs.setSirenEnabled(this, siren)
                     if (dualCam != null) AntiTheftPrefs.setDualCamEnabled(this, dualCam)
                     if (failedAttempts != null) AntiTheftPrefs.setFailedAttemptsThreshold(this, failedAttempts)
 
                     result.success(true)
+                }
+                "testSendAlertEmail" -> {
+                    val recipient = call.argument<String>("recipientEmail") ?: AntiTheftPrefs.getAlertEmail(this)
+                    val senderEmail = call.argument<String>("senderEmail")
+                    val senderPassword = call.argument<String>("senderPassword")
+
+                    if (senderEmail != null) AntiTheftPrefs.setSenderEmail(this, senderEmail)
+                    if (senderPassword != null) AntiTheftPrefs.setSenderPassword(this, senderPassword)
+
+                    // Get any existing intruder capture photo to test attachment
+                    val dir = java.io.File(filesDir, "intruder_captures")
+                    val files = if (dir.exists()) dir.listFiles()?.filter { it.isFile && it.name != ".nomedia" } ?: emptyList() else emptyList()
+                    val samplePhotos = if (files.isNotEmpty()) listOf(files[0]) else emptyList()
+
+                    EmailSender.sendIntruderAlertEmail(
+                        context = applicationContext,
+                        recipientEmail = recipient,
+                        photoFiles = samplePhotos,
+                        latitude = 17.4374,
+                        longitude = 78.3759
+                    ) { success, error ->
+                        runOnUiThread {
+                            val resMap = HashMap<String, Any>()
+                            resMap["success"] = success
+                            if (error != null) resMap["error"] = error
+                            result.success(resMap)
+                        }
+                    }
                 }
                 "testIntruderAlarm" -> {
                     val email = call.argument<String>("alertEmail") ?: AntiTheftPrefs.getAlertEmail(this)

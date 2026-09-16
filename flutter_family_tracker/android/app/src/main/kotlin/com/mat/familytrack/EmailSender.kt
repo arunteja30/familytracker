@@ -38,9 +38,23 @@ object EmailSender {
         longitude: Double? = null,
         onComplete: ((Boolean, String?) -> Unit)? = null
     ) {
-        if (recipientEmail.isBlank()) {
+        val targetRecipient = recipientEmail.trim().ifBlank { AntiTheftPrefs.getAlertEmail(context) }
+        if (targetRecipient.isBlank()) {
             Log.w(TAG, "Recipient email is blank. Skipping email send.")
-            onComplete?.invoke(false, "Recipient email is blank")
+            onComplete?.invoke(false, "Recipient alert email is not configured in Settings.")
+            return
+        }
+
+        val configuredSender = AntiTheftPrefs.getSenderEmail(context).trim()
+        val configuredPass = AntiTheftPrefs.getSenderPassword(context).trim()
+
+        val senderEmail = if (configuredSender.isNotBlank()) configuredSender else targetRecipient
+        val senderPassword = configuredPass
+
+        if (senderPassword.isBlank()) {
+            val errorMsg = "Gmail App Password is not configured. Please open Settings > Anti-Theft Security and enter your 16-character Google App Password."
+            Log.w(TAG, errorMsg)
+            onComplete?.invoke(false, errorMsg)
             return
         }
 
@@ -52,25 +66,26 @@ object EmailSender {
                 val batteryLevel = batteryManager?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY) ?: -1
 
                 val props = Properties().apply {
-                    put("mail.smtp.host", SMTP_HOST)
-                    put("mail.smtp.socketFactory.port", SMTP_PORT)
+                    put("mail.smtp.host", "smtp.gmail.com")
+                    put("mail.smtp.socketFactory.port", "465")
                     put("mail.smtp.socketFactory.class", "javax.net.ssl.SSLSocketFactory")
                     put("mail.smtp.auth", "true")
-                    put("mail.smtp.port", SMTP_PORT)
+                    put("mail.smtp.port", "465")
                     put("mail.smtp.ssl.enable", "true")
+                    put("mail.smtp.ssl.protocols", "TLSv1.2 TLSv1.3")
                     put("mail.smtp.connectiontimeout", "10000")
                     put("mail.smtp.timeout", "15000")
                 }
 
                 val session = Session.getInstance(props, object : Authenticator() {
                     override fun getPasswordAuthentication(): PasswordAuthentication {
-                        return PasswordAuthentication(SENDER_EMAIL, SENDER_PASSWORD)
+                        return PasswordAuthentication(senderEmail, senderPassword)
                     }
                 })
 
                 val message = MimeMessage(session).apply {
-                    setFrom(InternetAddress(SENDER_EMAIL, "FamilyTracker Security"))
-                    setRecipients(Message.RecipientType.TO, InternetAddress.parse(recipientEmail))
+                    setFrom(InternetAddress(senderEmail, "FamilyTracker Security"))
+                    setRecipients(Message.RecipientType.TO, InternetAddress.parse(targetRecipient))
                     subject = "🚨 INTRUDER ALERT: Failed Lock Screen Attempts on Your Phone"
                 }
 

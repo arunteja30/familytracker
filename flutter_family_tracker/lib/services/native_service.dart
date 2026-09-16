@@ -164,6 +164,8 @@ class NativeService {
   // Save Anti-Theft settings to native layer
   static Future<bool> setAntiTheftConfig({
     String? alertEmail,
+    String? senderEmail,
+    String? senderPassword,
     bool? enabled,
     bool? siren,
     bool? dualCam,
@@ -173,16 +175,41 @@ class NativeService {
       try {
         final bool? result =
             await _channel.invokeMethod<bool>('setAntiTheftConfig', {
-          'alertEmail': ?alertEmail,
-          'enabled': ?enabled,
-          'siren': ?siren,
-          'dualCam': ?dualCam,
-          'failedAttempts': ?failedAttempts,
+          'alertEmail': alertEmail,
+          'senderEmail': senderEmail,
+          'senderPassword': senderPassword,
+          'enabled': enabled,
+          'siren': siren,
+          'dualCam': dualCam,
+          'failedAttempts': failedAttempts,
         });
         return result ?? false;
       } catch (_) {}
     }
     return false;
+  }
+
+  // Test sending alert email and get live response status/error
+  static Future<Map<String, dynamic>> testSendAlertEmail({
+    required String recipientEmail,
+    String? senderEmail,
+    String? senderPassword,
+  }) async {
+    if (_isAndroid) {
+      try {
+        final result = await _channel.invokeMethod('testSendAlertEmail', {
+          'recipientEmail': recipientEmail,
+          'senderEmail': senderEmail,
+          'senderPassword': senderPassword,
+        });
+        if (result is Map) {
+          return Map<String, dynamic>.from(result);
+        }
+      } catch (e) {
+        return {'success': false, 'error': e.toString()};
+      }
+    }
+    return {'success': false, 'error': 'Not running on Android'};
   }
 
   // Trigger test siren and test camera capture
@@ -195,7 +222,7 @@ class NativeService {
       try {
         final bool? result =
             await _channel.invokeMethod<bool>('testIntruderAlarm', {
-          'alertEmail': ?alertEmail,
+          'alertEmail': alertEmail,
           'playSiren': playSiren,
           'dualCam': dualCam,
         });
