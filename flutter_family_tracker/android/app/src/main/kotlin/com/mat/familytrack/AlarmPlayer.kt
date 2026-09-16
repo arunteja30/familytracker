@@ -151,7 +151,7 @@ object AlarmPlayer {
             try {
                 audioTrack?.stop()
                 audioTrack?.release()
-            } catch (_) {}
+            } catch (e: Exception) {}
             audioTrack = null
         }
     }
@@ -170,7 +170,7 @@ object AlarmPlayer {
                         it.stop()
                     }
                 }
-            } catch (_) {}
+            } catch (e: Exception) {}
             ringtone = null
 
             // Stop AudioTrack
@@ -181,7 +181,7 @@ object AlarmPlayer {
                     it.stop()
                     it.release()
                 }
-            } catch (_) {}
+            } catch (e: Exception) {}
             audioTrack = null
 
             sirenThread = null
