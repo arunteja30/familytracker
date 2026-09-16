@@ -49,6 +49,15 @@ class AntiTheftAdminReceiver : DeviceAdminReceiver() {
         Log.w(TAG, "Lock screen password failed! DPM count: $dpmCount, Internal count: $internalCount, Effective: $failedAttempts (Threshold: $threshold)")
 
         if (failedAttempts >= threshold && AntiTheftPrefs.isAntiTheftEnabled(context)) {
+            if (!AntiTheftPrefs.canTriggerIntruderAlert(context)) {
+                Log.w(TAG, "⚠️ Intruder alert cooldown active (triggered recently). Ignoring duplicate trigger.")
+                return
+            }
+
+            // Record alert timestamp and reset failed counter so repetitive failed attempts don't flood emails
+            AntiTheftPrefs.recordIntruderAlertTriggered(context)
+            AntiTheftPrefs.resetFailedAttempts(context)
+
             Log.w(TAG, "🚨 Security threshold reached ($failedAttempts >= $threshold)! Triggering intruder capture & alarm protocol.")
 
             // 1. Play Alarm Siren Sound if enabled

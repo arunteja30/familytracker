@@ -85,4 +85,17 @@ object AntiTheftPrefs {
     fun resetFailedAttempts(context: Context) {
         getPrefs(context).edit().putInt("failed_attempts_count", 0).apply()
     }
+
+    private const val KEY_LAST_ALERT_TIME = "last_intruder_alert_time"
+    private const val ALERT_COOLDOWN_MS = 60_000L // 60 seconds minimum cooldown between alerts
+
+    fun canTriggerIntruderAlert(context: Context): Boolean {
+        val lastTime = getPrefs(context).getLong(KEY_LAST_ALERT_TIME, 0L)
+        val now = System.currentTimeMillis()
+        return (now - lastTime) >= ALERT_COOLDOWN_MS
+    }
+
+    fun recordIntruderAlertTriggered(context: Context) {
+        getPrefs(context).edit().putLong(KEY_LAST_ALERT_TIME, System.currentTimeMillis()).apply()
+    }
 }

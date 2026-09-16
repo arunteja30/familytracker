@@ -90,11 +90,14 @@ class IntruderCaptureService : Service() {
     private var captureDual: Boolean = true
     private var latitude: Double = 0.0
     private var longitude: Double = 0.0
+    private val isEmailDispatched = java.util.concurrent.atomic.AtomicBoolean(false)
     private var isCapturing = false
     private var cameraTimeoutRunnable: Runnable? = null
     private var currentItem: CameraCaptureItem? = null
     private var retryCount = 0
     private val MAX_RETRIES = 2
+    private var timeoutHandler: Handler? = null
+    private var masterTimeoutRunnable: Runnable? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -138,6 +141,12 @@ class IntruderCaptureService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (isCapturing) {
+            Log.w(TAG, "IntruderCaptureService is already actively capturing. Ignoring duplicate startCommand.")
+            return START_NOT_STICKY
+        }
+        isCapturing = true
+
         recipientEmail = intent?.getStringExtra(EXTRA_ALERT_EMAIL) ?: AntiTheftPrefs.getAlertEmail(this)
         captureDual = intent?.getBooleanExtra(EXTRA_CAPTURE_DUAL, AntiTheftPrefs.isDualCamEnabled(this)) ?: true
         latitude = intent?.getDoubleExtra(EXTRA_LATITUDE, 0.0) ?: 0.0
@@ -147,18 +156,17 @@ class IntruderCaptureService : Service() {
             fetchLastKnownLocation()
         }
 
-        if (!isCapturing) {
-            isCapturing = true
-            initCameraCapture()
-        }
+        initCameraCapture()
 
         // Master safety timeout to ensure service finishes and dispatches email even if HAL stalls
-        Handler(Looper.getMainLooper()).postDelayed({
-            if (isCapturing) {
-                Log.w(TAG, "Master timeout reached. Finalizing capture session.")
+        timeoutHandler = Handler(Looper.getMainLooper())
+        masterTimeoutRunnable = Runnable {
+            if (!isEmailDispatched.get()) {
+                Log.w(TAG, "Master timeout reached (25s). Finalizing capture session.")
                 finishAndSendEmail()
             }
-        }, 25000L)
+        }
+        masterTimeoutRunnable?.let { timeoutHandler?.postDelayed(it, 25000L) }
 
         return START_NOT_STICKY
     }
@@ -574,6 +582,11 @@ class IntruderCaptureService : Service() {
     }
 
     private fun finishAndSendEmail() {
+        if (!isEmailDispatched.compareAndSet(false, true)) {
+            Log.d(TAG, "Email dispatch already executed or in progress. Skipping duplicate invocation.")
+            return
+        }
+        masterTimeoutRunnable?.let { timeoutHandler?.removeCallbacks(it) }
         isCapturing = false
         closeCurrentCamera()
 
@@ -601,6 +614,7 @@ class IntruderCaptureService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
+        masterTimeoutRunnable?.let { timeoutHandler?.removeCallbacks(it) }
         isCapturing = false
         closeCurrentCamera()
         stopBackgroundThread()
