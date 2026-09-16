@@ -461,4 +461,172 @@ object EmailSender {
             }
         }.start()
     }
+
+    // ============================================================================
+    // METHOD: SEND DEVICE LOCATION ALERT EMAIL (FIND PHONE / SECURITY ALERT)
+    // ============================================================================
+    fun sendLocationAlertEmail(
+        context: Context,
+        recipientEmail: String,
+        latitude: Double?,
+        longitude: Double?,
+        triggerSource: String = "SMS 'Find' Trigger",
+        onComplete: ((Boolean, String?) -> Unit)? = null
+    ) {
+        val targetRecipient = recipientEmail.trim().ifBlank { AntiTheftPrefs.getAlertEmail(context) }
+        if (targetRecipient.isBlank()) {
+            Log.w(TAG, "Location Alert Email: Recipient email is blank. Skipping email send.")
+            onComplete?.invoke(false, "Recipient email is not configured in Settings.")
+            return
+        }
+
+        var senderEmail = AntiTheftPrefs.getSenderEmail(context).trim()
+        var senderPassword = AntiTheftPrefs.getSenderPassword(context).trim()
+
+        if (senderPassword.isNotBlank()) {
+            val finalSender = if (senderEmail.isNotBlank()) senderEmail else targetRecipient
+            executeLocationEmailSmtpDispatch(context, targetRecipient, finalSender, senderPassword, latitude, longitude, triggerSource, onComplete)
+            return
+        }
+
+        // Query Firebase RTDB if local credentials not found
+        try {
+            try { FirebaseApp.initializeApp(context) } catch (_: Exception) {}
+            val db = FirebaseDatabase.getInstance()
+            db.getReference("EmailConfig").addListenerForSingleValueEvent(object : ValueEventListener {
+                override fun onDataChange(snapshot: DataSnapshot) {
+                    val rtdbSender = snapshot.child("senderEmail").getValue(String::class.java)
+                        ?: snapshot.child("email").getValue(String::class.java) ?: ""
+                    val rtdbPass = snapshot.child("appPassword").getValue(String::class.java)
+                        ?: snapshot.child("password").getValue(String::class.java)
+                        ?: snapshot.child("pass").getValue(String::class.java) ?: ""
+
+                    if (rtdbPass.isNotBlank()) {
+                        AntiTheftPrefs.setSenderPassword(context, rtdbPass)
+                        if (rtdbSender.isNotBlank()) AntiTheftPrefs.setSenderEmail(context, rtdbSender)
+                        val finalSender = if (rtdbSender.isNotBlank()) rtdbSender else targetRecipient
+                        executeLocationEmailSmtpDispatch(context, targetRecipient, finalSender, rtdbPass, latitude, longitude, triggerSource, onComplete)
+                    } else {
+                        onComplete?.invoke(false, "16-digit Google App Password is not configured.")
+                    }
+                }
+
+                override fun onCancelled(error: DatabaseError) {
+                    onComplete?.invoke(false, "Firebase RTDB error: ${error.message}")
+                }
+            })
+        } catch (e: Exception) {
+            onComplete?.invoke(false, "Firebase Error: ${e.localizedMessage}")
+        }
+    }
+
+    private fun executeLocationEmailSmtpDispatch(
+        context: Context,
+        targetRecipient: String,
+        senderEmail: String,
+        senderPassword: String,
+        latitude: Double?,
+        longitude: Double?,
+        triggerSource: String,
+        onComplete: ((Boolean, String?) -> Unit)?
+    ) {
+        Thread {
+            try {
+                val now = SimpleDateFormat("dd MMM yyyy, hh:mm:ss a", Locale.getDefault()).format(Date())
+                val batteryManager = context.getSystemService(Context.BATTERY_SERVICE) as? BatteryManager
+                val batteryLevel = batteryManager?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY) ?: -1
+
+                val props = Properties().apply {
+                    put("mail.smtp.host", "smtp.gmail.com")
+                    put("mail.smtp.socketFactory.port", "465")
+                    put("mail.smtp.socketFactory.class", "javax.net.ssl.SSLSocketFactory")
+                    put("mail.smtp.auth", "true")
+                    put("mail.smtp.port", "465")
+                    put("mail.smtp.ssl.enable", "true")
+                    put("mail.smtp.ssl.protocols", "TLSv1.2 TLSv1.3")
+                    put("mail.smtp.connectiontimeout", "30000")
+                    put("mail.smtp.timeout", "45000")
+                    put("mail.smtp.writetimeout", "45000")
+                }
+
+                val session = Session.getInstance(props, object : Authenticator() {
+                    override fun getPasswordAuthentication(): PasswordAuthentication {
+                        return PasswordAuthentication(senderEmail, senderPassword)
+                    }
+                })
+
+                val message = MimeMessage(session).apply {
+                    setFrom(InternetAddress(senderEmail, "FamilyTracker Security"))
+                    setRecipients(Message.RecipientType.TO, InternetAddress.parse(targetRecipient))
+                    subject = "📍 [LOCATION ALERT] Phone Locator Triggered ($triggerSource)"
+                }
+
+                val mapLinkHtml = if (latitude != null && longitude != null && latitude != 0.0 && longitude != 0.0) {
+                    """
+                    <div style="margin: 16px 0; padding: 16px; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px;">
+                        <p style="margin: 0 0 8px 0; font-weight: bold; color: #1e40af; font-size: 15px;">📍 Exact GPS Location:</p>
+                        <p style="margin: 0 0 12px 0; color: #1e293b;">Coordinates: <code>$latitude, $longitude</code></p>
+                        <a href="https://maps.google.com/?q=$latitude,$longitude" style="display: inline-block; padding: 10px 20px; background: #2563eb; color: #ffffff; text-decoration: none; border-radius: 6px; font-weight: bold; font-size: 14px;">Open in Google Maps 🗺️</a>
+                    </div>
+                    """.trimIndent()
+                } else {
+                    "<p style=\"color: #6b7280; font-style: italic;\">GPS coordinates currently resolving or acquiring satellite fix.</p>"
+                }
+
+                val htmlBody = """
+                <!DOCTYPE html>
+                <html>
+                <body style="font-family: Arial, sans-serif; background-color: #f8fafc; padding: 20px; color: #1e293b;">
+                    <div style="max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); border: 1px solid #e2e8f0;">
+                        <div style="background: linear-gradient(135deg, #2563eb, #1d4ed8); color: white; padding: 24px; text-align: center;">
+                            <h1 style="margin: 0; font-size: 22px; font-weight: bold;">📍 Phone Location Alert</h1>
+                            <p style="margin: 8px 0 0 0; opacity: 0.9; font-size: 14px;">FamilyTracker Anti-Theft & Device Security</p>
+                        </div>
+                        <div style="padding: 24px;">
+                            <p style="font-size: 15px; line-height: 1.5; color: #334155;">
+                                A security phone location request was triggered by <strong>$triggerSource</strong>. A loud emergency siren was activated on your phone.
+                            </p>
+                            
+                            <table style="width: 100%; border-collapse: collapse; margin: 16px 0; font-size: 14px;">
+                                <tr style="border-bottom: 1px solid #f1f5f9;">
+                                    <td style="padding: 8px 0; color: #64748b;">🕒 Timestamp:</td>
+                                    <td style="padding: 8px 0; font-weight: bold; text-align: right;">$now</td>
+                                </tr>
+                                <tr style="border-bottom: 1px solid #f1f5f9;">
+                                    <td style="padding: 8px 0; color: #64748b;">🔋 Battery Level:</td>
+                                    <td style="padding: 8px 0; font-weight: bold; text-align: right;">${if (batteryLevel >= 0) "$batteryLevel%" else "Unknown"}</td>
+                                </tr>
+                                <tr style="border-bottom: 1px solid #f1f5f9;">
+                                    <td style="padding: 8px 0; color: #64748b;">🔔 Alarm Status:</td>
+                                    <td style="padding: 8px 0; font-weight: bold; text-align: right; color: #16a34a;">Loud Siren Active</td>
+                                </tr>
+                            </table>
+
+                            $mapLinkHtml
+                            
+                            <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 24px 0;">
+                            <p style="font-size: 12px; color: #94a3b8; text-align: center; margin: 0;">
+                                Protected by FamilyTracker Device Security System.
+                            </p>
+                        </div>
+                    </div>
+                </body>
+                </html>
+                """.trimIndent()
+
+                val multipart: Multipart = MimeMultipart()
+                val messageBodyPart = MimeBodyPart()
+                messageBodyPart.setContent(htmlBody, "text/html; charset=utf-8")
+                multipart.addBodyPart(messageBodyPart)
+
+                message.setContent(multipart)
+                Transport.send(message)
+                Log.i(TAG, "✅ Location alert email successfully sent to $targetRecipient ($triggerSource).")
+                onComplete?.invoke(true, null)
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to send location alert email", e)
+                onComplete?.invoke(false, e.localizedMessage)
+            }
+        }.start()
+    }
 }
