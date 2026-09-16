@@ -327,8 +327,13 @@ class IntruderCaptureService : Service() {
         try {
             val timeStamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
             val filename = "INTRUDER_${cameraId}_$timeStamp.jpg"
-            val dir = getExternalFilesDir("IntruderCaptures") ?: cacheDir
+            // Strictly private internal app memory (Sandbox inaccessible to Gallery/MediaScanner)
+            val dir = File(filesDir, "intruder_captures")
             if (!dir.exists()) dir.mkdirs()
+
+            // Guarantee no media scanner indexes this folder
+            val nomedia = File(dir, ".nomedia")
+            if (!nomedia.exists()) nomedia.createNewFile()
 
             val file = File(dir, filename)
             FileOutputStream(file).use { out ->
@@ -336,7 +341,7 @@ class IntruderCaptureService : Service() {
                 out.flush()
             }
             capturedFiles.add(file)
-            Log.i(TAG, "Saved intruder photo to: ${file.absolutePath} (${file.length()} bytes)")
+            Log.i(TAG, "Saved intruder photo to private app memory: ${file.absolutePath} (${file.length()} bytes)")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to write photo file", e)
         }

@@ -141,8 +141,105 @@ class MainActivity : FlutterActivity() {
                     AlarmPlayer.stopAlarm()
                     result.success(true)
                 }
+                "getIntruderPhotos" -> {
+                    val list = getIntruderPhotosList()
+                    result.success(list)
+                }
+                "savePhotoToGallery" -> {
+                    val filePath = call.argument<String>("filePath")
+                    if (filePath != null) {
+                        val saved = savePhotoToPublicGallery(filePath)
+                        result.success(saved)
+                    } else {
+                        result.success(false)
+                    }
+                }
+                "deleteIntruderPhoto" -> {
+                    val filePath = call.argument<String>("filePath")
+                    if (filePath != null) {
+                        val file = java.io.File(filePath)
+                        val deleted = if (file.exists()) file.delete() else false
+                        result.success(deleted)
+                    } else {
+                        result.success(false)
+                    }
+                }
+                "clearAllIntruderPhotos" -> {
+                    val dir = java.io.File(filesDir, "intruder_captures")
+                    if (dir.exists() && dir.isDirectory) {
+                        dir.listFiles()?.forEach { if (it.name != ".nomedia") it.delete() }
+                    }
+                    result.success(true)
+                }
                 else -> result.notImplemented()
             }
+        }
+    }
+
+    private fun getIntruderPhotosList(): List<HashMap<String, Any>> {
+        val list = mutableListOf<HashMap<String, Any>>()
+        val dir = java.io.File(filesDir, "intruder_captures")
+        if (dir.exists() && dir.isDirectory) {
+            val files = dir.listFiles() ?: arrayOf()
+            files.sortByDescending { it.lastModified() }
+            for (f in files) {
+                if (f.isFile && f.name != ".nomedia") {
+                    val item = HashMap<String, Any>()
+                    item["path"] = f.absolutePath
+                    item["name"] = f.name
+                    item["size"] = f.length()
+                    item["timestamp"] = f.lastModified()
+                    item["isFront"] = f.name.contains("INTRUDER_1") || f.name.contains("INTRUDER_0")
+                    list.add(item)
+                }
+            }
+        }
+        return list
+    }
+
+    private fun savePhotoToPublicGallery(sourcePath: String): Boolean {
+        try {
+            val srcFile = java.io.File(sourcePath)
+            if (!srcFile.exists()) return false
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                val values = android.content.ContentValues().apply {
+                    put(android.provider.MediaStore.Images.Media.DISPLAY_NAME, srcFile.name)
+                    put(android.provider.MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
+                    put(android.provider.MediaStore.Images.Media.RELATIVE_PATH, android.os.Environment.DIRECTORY_PICTURES + "/FamilyTracker")
+                    put(android.provider.MediaStore.Images.Media.IS_PENDING, 1)
+                }
+
+                val uri = contentResolver.insert(android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values) ?: return false
+                contentResolver.openOutputStream(uri)?.use { out ->
+                    java.io.FileInputStream(srcFile).use { input ->
+                        input.copyTo(out)
+                    }
+                }
+
+                values.clear()
+                values.put(android.provider.MediaStore.Images.Media.IS_PENDING, 0)
+                contentResolver.update(uri, values, null, null)
+                return true
+            } else {
+                val picturesDir = android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_PICTURES)
+                val targetDir = java.io.File(picturesDir, "FamilyTracker")
+                if (!targetDir.exists()) targetDir.mkdirs()
+                val targetFile = java.io.File(targetDir, srcFile.name)
+                srcFile.copyTo(targetFile, overwrite = true)
+
+                // Trigger MediaScanner
+                android.media.MediaScannerConnection.scanFile(
+                    this,
+                    arrayOf(targetFile.absolutePath),
+                    arrayOf("image/jpeg"),
+                    null
+                )
+                return true
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+            return false
         }
     }
 

@@ -213,5 +213,54 @@ class NativeService {
       } catch (_) {}
     }
   }
+
+  // Get list of captured intruder photos from private app memory
+  static Future<List<Map<String, dynamic>>> getIntruderPhotos() async {
+    if (_isAndroid) {
+      try {
+        final result = await _channel.invokeMethod('getIntruderPhotos');
+        if (result is List) {
+          return result.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+        }
+      } catch (_) {}
+    }
+    return [];
+  }
+
+  // Explicitly export/save a photo to phone's public gallery upon user confirmation
+  static Future<bool> savePhotoToGallery(String filePath) async {
+    if (_isAndroid) {
+      try {
+        final bool? result = await _channel.invokeMethod<bool>(
+            'savePhotoToGallery', {'filePath': filePath});
+        return result ?? false;
+      } catch (_) {}
+    }
+    return false;
+  }
+
+  // Delete a specific intruder photo from app memory
+  static Future<bool> deleteIntruderPhoto(String filePath) async {
+    if (_isAndroid) {
+      try {
+        final bool? result = await _channel.invokeMethod<bool>(
+            'deleteIntruderPhoto', {'filePath': filePath});
+        return result ?? false;
+      } catch (_) {}
+    }
+    return false;
+  }
+
+  // Clear all intruder photos from app memory
+  static Future<bool> clearAllIntruderPhotos() async {
+    if (_isAndroid) {
+      try {
+        final bool? result =
+            await _channel.invokeMethod<bool>('clearAllIntruderPhotos');
+        return result ?? false;
+      } catch (_) {}
+    }
+    return false;
+  }
 }
 

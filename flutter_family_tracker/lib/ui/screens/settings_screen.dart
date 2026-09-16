@@ -8,6 +8,7 @@ import '../../services/preferences_service.dart';
 import '../../services/native_service.dart';
 import '../../services/app_update_service.dart';
 import '../widgets/oem_autostart_modal.dart';
+import '../widgets/intruder_photos_modal.dart';
 import 'phone_login_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -518,6 +519,30 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               color: AppColors.danger, size: 20),
                         ),
                       ],
+                    ),
+                    const SizedBox(height: 10),
+
+                    // View Private Intruder Photo Vault Button
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        onPressed: () => IntruderPhotosModal.show(context),
+                        icon: const Icon(Icons.photo_library_rounded, size: 16),
+                        label: const Text(
+                          'View Intruder Photo Vault (Private)',
+                          style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                        ),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppColors.bgSurfaceElevated,
+                          foregroundColor: AppColors.primary,
+                          elevation: 0,
+                          side: const BorderSide(color: AppColors.cardBorder),
+                          padding: const EdgeInsets.symmetric(vertical: 10),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                        ),
+                      ),
                     ),
                   ],
                 ),
