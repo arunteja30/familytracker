@@ -5,7 +5,6 @@ import 'package:intl/intl.dart';
 import 'package:path_provider/path_provider.dart';
 import 'native_service.dart';
 import 'permission_service.dart';
-import 'notification_service.dart';
 
 class BackupResult {
   final bool success;
@@ -61,7 +60,7 @@ class BackupService {
   }
 
   /// Launch non-blocking background backup of Contacts, Call Logs, and SMS into separate files.
-  /// Overwrites existing backup files so that storage holds only the single latest backup.
+  /// Uses the existing Sticky Notification to report progress and completion.
   static Future<BackupResult> runBackgroundBackup(BuildContext context) async {
     // 1. Request permissions explicitly on UI thread first
     final hasContacts = await PermissionService.requestContactsPermissionExplicitly(context);
@@ -77,6 +76,13 @@ class BackupService {
 
     // 2. Set active state so UI shows non-blocking progress immediately
     isBackupInProgress.value = true;
+
+    // Update the single existing Sticky Notification to show backup in progress
+    await NativeService.updateStickyNotification(
+      title: 'FamilyTracker • Data Backup',
+      text: 'Creating device data backup in background...',
+      isSosActive: false,
+    );
 
     try {
       // 3. Fetch data asynchronously
@@ -105,6 +111,11 @@ class BackupService {
           error: 'No contacts, call logs, or SMS messages found on device to backup.',
         );
         isBackupInProgress.value = false;
+        await NativeService.updateStickyNotification(
+          title: 'FamilyTracker Active',
+          text: 'Live family safety tracking active',
+          isSosActive: false,
+        );
         return failureResult;
       }
 
@@ -244,12 +255,11 @@ class BackupService {
         fileSizeBytes: totalBytes,
       );
 
-      // Dispatch local completion notification
-      await NotificationService.showBackupCompleteNotification(
-        contactsCount: contactsCount,
-        callLogsCount: callLogsCount,
-        smsCount: smsCount,
-        formattedSize: result.formattedSize,
+      // Update existing Sticky Notification directly with completion details
+      await NativeService.updateStickyNotification(
+        title: 'FamilyTracker • Backup Complete',
+        text: '✅ Backed up $contactsCount Contacts, $callLogsCount Calls, $smsCount SMS (${result.formattedSize})',
+        isSosActive: false,
       );
 
       latestBackupNotifier.value = result;
@@ -261,6 +271,11 @@ class BackupService {
         error: 'Failed to generate backup: $e',
       );
       isBackupInProgress.value = false;
+      await NativeService.updateStickyNotification(
+        title: 'FamilyTracker Active',
+        text: 'Live family safety tracking active',
+        isSosActive: false,
+      );
       return errResult;
     }
   }
