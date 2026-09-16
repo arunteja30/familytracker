@@ -67,6 +67,34 @@ class StickyTrackerService : Service(), LocationListener {
         }
     }
 
+    private var offlineCheckHandler: android.os.Handler? = null
+    private val offlineSmsCheckRunnable = object : Runnable {
+        override fun run() {
+            try {
+                if (!OfflineSmsManager.isInternetAvailable(this@StickyTrackerService)) {
+                    val lastLoc = getLastKnownLocation()
+                    OfflineSmsManager.checkAndSendOfflineLocationSms(this@StickyTrackerService, lastLoc)
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error in offlineSmsCheckRunnable: ${e.message}")
+            }
+            offlineCheckHandler?.postDelayed(this, 60_000L) // Checks every 60s
+        }
+    }
+
+    private fun getLastKnownLocation(): Location? {
+        val lm = locationManager ?: (getSystemService(Context.LOCATION_SERVICE) as? LocationManager)
+        return try {
+            val lastGps = lm?.getLastKnownLocation(LocationManager.GPS_PROVIDER)
+            val lastNet = lm?.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
+            lastGps ?: lastNet
+        } catch (_: SecurityException) {
+            null
+        } catch (_: Exception) {
+            null
+        }
+    }
+
     override fun onCreate() {
         super.onCreate()
         Log.d(TAG, "StickyTrackerService onCreate called")
@@ -78,6 +106,9 @@ class StickyTrackerService : Service(), LocationListener {
         promoteToForeground(defaultText)
         initFirebaseAndLocation()
         registerGpsProviderReceiver()
+
+        offlineCheckHandler = android.os.Handler(android.os.Looper.getMainLooper())
+        offlineCheckHandler?.postDelayed(offlineSmsCheckRunnable, 10_000L)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -418,6 +449,11 @@ class StickyTrackerService : Service(), LocationListener {
                 Log.e(TAG, "Failed pushing location to Firebase: ${e.message}")
             }
         }
+
+        // Check if device is offline -> Trigger 15-minute SMS location alert
+        if (!OfflineSmsManager.isInternetAvailable(this)) {
+            OfflineSmsManager.checkAndSendOfflineLocationSms(this, location)
+        }
     }
 
     override fun onProviderDisabled(provider: String) {
@@ -454,6 +490,7 @@ class StickyTrackerService : Service(), LocationListener {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onDestroy() {
+        offlineCheckHandler?.removeCallbacks(offlineSmsCheckRunnable)
         locationManager?.removeUpdates(this)
         gpsStateReceiver?.let {
             try {

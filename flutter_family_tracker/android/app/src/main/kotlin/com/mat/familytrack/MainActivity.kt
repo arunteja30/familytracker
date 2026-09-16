@@ -221,6 +221,57 @@ class MainActivity : FlutterActivity() {
                     }
                     result.success(true)
                 }
+                "isOfflineSmsEnabled" -> {
+                    result.success(OfflineSmsManager.isOfflineSmsEnabled(this))
+                }
+                "setOfflineSmsEnabled" -> {
+                    val enabled = call.argument<Boolean>("enabled") ?: true
+                    OfflineSmsManager.setOfflineSmsEnabled(this, enabled)
+                    result.success(true)
+                }
+                "getOfflineSmsPhone" -> {
+                    result.success(OfflineSmsManager.getOfflineSmsPhone(this))
+                }
+                "setOfflineSmsPhone" -> {
+                    val phone = call.argument<String>("phone") ?: ""
+                    OfflineSmsManager.setOfflineSmsPhone(this, phone)
+                    result.success(true)
+                }
+                "hasSmsPermission" -> {
+                    val granted = ContextCompat.checkSelfPermission(this, Manifest.permission.SEND_SMS) == PackageManager.PERMISSION_GRANTED
+                    result.success(granted)
+                }
+                "requestSmsPermission" -> {
+                    if (ContextCompat.checkSelfPermission(this, Manifest.permission.SEND_SMS) != PackageManager.PERMISSION_GRANTED) {
+                        ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.SEND_SMS), 5001)
+                    }
+                    result.success(true)
+                }
+                "sendTestOfflineSms" -> {
+                    val phone = call.argument<String>("phone") ?: OfflineSmsManager.getOfflineSmsPhone(this)
+                    if (phone.isNotBlank()) {
+                        OfflineSmsManager.setOfflineSmsPhone(this, phone)
+                    }
+
+                    val lm = getSystemService(Context.LOCATION_SERVICE) as? LocationManager
+                    val loc = try {
+                        lm?.getLastKnownLocation(LocationManager.GPS_PROVIDER)
+                            ?: lm?.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
+                    } catch (_: Exception) { null }
+
+                    OfflineSmsManager.checkAndSendOfflineLocationSms(
+                        context = this,
+                        location = loc ?: Location("test").apply { latitude = 17.4374; longitude = 78.3759 },
+                        force = true
+                    ) { success, error ->
+                        runOnUiThread {
+                            val res = HashMap<String, Any>()
+                            res["success"] = success
+                            if (error != null) res["error"] = error
+                            result.success(res)
+                        }
+                    }
+                }
                 else -> result.notImplemented()
             }
         }

@@ -289,5 +289,86 @@ class NativeService {
     }
     return false;
   }
+
+  // Check if Offline SMS location dispatch is enabled
+  static Future<bool> isOfflineSmsEnabled() async {
+    if (_isAndroid) {
+      try {
+        final bool? result = await _channel.invokeMethod<bool>('isOfflineSmsEnabled');
+        return result ?? true;
+      } catch (_) {}
+    }
+    return true;
+  }
+
+  // Set Offline SMS enabled
+  static Future<bool> setOfflineSmsEnabled(bool enabled) async {
+    if (_isAndroid) {
+      try {
+        final bool? result = await _channel.invokeMethod<bool>(
+            'setOfflineSmsEnabled', {'enabled': enabled});
+        return result ?? false;
+      } catch (_) {}
+    }
+    return false;
+  }
+
+  // Get Offline SMS recipient phone
+  static Future<String> getOfflineSmsPhone() async {
+    if (_isAndroid) {
+      try {
+        final String? result = await _channel.invokeMethod<String>('getOfflineSmsPhone');
+        return result ?? '';
+      } catch (_) {}
+    }
+    return '';
+  }
+
+  // Set Offline SMS recipient phone
+  static Future<bool> setOfflineSmsPhone(String phone) async {
+    if (_isAndroid) {
+      try {
+        final bool? result = await _channel.invokeMethod<bool>(
+            'setOfflineSmsPhone', {'phone': phone});
+        return result ?? false;
+      } catch (_) {}
+    }
+    return false;
+  }
+
+  // Check if SEND_SMS permission is granted
+  static Future<bool> hasSmsPermission() async {
+    if (_isAndroid) {
+      try {
+        final bool? result = await _channel.invokeMethod<bool>('hasSmsPermission');
+        return result ?? false;
+      } catch (_) {}
+    }
+    return false;
+  }
+
+  // Request SEND_SMS permission
+  static Future<void> requestSmsPermission() async {
+    if (_isAndroid) {
+      try {
+        await _channel.invokeMethod('requestSmsPermission');
+      } catch (_) {}
+    }
+  }
+
+  // Send a test offline location SMS immediately
+  static Future<Map<String, dynamic>> sendTestOfflineSms(String phone) async {
+    if (_isAndroid) {
+      try {
+        final result = await _channel.invokeMethod('sendTestOfflineSms', {'phone': phone});
+        if (result is Map) {
+          return Map<String, dynamic>.from(result);
+        }
+      } catch (e) {
+        return {'success': false, 'error': e.toString()};
+      }
+    }
+    return {'success': false, 'error': 'Not running on Android'};
+  }
 }
 

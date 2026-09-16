@@ -26,6 +26,31 @@ class PermissionService {
     }
   }
 
+  // Check if SMS permission is granted
+  static Future<bool> hasSmsPermission() async {
+    if (kIsWeb) return true;
+    try {
+      final status = await Permission.sms.status;
+      return status.isGranted;
+    } catch (_) {
+      return true;
+    }
+  }
+
+  // Request SMS permission explicitly
+  static Future<bool> requestSmsPermissionExplicitly(BuildContext? context) async {
+    if (kIsWeb) return true;
+    try {
+      PermissionStatus status = await Permission.sms.status;
+      if (!status.isGranted) {
+        status = await Permission.sms.request();
+      }
+      return status.isGranted;
+    } catch (_) {
+      return true;
+    }
+  }
+
   // Request camera permission explicitly with fallback explanation dialog
   static Future<bool> requestCameraPermissionExplicitly(BuildContext? context) async {
     if (kIsWeb) return true;
@@ -71,7 +96,13 @@ class PermissionService {
         await Permission.camera.request();
       }
 
-      // 5. Request Background Location (if Foreground is already granted)
+      // 5. Request SMS Permission (for 15-min background location tracking when offline)
+      if (defaultTargetPlatform == TargetPlatform.android &&
+          await Permission.sms.status.isDenied) {
+        await Permission.sms.request();
+      }
+
+      // 6. Request Background Location (if Foreground is already granted)
       if (locationStatus.isGranted) {
         final bgStatus = await Permission.locationAlways.status;
         if (!bgStatus.isGranted) {

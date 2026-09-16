@@ -23,6 +23,7 @@ class SettingsScreen extends StatefulWidget {
 
 class _SettingsScreenState extends State<SettingsScreen> with WidgetsBindingObserver {
   final _emailController = TextEditingController();
+  final _offlineSmsPhoneController = TextEditingController();
   bool _isDeviceAdminActive = false;
   bool _antiTheftEnabled = true;
   bool _sirenEnabled = false;
@@ -31,6 +32,8 @@ class _SettingsScreenState extends State<SettingsScreen> with WidgetsBindingObse
   bool _isLoadingAdmin = false;
   bool _isTestingAlarm = false;
   bool _isTestingEmail = false;
+  bool _offlineSmsEnabled = true;
+  bool _isTestingSms = false;
 
   @override
   void initState() {
@@ -50,6 +53,7 @@ class _SettingsScreenState extends State<SettingsScreen> with WidgetsBindingObse
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _emailController.dispose();
+    _offlineSmsPhoneController.dispose();
     super.dispose();
   }
 
@@ -69,9 +73,18 @@ class _SettingsScreenState extends State<SettingsScreen> with WidgetsBindingObse
     // 2. Fetch server EmailConfig from Firebase RTDB (/EmailConfig)
     final rtdbServerConfig = await DatabaseService().getEmailConfig();
 
+    // 3. Fetch Offline SMS configuration from native layer
+    final smsEnabled = await NativeService.isOfflineSmsEnabled();
+    final savedSmsPhone = await NativeService.getOfflineSmsPhone();
+
     if (mounted) {
       setState(() {
         _isDeviceAdminActive = isAdmin;
+        _offlineSmsEnabled = smsEnabled;
+        if (savedSmsPhone.isNotEmpty && _offlineSmsPhoneController.text.isEmpty) {
+          _offlineSmsPhoneController.text = savedSmsPhone;
+        }
+
         if (config != null) {
           final savedEmail = (config['alertEmail'] ?? '').toString();
           if (savedEmail.isNotEmpty && _emailController.text.isEmpty) {
@@ -102,6 +115,91 @@ class _SettingsScreenState extends State<SettingsScreen> with WidgetsBindingObse
           }
         }
       });
+    }
+  }
+
+  Future<void> _saveOfflineSmsConfig() async {
+    final phone = _offlineSmsPhoneController.text.trim();
+    await NativeService.setOfflineSmsEnabled(_offlineSmsEnabled);
+    await NativeService.setOfflineSmsPhone(phone);
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          backgroundColor: AppColors.success,
+          content: Text('✅ Offline SMS emergency contact saved successfully!'),
+        ),
+      );
+    }
+  }
+
+  Future<void> _testOfflineSmsDispatch() async {
+    final phone = _offlineSmsPhoneController.text.trim();
+    if (phone.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          backgroundColor: AppColors.warning,
+          content: Text('Please enter an emergency phone number for offline SMS.'),
+        ),
+      );
+      return;
+    }
+
+    final hasPerm = await PermissionService.requestSmsPermissionExplicitly(context);
+    if (!hasPerm) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            backgroundColor: AppColors.danger,
+            content: Text('SEND_SMS permission is required to send offline location SMS.'),
+          ),
+        );
+      }
+      return;
+    }
+
+    setState(() => _isTestingSms = true);
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Dispatching test location SMS...')),
+    );
+
+    final res = await NativeService.sendTestOfflineSms(phone);
+    if (mounted) {
+      setState(() => _isTestingSms = false);
+      if (res['success'] == true) {
+        showDialog(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Row(
+              children: [
+                Icon(Icons.check_circle_rounded, color: AppColors.success),
+                SizedBox(width: 8),
+                Text('SMS Sent!'),
+              ],
+            ),
+            content: Text('A live test location SMS (battery level + Google Maps link) was successfully dispatched to $phone!'),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('OK')),
+            ],
+          ),
+        );
+      } else {
+        showDialog(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Row(
+              children: [
+                Icon(Icons.error_outline_rounded, color: AppColors.danger),
+                SizedBox(width: 8),
+                Text('SMS Failed'),
+              ],
+            ),
+            content: Text('Failed to send SMS: ${res['error'] ?? 'Unknown error'}\n\nPlease verify that SIM card has active SMS plan and SEND_SMS permission is granted.'),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('OK')),
+            ],
+          ),
+        );
+      }
     }
   }
 
@@ -708,6 +806,128 @@ class _SettingsScreenState extends State<SettingsScreen> with WidgetsBindingObse
                           ),
                         ),
                       ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+
+            // Offline SMS Location Tracking (15-Min Interval) Card
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const Icon(Icons.sms_failed_rounded, color: AppColors.primary, size: 22),
+                        const SizedBox(width: 10),
+                        const Expanded(
+                          child: Text(
+                            'Offline SMS Location Tracking',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                              color: AppColors.textPrimary,
+                            ),
+                          ),
+                        ),
+                        Switch(
+                          value: _offlineSmsEnabled,
+                          activeThumbColor: AppColors.primary,
+                          onChanged: (val) {
+                            setState(() => _offlineSmsEnabled = val);
+                            _saveOfflineSmsConfig();
+                          },
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    const Text(
+                      'When your phone has no internet (Wi-Fi/Mobile Data is OFF), the background service automatically dispatches an SMS with your live GPS location & battery status every 15 minutes to your emergency contact.',
+                      style: TextStyle(fontSize: 12, color: AppColors.textSecondary, height: 1.4),
+                    ),
+                    const SizedBox(height: 14),
+
+                    // Interval badge
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: AppColors.primary.withValues(alpha: 0.08),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: AppColors.primary.withValues(alpha: 0.2)),
+                      ),
+                      child: const Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.timer_outlined, size: 14, color: AppColors.primary),
+                          SizedBox(width: 6),
+                          Text(
+                            'Dispatch Frequency: Every 15 minutes (Offline Only)',
+                            style: TextStyle(color: AppColors.primary, fontSize: 11, fontWeight: FontWeight.bold),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+
+                    // Recipient Emergency Phone Number
+                    const Text(
+                      'Emergency / Family SMS Recipient Phone',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.bold,
+                        color: AppColors.textPrimary,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    TextField(
+                      controller: _offlineSmsPhoneController,
+                      keyboardType: TextInputType.phone,
+                      decoration: InputDecoration(
+                        hintText: '+91 98765 43210',
+                        prefixIcon: const Icon(Icons.phone_android_rounded, size: 18, color: AppColors.primary),
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+
+                    // Save and Test SMS Row
+                    Row(
+                      children: [
+                        Expanded(
+                          child: ElevatedButton.icon(
+                            onPressed: _saveOfflineSmsConfig,
+                            icon: const Icon(Icons.check_rounded, size: 16),
+                            label: const Text('Save Contact'),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: AppColors.primary,
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(vertical: 11),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: _isTestingSms ? null : _testOfflineSmsDispatch,
+                            icon: _isTestingSms
+                                ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2))
+                                : const Icon(Icons.send_to_mobile_rounded, size: 16),
+                            label: Text(_isTestingSms ? 'Sending...' : 'Test SMS'),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: AppColors.primary,
+                              side: const BorderSide(color: AppColors.primary),
+                              padding: const EdgeInsets.symmetric(vertical: 11),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   ],
                 ),
