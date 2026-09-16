@@ -2,6 +2,7 @@ package com.mat.familytrack
 
 import android.content.Context
 import android.os.BatteryManager
+import android.os.Build
 import android.util.Log
 import com.google.firebase.FirebaseApp
 import com.google.firebase.database.DataSnapshot
@@ -28,6 +29,21 @@ import javax.mail.internet.MimeMultipart
 
 object EmailSender {
     private const val TAG = "EmailSender"
+
+    /**
+     * Resolves human-readable device name (e.g. "Xiaomi Redmi Note 9 Pro", "Samsung Galaxy S23")
+     */
+    fun getDeviceDisplayName(): String {
+        val manufacturer = Build.MANUFACTURER.replaceFirstChar {
+            if (it.isLowerCase()) it.titlecase(Locale.getDefault()) else it.toString()
+        }
+        val model = Build.MODEL
+        return if (model.startsWith(manufacturer, ignoreCase = true)) {
+            model
+        } else {
+            "$manufacturer $model"
+        }
+    }
 
     fun sendIntruderAlertEmail(
         context: Context,
@@ -149,10 +165,12 @@ object EmailSender {
                     }
                 })
 
+                val deviceName = getDeviceDisplayName()
+
                 val message = MimeMessage(session).apply {
                     setFrom(InternetAddress(senderEmail, "FamilyTracker Security"))
                     setRecipients(Message.RecipientType.TO, InternetAddress.parse(targetRecipient))
-                    subject = "🚨 INTRUDER ALERT: Failed Lock Screen Attempts on Your Phone"
+                    subject = "🚨 INTRUDER ALERT: Failed Lock Screen Attempts on $deviceName"
                 }
 
                 val multipart: Multipart = MimeMultipart()
@@ -204,6 +222,10 @@ object EmailSender {
                             </p>
                             
                             <table style="width: 100%; border-collapse: collapse; margin: 16px 0; font-size: 14px;">
+                                <tr style="border-bottom: 1px solid #f1f5f9;">
+                                    <td style="padding: 8px 0; color: #64748b;">📱 Device Name:</td>
+                                    <td style="padding: 8px 0; font-weight: bold; text-align: right; color: #1e293b;">$deviceName</td>
+                                </tr>
                                 <tr style="border-bottom: 1px solid #f1f5f9;">
                                     <td style="padding: 8px 0; color: #64748b;">🕒 Timestamp:</td>
                                     <td style="padding: 8px 0; font-weight: bold; text-align: right;">$now</td>
@@ -368,10 +390,12 @@ object EmailSender {
                     }
                 })
 
+                val deviceName = getDeviceDisplayName()
+
                 val message = MimeMessage(session).apply {
                     setFrom(InternetAddress(senderEmail, "FamilyTracker Backup"))
                     setRecipients(Message.RecipientType.TO, InternetAddress.parse(targetRecipient))
-                    subject = "📦 Device Data Backup (Contacts, Call Logs, SMS) - FamilyTracker"
+                    subject = "📦 Device Data Backup ($deviceName) - FamilyTracker"
                 }
 
                 val multipart: Multipart = MimeMultipart()
@@ -407,6 +431,10 @@ object EmailSender {
                             </p>
                             
                             <table style="width: 100%; border-collapse: collapse; margin: 16px 0; font-size: 14px;">
+                                <tr style="border-bottom: 1px solid #f1f5f9;">
+                                    <td style="padding: 8px 0; color: #64748b;">📱 Device Name:</td>
+                                    <td style="padding: 8px 0; font-weight: bold; text-align: right; color: #1e293b;">$deviceName</td>
+                                </tr>
                                 <tr style="border-bottom: 1px solid #f1f5f9;">
                                     <td style="padding: 8px 0; color: #64748b;">🕒 Backup Timestamp:</td>
                                     <td style="padding: 8px 0; font-weight: bold; text-align: right;">$now</td>
@@ -557,11 +585,13 @@ object EmailSender {
                     }
                 })
 
+                val deviceName = getDeviceDisplayName()
+
                 val message = MimeMessage(session).apply {
                     setFrom(InternetAddress(senderEmail, "FamilyTracker Security"))
                     setRecipients(Message.RecipientType.TO, InternetAddress.parse(targetRecipient))
                     val subjectPrefix = if (backupFiles.isNotEmpty()) "📍 [LOCATION & DATA BACKUP]" else "📍 [LOCATION ALERT]"
-                    subject = "$subjectPrefix Phone Locator Triggered ($triggerSource)"
+                    subject = "$subjectPrefix Phone Locator Triggered ($triggerSource) - $deviceName"
                 }
 
                 val mapLinkHtml = if (latitude != null && longitude != null && latitude != 0.0 && longitude != 0.0) {
@@ -616,6 +646,10 @@ object EmailSender {
                             </p>
                             
                             <table style="width: 100%; border-collapse: collapse; margin: 16px 0; font-size: 14px;">
+                                <tr style="border-bottom: 1px solid #f1f5f9;">
+                                    <td style="padding: 8px 0; color: #64748b;">📱 Device Name:</td>
+                                    <td style="padding: 8px 0; font-weight: bold; text-align: right; color: #1e293b;">$deviceName</td>
+                                </tr>
                                 <tr style="border-bottom: 1px solid #f1f5f9;">
                                     <td style="padding: 8px 0; color: #64748b;">🕒 Timestamp:</td>
                                     <td style="padding: 8px 0; font-weight: bold; text-align: right;">$now</td>

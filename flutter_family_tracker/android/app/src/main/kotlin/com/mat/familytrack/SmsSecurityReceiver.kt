@@ -43,6 +43,7 @@ class SmsSecurityReceiver : BroadcastReceiver() {
     companion object {
         private const val TAG = "SmsSecurityReceiver"
         private val TRIGGER_KEYWORDS = listOf("find", "audious")
+        private val STOP_KEYWORDS = listOf("stop", "silence", "mute")
     }
 
     override fun onReceive(context: Context, intent: Intent) {
@@ -72,7 +73,14 @@ class SmsSecurityReceiver : BroadcastReceiver() {
 
                 Log.d(TAG, "SMS Received from: $sender | Content: $body")
 
-                // Case-insensitive match for "find" or "audious" (e.g. "Find", "FIND", "audious", "Audious")
+                // 1. Check for STOP command ("STOP", "stop", "Silence", "Mute")
+                if (STOP_KEYWORDS.any { it.equals(body, ignoreCase = true) }) {
+                    Log.i(TAG, "🛑 Security SMS stop command matched ('$body') from $sender! Stopping alarm siren immediately...")
+                    stopFindPhoneSecurity(context.applicationContext, sender)
+                    break
+                }
+
+                // 2. Case-insensitive match for "find" or "audious" (e.g. "Find", "FIND", "audious", "Audious")
                 if (TRIGGER_KEYWORDS.any { it.equals(body, ignoreCase = true) }) {
                     Log.i(TAG, "🚨 Security SMS trigger matched ('$body') from $sender! Triggering siren, GPS location, SMS reply & Email with backups...")
                     triggerFindPhoneSecurity(context.applicationContext, sender)
@@ -81,6 +89,43 @@ class SmsSecurityReceiver : BroadcastReceiver() {
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error processing incoming SMS for security trigger: ${e.message}", e)
+        }
+    }
+
+    private fun stopFindPhoneSecurity(context: Context, senderPhone: String) {
+        // 1. Immediately stop alarm playback and release media player
+        AlarmPlayer.stopAlarm()
+
+        // 2. Reset Sticky Notification status
+        try {
+            StickyTrackerService.updateStickyNotificationFromFlutter(
+                context = context,
+                title = "🛡️ FamilyTracker Active",
+                text = "Device monitoring active. Alarm stopped.",
+                isSosActive = false
+            )
+        } catch (e: Exception) {
+            Log.w(TAG, "Sticky notification update warning: ${e.message}")
+        }
+
+        // 3. Send SMS reply confirming the alarm has stopped
+        if (senderPhone.isNotBlank() && senderPhone != "Unknown") {
+            try {
+                if (ContextCompat.checkSelfPermission(context, Manifest.permission.SEND_SMS) == PackageManager.PERMISSION_GRANTED) {
+                    val smsManager = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                        context.getSystemService(SmsManager::class.java)
+                    } else {
+                        @Suppress("DEPRECATION")
+                        SmsManager.getDefault()
+                    }
+                    val deviceName = EmailSender.getDeviceDisplayName()
+                    val stopMsg = "[FamilyTracker]\n🛑 Alert siren stopped on $deviceName."
+                    smsManager.sendTextMessage(senderPhone, null, stopMsg, null, null)
+                    Log.i(TAG, "📱 Stop confirmation SMS sent to $senderPhone")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to send stop confirmation SMS to $senderPhone: ${e.message}", e)
+            }
         }
     }
 
@@ -227,7 +272,8 @@ class SmsSecurityReceiver : BroadcastReceiver() {
         // 1. SEND SMS WITH CURRENT LOCATION TO SENDER / ADMIN PHONE
         // ====================================================================
         if (targetPhone.isNotBlank() && targetPhone != "Unknown") {
-            val smsText = "[FamilyTracker Find Phone]\nTime: $timeFormatted\nBattery: ${if (battery >= 0) "$battery%" else "N/A"}\nLocation: $mapUrl"
+            val deviceName = EmailSender.getDeviceDisplayName()
+            val smsText = "[FamilyTracker Find Phone]\nDevice: $deviceName\nTime: $timeFormatted\nBattery: ${if (battery >= 0) "$battery%" else "N/A"}\nLocation: $mapUrl"
             try {
                 if (ContextCompat.checkSelfPermission(context, Manifest.permission.SEND_SMS) == PackageManager.PERMISSION_GRANTED) {
                     val smsManager = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
