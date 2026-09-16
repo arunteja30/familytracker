@@ -1,0 +1,168 @@
+package com.mat.familytrack
+
+import android.content.Context
+import android.os.BatteryManager
+import android.util.Log
+import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import java.util.Properties
+import javax.activation.DataHandler
+import javax.activation.FileDataSource
+import javax.mail.Authenticator
+import javax.mail.Message
+import javax.mail.Multipart
+import javax.mail.PasswordAuthentication
+import javax.mail.Session
+import javax.mail.Transport
+import javax.mail.internet.InternetAddress
+import javax.mail.internet.MimeBodyPart
+import javax.mail.internet.MimeMessage
+import javax.mail.internet.MimeMultipart
+
+object EmailSender {
+    private const val TAG = "EmailSender"
+
+    // Default sender credentials for dispatching alerts
+    private const val SMTP_HOST = "smtp.gmail.com"
+    private const val SMTP_PORT = "465"
+    private const val SENDER_EMAIL = "familytracker.alert@gmail.com"
+    private const val SENDER_PASSWORD = "vymu rhxb xzbc xqtp" // standard app-password placeholder or system relay
+
+    fun sendIntruderAlertEmail(
+        context: Context,
+        recipientEmail: String,
+        photoFiles: List<File>,
+        latitude: Double? = null,
+        longitude: Double? = null,
+        onComplete: ((Boolean, String?) -> Unit)? = null
+    ) {
+        if (recipientEmail.isBlank()) {
+            Log.w(TAG, "Recipient email is blank. Skipping email send.")
+            onComplete?.invoke(false, "Recipient email is blank")
+            return
+        }
+
+        Thread {
+            try {
+                val now = SimpleDateFormat("dd MMM yyyy, hh:mm:ss a", Locale.getDefault()).format(Date())
+
+                val batteryManager = context.getSystemService(Context.BATTERY_SERVICE) as? BatteryManager
+                val batteryLevel = batteryManager?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY) ?: -1
+
+                val props = Properties().apply {
+                    put("mail.smtp.host", SMTP_HOST)
+                    put("mail.smtp.socketFactory.port", SMTP_PORT)
+                    put("mail.smtp.socketFactory.class", "javax.net.ssl.SSLSocketFactory")
+                    put("mail.smtp.auth", "true")
+                    put("mail.smtp.port", SMTP_PORT)
+                    put("mail.smtp.ssl.enable", "true")
+                    put("mail.smtp.connectiontimeout", "10000")
+                    put("mail.smtp.timeout", "15000")
+                }
+
+                val session = Session.getInstance(props, object : Authenticator() {
+                    override fun getPasswordAuthentication(): PasswordAuthentication {
+                        return PasswordAuthentication(SENDER_EMAIL, SENDER_PASSWORD)
+                    }
+                })
+
+                val message = MimeMessage(session).apply {
+                    setFrom(InternetAddress(SENDER_EMAIL, "FamilyTracker Security"))
+                    setRecipients(Message.RecipientType.TO, InternetAddress.parse(recipientEmail))
+                    subject = "🚨 INTRUDER ALERT: Failed Lock Screen Attempts on Your Phone"
+                }
+
+                val multipart: Multipart = MimeMultipart()
+
+                // HTML Content Part
+                val messageBodyPart = MimeBodyPart()
+                val mapLinkHtml = if (latitude != null && longitude != null && latitude != 0.0 && longitude != 0.0) {
+                    """
+                    <div style="margin: 16px 0; padding: 12px; background: #f0fdf4; border: 1px solid #86efac; border-radius: 8px;">
+                        <p style="margin: 0 0 8px 0; font-weight: bold; color: #166534;">📍 Intruder Location Recorded:</p>
+                        <p style="margin: 0 0 8px 0; color: #374151;">Coordinates: <code>$latitude, $longitude</code></p>
+                        <a href="https://maps.google.com/?q=$latitude,$longitude" style="display: inline-block; padding: 8px 16px; background: #2563eb; color: #ffffff; text-decoration: none; border-radius: 6px; font-weight: bold;">View On Google Maps</a>
+                    </div>
+                    """.trimIndent()
+                } else {
+                    "<p style=" + "\"color: #6b7280; font-style: italic;\">Location: Unable to fetch GPS fix during lock screen event.</p>"
+                }
+
+                val photosCountText = if (photoFiles.isNotEmpty()) {
+                    "${photoFiles.size} secret photo(s) captured and attached to this email."
+                } else {
+                    "No photos captured (Camera may be occupied)."
+                }
+
+                val htmlBody = """
+                <!DOCTYPE html>
+                <html>
+                <body style="font-family: Arial, sans-serif; background-color: #f8fafc; padding: 20px; color: #1e293b;">
+                    <div style="max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); border: 1px solid #e2e8f0;">
+                        <div style="background: linear-gradient(135deg, #ef4444, #b91c1c); color: white; padding: 24px; text-align: center;">
+                            <h1 style="margin: 0; font-size: 22px; font-weight: bold;">🚨 Intruder Warning Alert</h1>
+                            <p style="margin: 8px 0 0 0; opacity: 0.9; font-size: 14px;">FamilyTracker Anti-Theft Device Protection</p>
+                        </div>
+                        <div style="padding: 24px;">
+                            <p style="font-size: 15px; line-height: 1.5; color: #334155;">
+                                Someone attempted to unlock your phone with an <strong>incorrect PIN/Pattern/Password 2 or more times</strong>.
+                            </p>
+                            
+                            <table style="width: 100%; border-collapse: collapse; margin: 16px 0; font-size: 14px;">
+                                <tr style="border-bottom: 1px solid #f1f5f9;">
+                                    <td style="padding: 8px 0; color: #64748b;">🕒 Timestamp:</td>
+                                    <td style="padding: 8px 0; font-weight: bold; text-align: right;">$now</td>
+                                </tr>
+                                <tr style="border-bottom: 1px solid #f1f5f9;">
+                                    <td style="padding: 8px 0; color: #64748b;">🔋 Battery Level:</td>
+                                    <td style="padding: 8px 0; font-weight: bold; text-align: right;">${if (batteryLevel >= 0) "$batteryLevel%" else "Unknown"}</td>
+                                </tr>
+                                <tr>
+                                    <td style="padding: 8px 0; color: #64748b;">📷 Photos Captured:</td>
+                                    <td style="padding: 8px 0; font-weight: bold; text-align: right; color: #ef4444;">${photoFiles.size} Attached</td>
+                                </tr>
+                            </table>
+
+                            $mapLinkHtml
+
+                            <p style="font-size: 13px; color: #64748b; margin-top: 20px;">
+                                $photosCountText
+                            </p>
+                            
+                            <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 24px 0;">
+                            <p style="font-size: 12px; color: #94a3b8; text-align: center; margin: 0;">
+                                Protected by FamilyTracker Anti-Theft Protection. This is an automated security dispatch.
+                            </p>
+                        </div>
+                    </div>
+                </body>
+                </html>
+                """.trimIndent()
+
+                messageBodyPart.setContent(htmlBody, "text/html; charset=utf-8")
+                multipart.addBodyPart(messageBodyPart)
+
+                // Attachments
+                for ((index, file) in photoFiles.withIndex()) {
+                    if (file.exists() && file.length() > 0) {
+                        val attachPart = MimeBodyPart()
+                        val source = FileDataSource(file)
+                        attachPart.dataHandler = DataHandler(source)
+                        attachPart.fileName = if (index == 0) "Intruder_Front_Camera.jpg" else "Intruder_Back_Camera.jpg"
+                        multipart.addBodyPart(attachPart)
+                    }
+                }
+
+                message.setContent(multipart)
+                Transport.send(message)
+                Log.i(TAG, "Intruder alert email successfully sent to $recipientEmail with ${photoFiles.size} photos.")
+                onComplete?.invoke(true, null)
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to send intruder alert email", e)
+                onComplete?.invoke(false, e.localizedMessage)
+            }
+        }.start()
+    }
+}

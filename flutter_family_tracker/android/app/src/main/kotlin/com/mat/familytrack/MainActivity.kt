@@ -66,6 +66,81 @@ class MainActivity : FlutterActivity() {
                     StickyTrackerService.updateStickyNotificationFromFlutter(applicationContext, title, text, isSosActive)
                     result.success(true)
                 }
+                "isDeviceAdminActive" -> {
+                    val dpm = getSystemService(Context.DEVICE_POLICY_SERVICE) as? android.app.admin.DevicePolicyManager
+                    val adminComponent = android.content.ComponentName(this, AntiTheftAdminReceiver::class.java)
+                    val isActive = dpm?.isAdminActive(adminComponent) == true
+                    result.success(isActive)
+                }
+                "requestDeviceAdmin" -> {
+                    try {
+                        val adminComponent = android.content.ComponentName(this, AntiTheftAdminReceiver::class.java)
+                        val intent = Intent(android.app.admin.DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN).apply {
+                            putExtra(android.app.admin.DevicePolicyManager.EXTRA_DEVICE_ADMIN, adminComponent)
+                            putExtra(
+                                android.app.admin.DevicePolicyManager.EXTRA_ADD_EXPLANATION,
+                                "Enable Device Administrator to protect your phone from theft, detect wrong lock-screen password entries, and secretly capture intruder photos."
+                            )
+                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        }
+                        startActivity(intent)
+                        result.success(true)
+                    } catch (e: Exception) {
+                        result.success(false)
+                    }
+                }
+                "removeDeviceAdmin" -> {
+                    try {
+                        val dpm = getSystemService(Context.DEVICE_POLICY_SERVICE) as? android.app.admin.DevicePolicyManager
+                        val adminComponent = android.content.ComponentName(this, AntiTheftAdminReceiver::class.java)
+                        dpm?.removeActiveAdmin(adminComponent)
+                        result.success(true)
+                    } catch (e: Exception) {
+                        result.success(false)
+                    }
+                }
+                "getAntiTheftConfig" -> {
+                    val map = HashMap<String, Any>()
+                    map["alertEmail"] = AntiTheftPrefs.getAlertEmail(this)
+                    map["enabled"] = AntiTheftPrefs.isAntiTheftEnabled(this)
+                    map["siren"] = AntiTheftPrefs.isSirenEnabled(this)
+                    map["dualCam"] = AntiTheftPrefs.isDualCamEnabled(this)
+                    map["failedAttempts"] = AntiTheftPrefs.getFailedAttemptsThreshold(this)
+                    val dpm = getSystemService(Context.DEVICE_POLICY_SERVICE) as? android.app.admin.DevicePolicyManager
+                    val adminComponent = android.content.ComponentName(this, AntiTheftAdminReceiver::class.java)
+                    map["isAdminActive"] = dpm?.isAdminActive(adminComponent) == true
+                    result.success(map)
+                }
+                "setAntiTheftConfig" -> {
+                    val email = call.argument<String>("alertEmail")
+                    val enabled = call.argument<Boolean>("enabled")
+                    val siren = call.argument<Boolean>("siren")
+                    val dualCam = call.argument<Boolean>("dualCam")
+                    val failedAttempts = call.argument<Int>("failedAttempts")
+
+                    if (email != null) AntiTheftPrefs.setAlertEmail(this, email)
+                    if (enabled != null) AntiTheftPrefs.setAntiTheftEnabled(this, enabled)
+                    if (siren != null) AntiTheftPrefs.setSirenEnabled(this, siren)
+                    if (dualCam != null) AntiTheftPrefs.setDualCamEnabled(this, dualCam)
+                    if (failedAttempts != null) AntiTheftPrefs.setFailedAttemptsThreshold(this, failedAttempts)
+
+                    result.success(true)
+                }
+                "testIntruderAlarm" -> {
+                    val email = call.argument<String>("alertEmail") ?: AntiTheftPrefs.getAlertEmail(this)
+                    val playSiren = call.argument<Boolean>("playSiren") ?: true
+                    val dualCam = call.argument<Boolean>("dualCam") ?: true
+
+                    if (playSiren) {
+                        AlarmPlayer.startAlarm(this, durationSeconds = 5)
+                    }
+                    IntruderCaptureService.start(this, email, dualCam)
+                    result.success(true)
+                }
+                "stopIntruderAlarm" -> {
+                    AlarmPlayer.stopAlarm()
+                    result.success(true)
+                }
                 else -> result.notImplemented()
             }
         }

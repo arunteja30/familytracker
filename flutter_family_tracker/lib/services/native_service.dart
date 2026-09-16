@@ -109,5 +109,109 @@ class NativeService {
       } catch (_) {}
     }
   }
+
+  // --- Anti-Theft & Device Admin Methods ---
+
+  // Check if Device Administrator is active on Android
+  static Future<bool> isDeviceAdminActive() async {
+    if (_isAndroid) {
+      try {
+        final bool? result =
+            await _channel.invokeMethod<bool>('isDeviceAdminActive');
+        return result ?? false;
+      } catch (_) {}
+    }
+    return false;
+  }
+
+  // Open System prompt to activate Device Administrator
+  static Future<bool> requestDeviceAdmin() async {
+    if (_isAndroid) {
+      try {
+        final bool? result =
+            await _channel.invokeMethod<bool>('requestDeviceAdmin');
+        return result ?? false;
+      } catch (_) {}
+    }
+    return false;
+  }
+
+  // Remove Device Administrator privilege
+  static Future<bool> removeDeviceAdmin() async {
+    if (_isAndroid) {
+      try {
+        final bool? result =
+            await _channel.invokeMethod<bool>('removeDeviceAdmin');
+        return result ?? false;
+      } catch (_) {}
+    }
+    return false;
+  }
+
+  // Fetch Anti-Theft settings from native layer
+  static Future<Map<String, dynamic>?> getAntiTheftConfig() async {
+    if (_isAndroid) {
+      try {
+        final result = await _channel.invokeMethod('getAntiTheftConfig');
+        if (result is Map) {
+          return Map<String, dynamic>.from(result);
+        }
+      } catch (_) {}
+    }
+    return null;
+  }
+
+  // Save Anti-Theft settings to native layer
+  static Future<bool> setAntiTheftConfig({
+    String? alertEmail,
+    bool? enabled,
+    bool? siren,
+    bool? dualCam,
+    int? failedAttempts,
+  }) async {
+    if (_isAndroid) {
+      try {
+        final bool? result =
+            await _channel.invokeMethod<bool>('setAntiTheftConfig', {
+          'alertEmail': ?alertEmail,
+          'enabled': ?enabled,
+          'siren': ?siren,
+          'dualCam': ?dualCam,
+          'failedAttempts': ?failedAttempts,
+        });
+        return result ?? false;
+      } catch (_) {}
+    }
+    return false;
+  }
+
+  // Trigger test siren and test camera capture
+  static Future<bool> testIntruderAlarm({
+    String? alertEmail,
+    bool playSiren = true,
+    bool dualCam = true,
+  }) async {
+    if (_isAndroid) {
+      try {
+        final bool? result =
+            await _channel.invokeMethod<bool>('testIntruderAlarm', {
+          'alertEmail': ?alertEmail,
+          'playSiren': playSiren,
+          'dualCam': dualCam,
+        });
+        return result ?? false;
+      } catch (_) {}
+    }
+    return false;
+  }
+
+  // Stop siren alarm if currently ringing
+  static Future<void> stopIntruderAlarm() async {
+    if (_isAndroid) {
+      try {
+        await _channel.invokeMethod('stopIntruderAlarm');
+      } catch (_) {}
+    }
+  }
 }
 

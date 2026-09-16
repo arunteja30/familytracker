@@ -19,8 +19,75 @@ class SettingsScreen extends StatefulWidget {
 
 class _SettingsScreenState extends State<SettingsScreen> {
   final _emailController = TextEditingController();
-  bool _emailAlertsEnabled = false;
-  bool _deviceSecurityEnabled = true;
+  bool _isDeviceAdminActive = false;
+  bool _antiTheftEnabled = true;
+  bool _sirenEnabled = true;
+  bool _dualCamEnabled = true;
+  int _failedAttemptsThreshold = 2;
+  bool _isLoadingAdmin = false;
+  bool _isTestingAlarm = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadAntiTheftConfig();
+  }
+
+  Future<void> _loadAntiTheftConfig() async {
+    final config = await NativeService.getAntiTheftConfig();
+    final isAdmin = await NativeService.isDeviceAdminActive();
+    if (mounted) {
+      setState(() {
+        _isDeviceAdminActive = isAdmin;
+        if (config != null) {
+          final savedEmail = (config['alertEmail'] ?? '').toString();
+          if (savedEmail.isNotEmpty && _emailController.text.isEmpty) {
+            _emailController.text = savedEmail;
+          }
+          _antiTheftEnabled = (config['enabled'] as bool?) ?? true;
+          _sirenEnabled = (config['siren'] as bool?) ?? true;
+          _dualCamEnabled = (config['dualCam'] as bool?) ?? true;
+          _failedAttemptsThreshold = (config['failedAttempts'] as int?) ?? 2;
+        }
+      });
+    }
+  }
+
+  Future<void> _saveAntiTheftConfig() async {
+    final email = _emailController.text.trim();
+    await NativeService.setAntiTheftConfig(
+      alertEmail: email,
+      enabled: _antiTheftEnabled,
+      siren: _sirenEnabled,
+      dualCam: _dualCamEnabled,
+      failedAttempts: _failedAttemptsThreshold,
+    );
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          backgroundColor: AppColors.success,
+          content: Text('Anti-Theft configuration saved successfully!'),
+        ),
+      );
+    }
+  }
+
+  Future<void> _toggleDeviceAdmin() async {
+    setState(() => _isLoadingAdmin = true);
+    if (_isDeviceAdminActive) {
+      await NativeService.removeDeviceAdmin();
+    } else {
+      await NativeService.requestDeviceAdmin();
+    }
+    await Future.delayed(const Duration(milliseconds: 1000));
+    final active = await NativeService.isDeviceAdminActive();
+    if (mounted) {
+      setState(() {
+        _isDeviceAdminActive = active;
+        _isLoadingAdmin = false;
+      });
+    }
+  }
 
   @override
   void dispose() {
@@ -121,86 +188,336 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
             const SizedBox(height: 16),
 
-            // Email Alerts Card
+            // Anti-Theft & Intruder Protection Card
             Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        const Text(
-                          'Email Notifications',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                            color: AppColors.textPrimary,
-                          ),
-                        ),
-                        Switch(
-                          value: _emailAlertsEnabled,
-                          activeColor: AppColors.primary,
-                          onChanged: (val) {
-                            setState(() => _emailAlertsEnabled = val);
-                          },
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 4),
-                    const Text(
-                      'Receive instant email alerts when location is updated or suspicious activity is detected.',
-                      style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
-                    ),
-                    if (_emailAlertsEnabled) ...[
-                      const SizedBox(height: 12),
-                      TextField(
-                        controller: _emailController,
-                        keyboardType: TextInputType.emailAddress,
-                        decoration: const InputDecoration(
-                          hintText: 'user@example.com',
-                          labelText: 'Notification Email',
-                        ),
-                      ),
-                    ],
-                  ],
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+                side: BorderSide(
+                  color: _isDeviceAdminActive
+                      ? AppColors.primary.withValues(alpha: 0.4)
+                      : Colors.transparent,
                 ),
               ),
-            ),
-            const SizedBox(height: 16),
-
-            // Security & Privacy Card
-            Card(
               child: Padding(
                 padding: const EdgeInsets.all(16),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    // Header Row with Shield and Status Badge
                     Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        const Text(
-                          'Intruder & Theft Protection',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                            color: AppColors.textPrimary,
+                        Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: (_isDeviceAdminActive ? AppColors.primary : Colors.grey)
+                                .withValues(alpha: 0.15),
+                            shape: BoxShape.circle,
+                          ),
+                          child: Icon(
+                            Icons.security_rounded,
+                            color: _isDeviceAdminActive ? AppColors.primary : Colors.grey,
+                            size: 22,
                           ),
                         ),
-                        Switch(
-                          value: _deviceSecurityEnabled,
-                          activeColor: AppColors.primary,
-                          onChanged: (val) {
-                            setState(() => _deviceSecurityEnabled = val);
-                          },
+                        const SizedBox(width: 12),
+                        const Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Anti-Theft Protection',
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                  color: AppColors.textPrimary,
+                                ),
+                              ),
+                              SizedBox(height: 2),
+                              Text(
+                                'Device Administrator & Intruder Defense',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: AppColors.textSecondary,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 10, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: _isDeviceAdminActive
+                                ? AppColors.success.withValues(alpha: 0.15)
+                                : AppColors.warning.withValues(alpha: 0.15),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Text(
+                            _isDeviceAdminActive ? 'Active' : 'Disabled',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold,
+                              color: _isDeviceAdminActive
+                                  ? AppColors.success
+                                  : AppColors.warning,
+                            ),
+                          ),
                         ),
                       ],
                     ),
+                    const SizedBox(height: 14),
+
+                    // Admin Activation Action Tile
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: AppColors.bgApp,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: _isDeviceAdminActive
+                              ? AppColors.primary.withValues(alpha: 0.2)
+                              : Colors.orange.withValues(alpha: 0.3),
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(
+                            _isDeviceAdminActive
+                                ? Icons.admin_panel_settings_rounded
+                                : Icons.warning_amber_rounded,
+                            color: _isDeviceAdminActive
+                                ? AppColors.primary
+                                : Colors.orange,
+                            size: 20,
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              _isDeviceAdminActive
+                                  ? 'Device Administrator is granted. Failed unlock detection is active.'
+                                  : 'Device Admin required to detect failed lockscreen attempts.',
+                              style: const TextStyle(
+                                fontSize: 12,
+                                color: AppColors.textPrimary,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          ElevatedButton(
+                            onPressed: _isLoadingAdmin ? null : _toggleDeviceAdmin,
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: _isDeviceAdminActive
+                                  ? AppColors.danger
+                                  : AppColors.primary,
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 12, vertical: 6),
+                              elevation: 0,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                            ),
+                            child: Text(
+                              _isLoadingAdmin
+                                  ? '...'
+                                  : (_isDeviceAdminActive
+                                      ? 'Deactivate'
+                                      : 'Enable Admin'),
+                              style: const TextStyle(fontSize: 12),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+
+                    // Switches for Anti-Theft, Siren, Dual Camera
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text(
+                        'Trigger on 2 Wrong Passwords',
+                        style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                            color: AppColors.textPrimary),
+                      ),
+                      subtitle: const Text(
+                        'Automatically triggers siren alarm and secret camera capture when PIN/password is failed 2 times.',
+                        style: TextStyle(
+                            fontSize: 11, color: AppColors.textSecondary),
+                      ),
+                      value: _antiTheftEnabled,
+                      activeThumbColor: AppColors.primary,
+                      onChanged: (val) {
+                        setState(() => _antiTheftEnabled = val);
+                        _saveAntiTheftConfig();
+                      },
+                    ),
+                    const Divider(height: 1),
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text(
+                        'Sound Loud Siren Alarm',
+                        style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                            color: AppColors.textPrimary),
+                      ),
+                      subtitle: const Text(
+                        'Plays loud siren alarm on device at max volume upon 2 wrong unlock attempts.',
+                        style: TextStyle(
+                            fontSize: 11, color: AppColors.textSecondary),
+                      ),
+                      value: _sirenEnabled,
+                      activeThumbColor: AppColors.primary,
+                      onChanged: (val) {
+                        setState(() => _sirenEnabled = val);
+                        _saveAntiTheftConfig();
+                      },
+                    ),
+                    const Divider(height: 1),
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text(
+                        'Capture Front & Back Camera',
+                        style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                            color: AppColors.textPrimary),
+                      ),
+                      subtitle: const Text(
+                        'Silently takes photos from front camera (intruder face) and rear camera.',
+                        style: TextStyle(
+                            fontSize: 11, color: AppColors.textSecondary),
+                      ),
+                      value: _dualCamEnabled,
+                      activeThumbColor: AppColors.primary,
+                      onChanged: (val) {
+                        setState(() => _dualCamEnabled = val);
+                        _saveAntiTheftConfig();
+                      },
+                    ),
+                    const SizedBox(height: 14),
+
+                    // Alert Email Address Input
+                    const Text(
+                      'Alert Recipient Email',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.bold,
+                        color: AppColors.textPrimary,
+                      ),
+                    ),
                     const SizedBox(height: 4),
                     const Text(
-                      'Monitors failed device passcode attempts and silently takes security snapshots.',
-                      style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
+                      'Captured photos, timestamp, battery level, and GPS location link will be sent to this email instantly.',
+                      style: TextStyle(
+                          fontSize: 11, color: AppColors.textSecondary),
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            controller: _emailController,
+                            keyboardType: TextInputType.emailAddress,
+                            decoration: InputDecoration(
+                              hintText: 'security.alert@example.com',
+                              prefixIcon: const Icon(Icons.email_outlined,
+                                  size: 18, color: AppColors.primary),
+                              contentPadding: const EdgeInsets.symmetric(
+                                  horizontal: 12, vertical: 10),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        ElevatedButton(
+                          onPressed: _saveAntiTheftConfig,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppColors.primary,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 14, vertical: 12),
+                            elevation: 0,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                          ),
+                          child: const Text('Save',
+                              style: TextStyle(
+                                  fontSize: 13, fontWeight: FontWeight.bold)),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 14),
+
+                    // Test Alarm & Capture Action Buttons
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: _isTestingAlarm
+                                ? null
+                                : () async {
+                                    final email = _emailController.text.trim();
+                                    if (email.isEmpty) {
+                                      ScaffoldMessenger.of(context)
+                                          .showSnackBar(
+                                        const SnackBar(
+                                          backgroundColor: AppColors.warning,
+                                          content: Text(
+                                              'Please enter and save your alert email first.'),
+                                        ),
+                                      );
+                                      return;
+                                    }
+                                    setState(() => _isTestingAlarm = true);
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(
+                                        content: Text(
+                                            'Triggering test alarm & camera capture... Check your email shortly!'),
+                                      ),
+                                    );
+                                    await NativeService.testIntruderAlarm(
+                                      alertEmail: email,
+                                      playSiren: _sirenEnabled,
+                                      dualCam: _dualCamEnabled,
+                                    );
+                                    await Future.delayed(
+                                        const Duration(seconds: 4));
+                                    if (mounted) {
+                                      setState(() => _isTestingAlarm = false);
+                                    }
+                                  },
+                            icon: const Icon(Icons.videocam_rounded, size: 16),
+                            label: Text(
+                              _isTestingAlarm
+                                  ? 'Testing...'
+                                  : 'Test Alarm & Capture',
+                              style: const TextStyle(fontSize: 12),
+                            ),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: AppColors.primary,
+                              side: const BorderSide(color: AppColors.primary),
+                              padding: const EdgeInsets.symmetric(
+                                  vertical: 10, horizontal: 8),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        IconButton.filledTonal(
+                          tooltip: 'Stop Alarm Siren',
+                          onPressed: () => NativeService.stopIntruderAlarm(),
+                          icon: const Icon(Icons.volume_off_rounded,
+                              color: AppColors.danger, size: 20),
+                        ),
+                      ],
                     ),
                   ],
                 ),
