@@ -6,6 +6,7 @@ import '../models/family_member_model.dart';
 import '../models/location_details_model.dart';
 import '../models/registration_model.dart';
 import '../models/chat_message_model.dart';
+import '../models/app_update_model.dart';
 import '../utils/phone_utils.dart';
 import 'geocoding_service.dart';
 
@@ -912,6 +913,45 @@ class DatabaseService {
       for (final id in messageIds) {
         await deleteDirectChatMessage(roomId, id);
       }
+    }
+  }
+
+  // 🚀 APP UPDATE MANAGEMENT (Realtime Database 'UpdateData')
+
+  /// Stream app update metadata in real-time from RTDB node 'UpdateData'
+  Stream<AppUpdateModel?> streamAppUpdate() {
+    return _db.ref(AppConstants.mandatoryData).onValue.map((event) {
+      final snapshot = event.snapshot;
+      if (!snapshot.exists || snapshot.value == null) {
+        return null;
+      }
+      if (snapshot.value is Map) {
+        return AppUpdateModel.fromMap(snapshot.value as Map);
+      }
+      return null;
+    });
+  }
+
+  /// Get app update metadata once from RTDB node 'UpdateData'
+  Future<AppUpdateModel?> getAppUpdate() async {
+    try {
+      final snapshot = await _db.ref(AppConstants.mandatoryData).get();
+      if (snapshot.exists && snapshot.value is Map) {
+        return AppUpdateModel.fromMap(snapshot.value as Map);
+      }
+    } catch (e) {
+      debugPrint('[FamilyTracker] Error fetching UpdateData: $e');
+    }
+    return null;
+  }
+
+  /// Save or update UpdateData node in RTDB
+  Future<void> setAppUpdate(AppUpdateModel update) async {
+    try {
+      await _db.ref(AppConstants.mandatoryData).set(update.toMap());
+      debugPrint('[FamilyTracker] ✅ UpdateData successfully updated in RTDB');
+    } catch (e) {
+      debugPrint('[FamilyTracker] Error setting UpdateData: $e');
     }
   }
 }

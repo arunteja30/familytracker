@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../constants/app_colors.dart';
+import '../../services/app_update_service.dart';
 import '../../services/geocoding_service.dart';
 import '../../services/preferences_service.dart';
 import 'phone_login_screen.dart';
@@ -18,13 +19,25 @@ class _SplashScreenState extends State<SplashScreen> {
     super.initState();
     // Warm up and pre-load all shared cloud geocache entries to local disk
     GeocodingService.syncCloudCacheToLocal();
+    _initializeApp();
+  }
+
+  Future<void> _initializeApp() async {
+    await Future.delayed(const Duration(milliseconds: 800));
+    if (!mounted) return;
+
+    // Check RTDB 'UpdateData' for mandatory or available app update
+    final isMandatoryBlocked = await AppUpdateService.checkAndPromptUpdate(context);
+    if (isMandatoryBlocked) {
+      // Mandatory update is open and blocks further app access
+      return;
+    }
+
+    if (!mounted) return;
     _checkAuth();
   }
 
-  Future<void> _checkAuth() async {
-    await Future.delayed(const Duration(milliseconds: 1200));
-    if (!mounted) return;
-
+  void _checkAuth() {
     final isLoggedIn = PreferencesService.isLoggedIn();
     final phone = PreferencesService.getUserPhone();
 

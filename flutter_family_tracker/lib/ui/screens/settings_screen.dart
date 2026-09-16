@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../constants/app_colors.dart';
+import '../../constants/app_constants.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/family_provider.dart';
 import '../../services/preferences_service.dart';
 import '../../services/native_service.dart';
+import '../../services/app_update_service.dart';
 import '../widgets/oem_autostart_modal.dart';
 import 'phone_login_screen.dart';
 
@@ -268,6 +270,63 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           ),
                         ),
                       ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            // App Version & Check for Updates Card
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: AppColors.primaryLight.withValues(alpha: 0.15),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(Icons.system_update_rounded, color: AppColors.primary, size: 22),
+                    ),
+                    const SizedBox(width: 14),
+                    const Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'App Version',
+                            style: TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.bold,
+                              color: AppColors.textPrimary,
+                            ),
+                          ),
+                          SizedBox(height: 2),
+                          Text(
+                            'v${AppConstants.appVersionName} (Build ${AppConstants.appVersionCode})',
+                            style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
+                          ),
+                        ],
+                      ),
+                    ),
+                    TextButton.icon(
+                      onPressed: () async {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('Checking for latest updates...')),
+                        );
+                        final hasUpdate = await AppUpdateService.checkAndPromptUpdate(context);
+                        if (!hasUpdate && context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              backgroundColor: AppColors.success,
+                              content: Text('You are on the latest version!'),
+                            ),
+                          );
+                        }
+                      },
+                      icon: const Icon(Icons.refresh_rounded, size: 16),
+                      label: const Text('Check Update'),
                     ),
                   ],
                 ),

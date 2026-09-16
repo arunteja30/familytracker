@@ -8,6 +8,7 @@ import '../../services/preferences_service.dart';
 import '../../services/permission_service.dart';
 import '../../services/native_service.dart';
 import '../../services/database_service.dart';
+import '../../services/app_update_service.dart';
 import '../widgets/gradient_header.dart';
 import '../widgets/member_card.dart';
 import '../widgets/add_member_dialog.dart';
@@ -31,6 +32,7 @@ class _FamilyDashboardScreenState extends State<FamilyDashboardScreen> {
   String _userPhone = '';
   bool _isGpsEnabled = true;
   StreamSubscription<ServiceStatus>? _serviceStatusSub;
+  StreamSubscription? _appUpdateSub;
 
   @override
   void initState() {
@@ -45,12 +47,14 @@ class _FamilyDashboardScreenState extends State<FamilyDashboardScreen> {
     });
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _loadData();
+      _appUpdateSub = AppUpdateService.listenToAppUpdates(context);
     });
   }
 
   @override
   void dispose() {
     _serviceStatusSub?.cancel();
+    _appUpdateSub?.cancel();
     super.dispose();
   }
 
