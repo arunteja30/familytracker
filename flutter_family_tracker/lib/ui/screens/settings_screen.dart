@@ -156,15 +156,14 @@ class _SettingsScreenState extends State<SettingsScreen> with WidgetsBindingObse
     }
 
     final hasPerm = await PermissionService.requestSmsPermissionExplicitly(context);
+    if (!mounted) return;
     if (!hasPerm) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            backgroundColor: AppColors.danger,
-            content: Text('SEND_SMS permission is required to send offline location SMS.'),
-          ),
-        );
-      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          backgroundColor: AppColors.danger,
+          content: Text('SEND_SMS permission is required to send offline location SMS.'),
+        ),
+      );
       return;
     }
 
@@ -359,10 +358,11 @@ class _SettingsScreenState extends State<SettingsScreen> with WidgetsBindingObse
       ),
     );
 
-    if (confirmed == true && mounted) {
+    if (confirmed == true && mounted && context.mounted) {
       final authProvider = Provider.of<AppAuthProvider>(context, listen: false);
       await authProvider.signOut();
 
+      if (!context.mounted) return;
       Navigator.pushAndRemoveUntil(
         context,
         MaterialPageRoute(builder: (_) => const PhoneLoginScreen()),
@@ -795,6 +795,7 @@ class _SettingsScreenState extends State<SettingsScreen> with WidgetsBindingObse
           onChanged: (val) async {
             if (val) {
               final granted = await PermissionService.requestCameraPermissionExplicitly(context);
+              if (!mounted) return;
               if (!granted) return;
             }
             setState(() => _dualCamEnabled = val);
@@ -887,6 +888,7 @@ class _SettingsScreenState extends State<SettingsScreen> with WidgetsBindingObse
                     ? null
                     : () async {
                         final hasCam = await PermissionService.requestCameraPermissionExplicitly(context);
+                        if (!mounted) return;
                         if (!hasCam) return;
                         final email = _emailController.text.trim();
                         if (email.isEmpty) {
