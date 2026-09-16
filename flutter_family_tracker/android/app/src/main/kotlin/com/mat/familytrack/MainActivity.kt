@@ -340,7 +340,7 @@ class MainActivity : FlutterActivity() {
             bLower.contains("xiaomi") || bLower.contains("redmi") || bLower.contains("poco")) {
             intentsToTry.add(Intent().setComponent(android.content.ComponentName("com.miui.powerkeeper", "com.miui.powerkeeper.ui.HiddenAppsConfigActivity"))
                 .putExtra("package_name", packageName)
-                .putExtra("package_label", getString(R.string.app_name)))
+                .putExtra("package_label", "FamilyTracker"))
             intentsToTry.add(Intent("miui.intent.action.POWER_HIDE_MODE_APP_LIST").addCategory(Intent.CATEGORY_DEFAULT))
             intentsToTry.add(Intent().setComponent(android.content.ComponentName("com.miui.powerkeeper", "com.miui.powerkeeper.ui.HiddenAppsContainerManagementActivity")))
             intentsToTry.add(Intent().setComponent(android.content.ComponentName("com.miui.securitycenter", "com.miui.powercenter.PowerSettings")))

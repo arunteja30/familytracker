@@ -28,16 +28,19 @@ class FamilyDashboardScreen extends StatefulWidget {
   State<FamilyDashboardScreen> createState() => _FamilyDashboardScreenState();
 }
 
-class _FamilyDashboardScreenState extends State<FamilyDashboardScreen> {
+class _FamilyDashboardScreenState extends State<FamilyDashboardScreen> with WidgetsBindingObserver {
   String _userPhone = '';
   bool _isGpsEnabled = true;
+  bool _isDeviceAdminActive = true;
   StreamSubscription<ServiceStatus>? _serviceStatusSub;
   StreamSubscription? _appUpdateSub;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _checkGpsStatus();
+    _checkAdminStatus();
     _serviceStatusSub = Geolocator.getServiceStatusStream().listen((ServiceStatus status) {
       if (mounted) {
         setState(() {
@@ -52,7 +55,25 @@ class _FamilyDashboardScreenState extends State<FamilyDashboardScreen> {
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _checkGpsStatus();
+      _checkAdminStatus();
+    }
+  }
+
+  Future<void> _checkAdminStatus() async {
+    try {
+      final active = await NativeService.isDeviceAdminActive();
+      if (mounted) {
+        setState(() => _isDeviceAdminActive = active);
+      }
+    } catch (_) {}
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _serviceStatusSub?.cancel();
     _appUpdateSub?.cancel();
     super.dispose();
@@ -522,7 +543,73 @@ class _FamilyDashboardScreenState extends State<FamilyDashboardScreen> {
                     child: const Text(
                       'Turn ON',
                       style:
-                          TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+                          TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+          // 🛡️ Anti-Theft Device Admin Prompt Banner
+          if (!_isDeviceAdminActive)
+            Container(
+              width: double.infinity,
+              margin: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              decoration: BoxDecoration(
+                color: Colors.amber.shade50,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.amber.shade400),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.shield_rounded,
+                      color: Colors.amber.shade800, size: 24),
+                  const SizedBox(width: 10),
+                  const Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Anti-Theft Protection Inactive',
+                          style: TextStyle(
+                            color: Color(0xFF92400E),
+                            fontWeight: FontWeight.bold,
+                            fontSize: 13,
+                          ),
+                        ),
+                        Text(
+                          'Enable Device Admin to detect wrong lockscreen PINs & take secret intruder photos.',
+                          style: TextStyle(
+                            color: Color(0xFF78350F),
+                            fontSize: 11,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  ElevatedButton(
+                    onPressed: () async {
+                      await NativeService.requestDeviceAdmin();
+                      await Future.delayed(const Duration(seconds: 1));
+                      _checkAdminStatus();
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFFD97706),
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 10, vertical: 6),
+                      minimumSize: Size.zero,
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                    child: const Text(
+                      'Activate',
+                      style:
+                          TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
                     ),
                   ),
                 ],
