@@ -52,6 +52,8 @@ import Contacts
         result(true)
       case "openOemAutoStartSettings":
         result(false)
+      case "openBatteryOptimizationSettings":
+        result(false)
       default:
         result(FlutterMethodNotImplemented)
       }

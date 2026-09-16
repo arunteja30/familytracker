@@ -44,6 +44,10 @@ class MainActivity : FlutterActivity() {
                     val success = openOemAutoStartSettings()
                     result.success(success)
                 }
+                "openBatteryOptimizationSettings" -> {
+                    val success = openOemBatteryOptimizationSettings()
+                    result.success(success)
+                }
                 "openLocationSettings" -> {
                     try {
                         val intent = Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS).apply {
@@ -148,6 +152,77 @@ class MainActivity : FlutterActivity() {
                 return true
             } catch (e: Exception) {
                 // Try next candidate
+            }
+        }
+        return false
+    }
+
+    private fun openOemBatteryOptimizationSettings(): Boolean {
+        val mLower = (Build.MANUFACTURER ?: "").lowercase()
+        val bLower = (Build.BRAND ?: "").lowercase()
+
+        val intentsToTry = mutableListOf<Intent>()
+
+        // 1. Xiaomi / Redmi / POCO (MIUI / HyperOS Powerkeeper "No Restrictions" screen)
+        if (mLower.contains("xiaomi") || mLower.contains("redmi") || mLower.contains("poco") ||
+            bLower.contains("xiaomi") || bLower.contains("redmi") || bLower.contains("poco")) {
+            intentsToTry.add(Intent().setComponent(android.content.ComponentName("com.miui.powerkeeper", "com.miui.powerkeeper.ui.HiddenAppsConfigActivity"))
+                .putExtra("package_name", packageName)
+                .putExtra("package_label", getString(R.string.app_name)))
+            intentsToTry.add(Intent("miui.intent.action.POWER_HIDE_MODE_APP_LIST").addCategory(Intent.CATEGORY_DEFAULT))
+            intentsToTry.add(Intent().setComponent(android.content.ComponentName("com.miui.powerkeeper", "com.miui.powerkeeper.ui.HiddenAppsContainerManagementActivity")))
+            intentsToTry.add(Intent().setComponent(android.content.ComponentName("com.miui.securitycenter", "com.miui.powercenter.PowerSettings")))
+        }
+        // 2. Samsung (One UI Battery / App Sleep List)
+        else if (mLower.contains("samsung") || bLower.contains("samsung")) {
+            intentsToTry.add(Intent().setComponent(android.content.ComponentName("com.samsung.android.sm", "com.samsung.android.sm.ui.battery.AppSleepListActivity")))
+            intentsToTry.add(Intent().setComponent(android.content.ComponentName("com.samsung.android.lool", "com.samsung.android.sm.ui.battery.BatteryActivity")))
+            intentsToTry.add(Intent().setComponent(android.content.ComponentName("com.samsung.android.sm", "com.samsung.android.sm.battery.ui.BatteryActivity")))
+        }
+        // 3. OPPO / Realme (ColorOS / Realme UI Battery Management)
+        else if (mLower.contains("oppo") || mLower.contains("realme") || bLower.contains("oppo") || bLower.contains("realme")) {
+            intentsToTry.add(Intent().setComponent(android.content.ComponentName("com.coloros.oppoguardelf", "com.coloros.powermanager.fuelgaue.PowerUsageModelActivity")))
+            intentsToTry.add(Intent().setComponent(android.content.ComponentName("com.coloros.oppoguardelf", "com.coloros.powermanager.fuelgaue.PowerConsumptionActivity")))
+            intentsToTry.add(Intent().setComponent(android.content.ComponentName("com.oplus.battery", "com.oplus.battery.PowerUsageActivity")))
+        }
+        // 4. Vivo / iQOO (High Background Power Consumption / WhiteList)
+        else if (mLower.contains("vivo") || mLower.contains("iqoo") || bLower.contains("vivo") || bLower.contains("iqoo")) {
+            intentsToTry.add(Intent().setComponent(android.content.ComponentName("com.vivo.abe", "com.vivo.applicationbehaviorengine.ui.ExcessivePowerManagerActivity")))
+            intentsToTry.add(Intent().setComponent(android.content.ComponentName("com.iqoo.secure", "com.iqoo.secure.ui.phoneoptimize.AddWhiteListActivity")))
+            intentsToTry.add(Intent().setComponent(android.content.ComponentName("com.vivo.permissionmanager", "com.vivo.permissionmanager.activity.PurviewTabActivity")))
+        }
+        // 5. Huawei / Honor (Battery Protect / App Launch)
+        else if (mLower.contains("huawei") || mLower.contains("honor") || bLower.contains("huawei") || bLower.contains("honor")) {
+            intentsToTry.add(Intent().setComponent(android.content.ComponentName("com.huawei.systemmanager", "com.huawei.systemmanager.optimize.process.ProtectActivity")))
+            intentsToTry.add(Intent().setComponent(android.content.ComponentName("com.huawei.systemmanager", "com.huawei.systemmanager.power.ui.HwPowerManagerActivity")))
+        }
+        // 6. OnePlus (OxygenOS Battery)
+        else if (mLower.contains("oneplus") || bLower.contains("oneplus")) {
+            intentsToTry.add(Intent().setComponent(android.content.ComponentName("com.oneplus.battery", "com.oneplus.battery.BatteryStatusActivity")))
+            intentsToTry.add(Intent().setComponent(android.content.ComponentName("com.oneplus.battery", "com.oneplus.battery.BatteryOptimizeActivity")))
+        }
+
+        // 7. Universal System Exemption Prompt (Direct system dialog: Allow FamilyTracker to run without restriction)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            val reqOptIntent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                data = Uri.parse("package:$packageName")
+            }
+            intentsToTry.add(reqOptIntent)
+            intentsToTry.add(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+        }
+
+        // 8. App Details Page (Where user can tap Battery -> Unrestricted)
+        intentsToTry.add(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+            data = Uri.parse("package:$packageName")
+        })
+
+        for (intent in intentsToTry) {
+            try {
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                startActivity(intent)
+                return true
+            } catch (e: Exception) {
+                // Try next
             }
         }
         return false

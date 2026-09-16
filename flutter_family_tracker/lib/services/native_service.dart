@@ -69,6 +69,18 @@ class NativeService {
     return false;
   }
 
+  // Open OEM / Android Battery Optimization menu to select "No Restrictions" / Unrestricted
+  static Future<bool> openBatteryOptimizationSettings() async {
+    if (_isAndroid) {
+      try {
+        final bool? result =
+            await _channel.invokeMethod<bool>('openBatteryOptimizationSettings');
+        return result ?? false;
+      } catch (_) {}
+    }
+    return false;
+  }
+
   // Open OS Location / GPS Settings (Android & iOS)
   static Future<bool> openLocationSettings() async {
     if (_isMobile) {

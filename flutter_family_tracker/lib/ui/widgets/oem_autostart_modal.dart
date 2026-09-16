@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import '../../constants/app_colors.dart';
@@ -14,11 +15,9 @@ class OemAutoStartModal extends StatefulWidget {
     this.isManualTrigger = false,
   });
 
-  static Future<void> show(BuildContext context, {bool isManualTrigger = true}) async {
-    if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) return;
-
+  /// Show the OEM Auto-Start & Battery optimization modal manually (e.g. from Settings)
+  static Future<void> show(BuildContext context, {bool isManualTrigger = false}) async {
     final oemInfo = await NativeService.getDeviceOemInfo();
-
     if (!context.mounted) return;
 
     await showModalBottomSheet(
@@ -32,8 +31,9 @@ class OemAutoStartModal extends StatefulWidget {
     );
   }
 
+  /// Automatically show on Dashboard on first launch if device is an aggressive OEM
   static Future<void> showIfNeeded(BuildContext context) async {
-    if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) return;
+    if (kIsWeb || !Platform.isAndroid) return;
 
     final alreadyShown = PreferencesService.isAutostartGuidanceShown();
     if (alreadyShown) return;
@@ -41,7 +41,6 @@ class OemAutoStartModal extends StatefulWidget {
     final oemInfo = await NativeService.getDeviceOemInfo();
     final isStrictOem = oemInfo?['isStrictOem'] as bool? ?? false;
 
-    // Prompt automatically on devices with aggressive background killers
     if (isStrictOem && context.mounted) {
       await show(context, isManualTrigger: false);
     }
@@ -67,7 +66,7 @@ class _OemAutoStartModalState extends State<OemAutoStartModal> {
   String get _detectedBrandName {
     final lower = ('$_manufacturer $_brand').toLowerCase();
     if (lower.contains('xiaomi') || lower.contains('redmi') || lower.contains('poco')) {
-      return 'Xiaomi / MIUI';
+      return 'Xiaomi / MIUI / HyperOS';
     } else if (lower.contains('samsung')) {
       return 'Samsung (One UI)';
     } else if (lower.contains('oppo')) {
@@ -101,51 +100,48 @@ class _OemAutoStartModalState extends State<OemAutoStartModal> {
 
     if (lower.contains('xiaomi') || lower.contains('redmi') || lower.contains('poco')) {
       return [
-        'Tap "Open Settings" below to launch Autostart management.',
-        'Locate and enable "Autostart" for FamilyTracker.',
-        'Go to Battery Saver options and select "No restrictions".',
+        'Step 1: Tap "1. Open Auto-Start Settings" and enable "Autostart" for FamilyTracker.',
+        'Step 2: Tap "2. Battery: Select \'No Restrictions\'" and choose "No restrictions" so MIUI never freezes background tracking.',
       ];
     } else if (lower.contains('samsung')) {
       return [
-        'Tap "Open Settings" below to open Battery settings.',
-        'Navigate to "Background usage limits" > "Never sleeping apps".',
-        'Tap the "+" icon and add FamilyTracker to the whitelist.',
+        'Step 1: Tap "1. Open Auto-Start Settings" and add FamilyTracker to "Never sleeping apps".',
+        'Step 2: Tap "2. Battery: Select \'No Restrictions\'" and set Battery to "Unrestricted".',
       ];
     } else if (lower.contains('oppo') || lower.contains('realme')) {
       return [
-        'Tap "Open Settings" below to open Startup App list.',
-        'Enable "Allow Auto-Launch" for FamilyTracker.',
-        'Enable "Allow background activity" in App Battery usage.',
+        'Step 1: Tap "1. Open Auto-Start Settings" and turn ON "Allow Auto-Launch".',
+        'Step 2: Tap "2. Battery: Select \'No Restrictions\'" and allow background activity / turn off optimization.',
       ];
     } else if (lower.contains('vivo') || lower.contains('iqoo')) {
       return [
-        'Tap "Open Settings" below to access Permission Manager.',
-        'Turn on "Autostart" permission for FamilyTracker.',
-        'Under "High Background Power Consumption", allow continuous operation.',
+        'Step 1: Tap "1. Open Auto-Start Settings" and enable "Autostart" permission.',
+        'Step 2: Tap "2. Battery: Select \'No Restrictions\'" and allow "High Background Power Consumption".',
       ];
     } else if (lower.contains('oneplus')) {
       return [
-        'Tap "Open Settings" below to access Battery settings.',
-        'Under "Battery Optimization", choose "Don\'t optimize".',
-        'Enable "Allow background activity" for uninterrupted safety tracking.',
+        'Step 1: Tap "1. Open Auto-Start Settings" and turn on "Auto-launch" for FamilyTracker.',
+        'Step 2: Tap "2. Battery: Select \'No Restrictions\'" and select "Don\'t optimize" / "Unrestricted".',
       ];
     } else if (lower.contains('huawei') || lower.contains('honor')) {
       return [
-        'Tap "Open Settings" below to access App Launch settings.',
-        'Turn OFF "Manage automatically" for FamilyTracker.',
-        'Enable "Auto-launch", "Secondary launch", and "Run in background".',
+        'Step 1: Tap "1. Open Auto-Start Settings", turn OFF "Manage automatically" and enable "Auto-launch" & "Run in background".',
+        'Step 2: Tap "2. Battery: Select \'No Restrictions\'" and add FamilyTracker to protected apps.',
       ];
     }
 
     return [
-      'Tap "Open Settings" below to open App Info.',
-      'Select "Battery" or "Battery usage".',
-      'Change the battery setting from Optimized to "Unrestricted".',
+      'Step 1: Tap "1. Open Auto-Start Settings" to enable Auto-Launch on startup if supported.',
+      'Step 2: Tap "2. Battery: Select \'No Restrictions\'" to exempt FamilyTracker from battery optimization ("Unrestricted").',
     ];
   }
 
-  Future<void> _handleOpenSettings() async {
+  Future<void> _handleOpenAutoStart() async {
     await NativeService.openOemAutoStartSettings();
+  }
+
+  Future<void> _handleOpenBatteryOptimization() async {
+    await NativeService.openBatteryOptimizationSettings();
   }
 
   Future<void> _handleDismiss(bool markAsDone) async {
@@ -180,7 +176,7 @@ class _OemAutoStartModalState extends State<OemAutoStartModal> {
                   width: 44,
                   height: 5,
                   decoration: BoxDecoration(
-                    color: AppColors.textMuted.withOpacity(0.3),
+                    color: AppColors.textMuted.withValues(alpha: 0.3),
                     borderRadius: BorderRadius.circular(10),
                   ),
                 ),
@@ -193,7 +189,7 @@ class _OemAutoStartModalState extends State<OemAutoStartModal> {
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                     decoration: BoxDecoration(
-                      color: AppColors.primary.withOpacity(0.12),
+                      color: AppColors.primary.withValues(alpha: 0.12),
                       borderRadius: BorderRadius.circular(10),
                     ),
                     child: Row(
@@ -228,7 +224,7 @@ class _OemAutoStartModalState extends State<OemAutoStartModal> {
 
               // Title
               const Text(
-                'Enable Auto-Start on Boot',
+                'Background & Battery Setup',
                 style: TextStyle(
                   fontSize: 20,
                   fontWeight: FontWeight.bold,
@@ -239,7 +235,7 @@ class _OemAutoStartModalState extends State<OemAutoStartModal> {
 
               // Explanation
               const Text(
-                'To ensure continuous family safety, your device must allow FamilyTracker to automatically restart after reboot and stay active without being killed by battery saving policies.',
+                'To ensure continuous family safety and instant SOS reception, your phone needs two quick permissions: Auto-Start on Boot and Battery "No Restrictions".',
                 style: TextStyle(
                   fontSize: 13,
                   color: AppColors.textSecondary,
@@ -268,7 +264,7 @@ class _OemAutoStartModalState extends State<OemAutoStartModal> {
                         ),
                         const SizedBox(width: 8),
                         Text(
-                          'Quick Setup for $brandTitle',
+                          '2-Step Setup for $brandTitle',
                           style: const TextStyle(
                             fontSize: 14,
                             fontWeight: FontWeight.bold,
@@ -288,8 +284,8 @@ class _OemAutoStartModalState extends State<OemAutoStartModal> {
                               width: 22,
                               height: 22,
                               alignment: Alignment.center,
-                              decoration: const BoxDecoration(
-                                color: AppColors.primary,
+                              decoration: BoxDecoration(
+                                color: i == 0 ? AppColors.primary : AppColors.accent,
                                 shape: BoxShape.circle,
                               ),
                               child: Text(
@@ -315,32 +311,53 @@ class _OemAutoStartModalState extends State<OemAutoStartModal> {
                           ],
                         ),
                       ),
-                      if (i < instructions.length - 1) const SizedBox(height: 4),
+                      if (i < instructions.length - 1) const SizedBox(height: 6),
                     ],
                   ],
                 ),
               ),
-              const SizedBox(height: 24),
+              const SizedBox(height: 20),
 
-              // Primary Action Button
+              // Action Buttons: Step 1 & Step 2
+              // Step 1: Open Auto-Start
               SizedBox(
                 width: double.infinity,
-                height: 52,
+                height: 48,
                 child: ElevatedButton.icon(
-                  onPressed: _handleOpenSettings,
-                  icon: const Icon(Icons.open_in_new_rounded),
-                  label: Text('Open $brandTitle Settings'),
+                  onPressed: _handleOpenAutoStart,
+                  icon: const Icon(Icons.rocket_launch_rounded, size: 18),
+                  label: const Text('1. Open Auto-Start Settings'),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: AppColors.primary,
                     foregroundColor: Colors.white,
                     shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(16),
+                      borderRadius: BorderRadius.circular(14),
                     ),
                     elevation: 0,
                   ),
                 ),
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 10),
+
+              // Step 2: Open Battery Saver / No Restrictions
+              SizedBox(
+                width: double.infinity,
+                height: 48,
+                child: ElevatedButton.icon(
+                  onPressed: _handleOpenBatteryOptimization,
+                  icon: const Icon(Icons.battery_charging_full_rounded, size: 18),
+                  label: const Text('2. Battery: Select "No Restrictions"'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.accent,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    elevation: 0,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
 
               // Done / Close Actions
               Row(
@@ -352,7 +369,7 @@ class _OemAutoStartModalState extends State<OemAutoStartModal> {
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(14),
                         ),
-                        side: BorderSide(color: AppColors.cardBorder),
+                        side: const BorderSide(color: AppColors.cardBorder),
                         padding: const EdgeInsets.symmetric(vertical: 14),
                       ),
                       child: const Text(
@@ -374,7 +391,7 @@ class _OemAutoStartModalState extends State<OemAutoStartModal> {
                         padding: const EdgeInsets.symmetric(vertical: 14),
                         elevation: 0,
                       ),
-                      child: const Text('I\'ve Enabled It'),
+                      child: const Text('I\'ve Enabled Both'),
                     ),
                   ),
                 ],
