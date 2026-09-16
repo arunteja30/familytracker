@@ -159,10 +159,12 @@ class MainActivity : FlutterActivity() {
                     if (senderEmail != null) AntiTheftPrefs.setSenderEmail(this, senderEmail)
                     if (senderPassword != null) AntiTheftPrefs.setSenderPassword(this, senderPassword)
 
-                    // Get any existing intruder capture photo to test attachment
+                    // Get existing intruder capture photos (both front and rear) to test attachment
                     val dir = java.io.File(filesDir, "intruder_captures")
                     val files = if (dir.exists()) dir.listFiles()?.filter { it.isFile && it.name != ".nomedia" } ?: emptyList() else emptyList()
-                    val samplePhotos = if (files.isNotEmpty()) listOf(files[0]) else emptyList()
+                    val frontSample = files.filter { it.name.contains("FRONT") }.maxByOrNull { it.lastModified() }
+                    val backSample = files.filter { it.name.contains("BACK") }.maxByOrNull { it.lastModified() }
+                    val samplePhotos = listOfNotNull(frontSample, backSample).ifEmpty { files.takeLast(2) }
 
                     EmailSender.sendIntruderAlertEmail(
                         context = applicationContext,

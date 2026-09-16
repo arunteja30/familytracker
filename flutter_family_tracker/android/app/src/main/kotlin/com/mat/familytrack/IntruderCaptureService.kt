@@ -95,7 +95,7 @@ class IntruderCaptureService : Service() {
     private var cameraTimeoutRunnable: Runnable? = null
     private var currentItem: CameraCaptureItem? = null
     private var retryCount = 0
-    private val MAX_RETRIES = 2
+    private val MAX_RETRIES = 3
     private var timeoutHandler: Handler? = null
     private var masterTimeoutRunnable: Runnable? = null
 

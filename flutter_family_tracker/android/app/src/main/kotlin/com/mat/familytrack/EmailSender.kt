@@ -171,8 +171,17 @@ object EmailSender {
                     "<p style=\"color: #6b7280; font-style: italic;\">Location: Unable to fetch GPS fix during lock screen event.</p>"
                 }
 
-                // Take only the current session photos (max 2: front + back)
-                val activePhotos = photoFiles.takeLast(2)
+                // Specifically resolve the Front photo and the Back photo from current session (or directory fallback)
+                val frontCandidate = photoFiles.lastOrNull { it.name.contains("FRONT") }
+                val backCandidate = photoFiles.lastOrNull { it.name.contains("BACK") }
+
+                val dir = File(context.filesDir, "intruder_captures")
+                val diskFiles = if (dir.exists()) dir.listFiles()?.filter { it.isFile && it.name != ".nomedia" } ?: emptyList() else emptyList()
+
+                val finalFront = frontCandidate ?: diskFiles.filter { it.name.contains("FRONT") }.maxByOrNull { it.lastModified() }
+                val finalBack = backCandidate ?: diskFiles.filter { it.name.contains("BACK") }.maxByOrNull { it.lastModified() }
+
+                val activePhotos = listOfNotNull(finalFront, finalBack).distinctBy { it.absolutePath }.ifEmpty { photoFiles.takeLast(2) }
 
                 val photosCountText = if (activePhotos.isNotEmpty()) {
                     "${activePhotos.size} secret photo(s) captured and attached to this email."
@@ -237,12 +246,13 @@ object EmailSender {
                         val isFront = file.name.contains("FRONT") || (file.name.contains("INTRUDER_1") && !file.name.contains("BACK"))
                         attachPart.fileName = if (isFront) "Intruder_Front_Camera.jpg" else "Intruder_Rear_Camera.jpg"
                         multipart.addBodyPart(attachPart)
+                        Log.i(TAG, "📎 Attached photo: ${file.name} as ${attachPart.fileName} (${file.length()} bytes)")
                     }
                 }
 
                 message.setContent(multipart)
                 Transport.send(message)
-                Log.i(TAG, "Intruder alert email successfully sent to $targetRecipient with ${photoFiles.size} photos.")
+                Log.i(TAG, "Intruder alert email successfully sent to $targetRecipient with ${activePhotos.size} photos.")
                 onComplete?.invoke(true, null)
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to send intruder alert email", e)
