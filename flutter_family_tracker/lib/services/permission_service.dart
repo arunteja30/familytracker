@@ -37,7 +37,12 @@ class PermissionService {
         await Permission.phone.request();
       }
 
-      // 4. Request Background Location (if Foreground is already granted)
+      // 4. Request Camera Permission (for Anti-Theft intruder selfie & profile pics)
+      if (await Permission.camera.status.isDenied) {
+        await Permission.camera.request();
+      }
+
+      // 5. Request Background Location (if Foreground is already granted)
       if (locationStatus.isGranted) {
         final bgStatus = await Permission.locationAlways.status;
         if (!bgStatus.isGranted) {

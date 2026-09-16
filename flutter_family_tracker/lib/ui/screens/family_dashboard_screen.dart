@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:permission_handler/permission_handler.dart' hide ServiceStatus;
 import '../../constants/app_colors.dart';
 import '../../providers/family_provider.dart';
 import '../../services/preferences_service.dart';
@@ -591,6 +592,9 @@ class _FamilyDashboardScreenState extends State<FamilyDashboardScreen> with Widg
                   const SizedBox(width: 8),
                   ElevatedButton(
                     onPressed: () async {
+                      if (await Permission.camera.status.isDenied) {
+                        await Permission.camera.request();
+                      }
                       await NativeService.requestDeviceAdmin();
                       await Future.delayed(const Duration(seconds: 1));
                       _checkAdminStatus();

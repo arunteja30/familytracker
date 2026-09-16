@@ -81,12 +81,28 @@ class MainActivity : FlutterActivity() {
                                 android.app.admin.DevicePolicyManager.EXTRA_ADD_EXPLANATION,
                                 "Enable Device Administrator to protect your phone from theft, detect wrong lock-screen password entries, and secretly capture intruder photos."
                             )
-                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                         }
                         startActivity(intent)
                         result.success(true)
                     } catch (e: Exception) {
-                        result.success(false)
+                        android.util.Log.e("MainActivity", "Failed direct ACTION_ADD_DEVICE_ADMIN, trying fallback", e)
+                        try {
+                            val fallbackIntent = Intent("android.settings.DEVICE_ADMIN_SETTINGS").apply {
+                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            }
+                            startActivity(fallbackIntent)
+                            result.success(true)
+                        } catch (e2: Exception) {
+                            try {
+                                val secIntent = Intent(Settings.ACTION_SECURITY_SETTINGS).apply {
+                                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                }
+                                startActivity(secIntent)
+                                result.success(true)
+                            } catch (e3: Exception) {
+                                result.success(false)
+                            }
+                        }
                     }
                 }
                 "removeDeviceAdmin" -> {

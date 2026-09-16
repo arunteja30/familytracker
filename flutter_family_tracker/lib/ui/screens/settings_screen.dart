@@ -7,6 +7,7 @@ import '../../providers/family_provider.dart';
 import '../../services/preferences_service.dart';
 import '../../services/native_service.dart';
 import '../../services/app_update_service.dart';
+import 'package:permission_handler/permission_handler.dart';
 import '../widgets/oem_autostart_modal.dart';
 import '../widgets/intruder_photos_modal.dart';
 import 'phone_login_screen.dart';
@@ -18,7 +19,7 @@ class SettingsScreen extends StatefulWidget {
   State<SettingsScreen> createState() => _SettingsScreenState();
 }
 
-class _SettingsScreenState extends State<SettingsScreen> {
+class _SettingsScreenState extends State<SettingsScreen> with WidgetsBindingObserver {
   final _emailController = TextEditingController();
   bool _isDeviceAdminActive = false;
   bool _antiTheftEnabled = true;
@@ -31,7 +32,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _loadAntiTheftConfig();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _loadAntiTheftConfig();
+    }
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _emailController.dispose();
+    super.dispose();
   }
 
   Future<void> _loadAntiTheftConfig() async {
@@ -78,6 +94,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (_isDeviceAdminActive) {
       await NativeService.removeDeviceAdmin();
     } else {
+      if (await Permission.camera.status.isDenied) {
+        await Permission.camera.request();
+      }
       await NativeService.requestDeviceAdmin();
     }
     await Future.delayed(const Duration(milliseconds: 1000));
@@ -88,12 +107,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
         _isLoadingAdmin = false;
       });
     }
-  }
-
-  @override
-  void dispose() {
-    _emailController.dispose();
-    super.dispose();
   }
 
   Future<void> _signOut() async {

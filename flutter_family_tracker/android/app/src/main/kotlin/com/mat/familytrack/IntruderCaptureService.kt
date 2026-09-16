@@ -7,6 +7,7 @@ import android.app.NotificationManager
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.graphics.ImageFormat
 import android.hardware.camera2.CameraAccessException
@@ -14,16 +15,21 @@ import android.hardware.camera2.CameraCaptureSession
 import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraDevice
 import android.hardware.camera2.CameraManager
+import android.hardware.camera2.CaptureFailure
 import android.hardware.camera2.CaptureRequest
 import android.hardware.camera2.TotalCaptureResult
+import android.location.Location
+import android.location.LocationManager
 import android.media.ImageReader
 import android.os.Build
 import android.os.Handler
 import android.os.HandlerThread
 import android.os.IBinder
 import android.os.Looper
+import android.os.PowerManager
 import android.util.Log
 import android.util.Size
+import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
 import java.io.File
 import java.io.FileOutputStream
@@ -69,6 +75,7 @@ class IntruderCaptureService : Service() {
     private var imageReader: ImageReader? = null
     private var backgroundThread: HandlerThread? = null
     private var backgroundHandler: Handler? = null
+    private var wakeLock: PowerManager.WakeLock? = null
 
     private val cameraQueue: Queue<String> = LinkedList()
     private val capturedFiles: MutableList<File> = mutableListOf()
@@ -77,11 +84,14 @@ class IntruderCaptureService : Service() {
     private var latitude: Double = 0.0
     private var longitude: Double = 0.0
     private var isCapturing = false
+    private var cameraTimeoutRunnable: Runnable? = null
+    private var isCameraClosing = false
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onCreate() {
         super.onCreate()
+        acquireWakeLock()
         startBackgroundThread()
         createNotificationChannel()
         val notification = createNotification()
@@ -97,23 +107,78 @@ class IntruderCaptureService : Service() {
         }
     }
 
+    private fun acquireWakeLock() {
+        try {
+            val pm = getSystemService(Context.POWER_SERVICE) as? PowerManager
+            wakeLock = pm?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "FamilyTracker:IntruderCaptureServiceLock")
+            wakeLock?.acquire(25000L) // Max 25s hold
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to acquire wake lock in service", e)
+        }
+    }
+
+    private fun releaseWakeLock() {
+        try {
+            if (wakeLock?.isHeld == true) {
+                wakeLock?.release()
+            }
+            wakeLock = null
+        } catch (e: Exception) {
+            Log.e(TAG, "Error releasing wake lock", e)
+        }
+    }
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         recipientEmail = intent?.getStringExtra(EXTRA_ALERT_EMAIL) ?: AntiTheftPrefs.getAlertEmail(this)
         captureDual = intent?.getBooleanExtra(EXTRA_CAPTURE_DUAL, AntiTheftPrefs.isDualCamEnabled(this)) ?: true
         latitude = intent?.getDoubleExtra(EXTRA_LATITUDE, 0.0) ?: 0.0
         longitude = intent?.getDoubleExtra(EXTRA_LONGITUDE, 0.0) ?: 0.0
 
+        // If coordinates not supplied, attempt to fetch last known location from GPS / Network
+        if (latitude == 0.0 && longitude == 0.0) {
+            fetchLastKnownLocation()
+        }
+
         if (!isCapturing) {
             isCapturing = true
             initCameraCapture()
         }
 
-        // Safety timeout to prevent service hanging
+        // Master safety timeout to ensure service finishes and dispatches email even if HAL stalls
         Handler(Looper.getMainLooper()).postDelayed({
-            finishAndSendEmail()
-        }, 12000L)
+            if (isCapturing) {
+                Log.w(TAG, "Master timeout reached. Finalizing capture session.")
+                finishAndSendEmail()
+            }
+        }, 15000L)
 
         return START_NOT_STICKY
+    }
+
+    private fun fetchLastKnownLocation() {
+        try {
+            if (ActivityCompat.checkSelfPermission(this, android.Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
+                ActivityCompat.checkSelfPermission(this, android.Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
+                val lm = getSystemService(Context.LOCATION_SERVICE) as? LocationManager
+                val providers = listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER, LocationManager.PASSIVE_PROVIDER)
+                var bestLocation: Location? = null
+                for (provider in providers) {
+                    try {
+                        val loc = lm?.getLastKnownLocation(provider)
+                        if (loc != null && (bestLocation == null || loc.accuracy < bestLocation.accuracy)) {
+                            bestLocation = loc
+                        }
+                    } catch (_: Exception) {}
+                }
+                if (bestLocation != null) {
+                    latitude = bestLocation.latitude
+                    longitude = bestLocation.longitude
+                    Log.i(TAG, "Fetched last known location: $latitude, $longitude")
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error getting last known location", e)
+        }
     }
 
     private fun startBackgroundThread() {
@@ -190,6 +255,8 @@ class IntruderCaptureService : Service() {
                 cameraQueue.add(backCamId)
             }
 
+            Log.i(TAG, "Queued cameras for intruder capture: ${cameraQueue.toList()}")
+
             if (cameraQueue.isEmpty()) {
                 Log.w(TAG, "No suitable camera found on device")
                 finishAndSendEmail()
@@ -205,73 +272,119 @@ class IntruderCaptureService : Service() {
     private fun captureNextCamera() {
         val nextCamId = cameraQueue.poll()
         if (nextCamId == null) {
-            // All photos captured
+            // All queued cameras have finished capturing
+            Log.i(TAG, "All camera captures processed. Total saved: ${capturedFiles.size}")
             finishAndSendEmail()
             return
         }
 
+        Log.i(TAG, "Starting capture sequence for camera: $nextCamId")
         openAndCapture(nextCamId)
     }
 
     @SuppressLint("MissingPermission")
     private fun openAndCapture(cameraId: String) {
-        val cm = cameraManager ?: return
-        val bgHandler = backgroundHandler ?: return
+        val cm = cameraManager ?: run {
+            finishAndSendEmail()
+            return
+        }
+        val bgHandler = backgroundHandler ?: run {
+            finishAndSendEmail()
+            return
+        }
+
+        // Cancel previous timeout if any
+        cameraTimeoutRunnable?.let { bgHandler.removeCallbacks(it) }
+
+        // Setup 4-second safety timeout per camera in case camera HAL drops callbacks
+        cameraTimeoutRunnable = Runnable {
+            Log.w(TAG, "Camera $cameraId capture timed out after 4000ms. Moving to next camera.")
+            closeCurrentCamera()
+            bgHandler.postDelayed({ captureNextCamera() }, 300L)
+        }
+        bgHandler.postDelayed(cameraTimeoutRunnable!!, 4000L)
 
         try {
             val chars = cm.getCameraCharacteristics(cameraId)
             val map = chars.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)
             val jpegSizes: Array<Size>? = map?.getOutputSizes(ImageFormat.JPEG)
-            val width = if (!jpegSizes.isNullOrEmpty()) jpegSizes[0].width else 640
-            val height = if (!jpegSizes.isNullOrEmpty()) jpegSizes[0].height else 480
+
+            // Select an optimal image resolution (<= 1280 wide to ensure fast processing and avoid OOM)
+            var chosenSize = Size(640, 480)
+            if (!jpegSizes.isNullOrEmpty()) {
+                val candidate = jpegSizes.firstOrNull { it.width <= 1280 && it.width >= 480 }
+                chosenSize = candidate ?: jpegSizes[0]
+            }
+
+            val width = chosenSize.width
+            val height = chosenSize.height
+            Log.d(TAG, "Configuring ImageReader for camera $cameraId with resolution: ${width}x${height}")
 
             imageReader = ImageReader.newInstance(width, height, ImageFormat.JPEG, 2)
             imageReader?.setOnImageAvailableListener({ reader ->
-                val image = reader.acquireLatestImage()
-                if (image != null) {
-                    try {
-                        val planes = image.planes
-                        val buffer: ByteBuffer = planes[0].buffer
-                        val bytes = ByteArray(buffer.capacity())
-                        buffer.get(bytes)
-                        savePhotoBytes(bytes, cameraId)
-                    } catch (e: Exception) {
-                        Log.e(TAG, "Error saving photo bytes", e)
-                    } finally {
-                        image.close()
+                Log.d(TAG, "OnImageAvailable triggered for camera $cameraId")
+                try {
+                    val image = reader.acquireLatestImage() ?: reader.acquireNextImage()
+                    if (image != null) {
+                        try {
+                            val planes = image.planes
+                            val buffer: ByteBuffer = planes[0].buffer
+                            val bytes = ByteArray(buffer.remaining())
+                            buffer.get(bytes)
+                            savePhotoBytes(bytes, cameraId)
+                        } finally {
+                            image.close()
+                        }
+
+                        // Success! Cancel safety timeout and gracefully close camera before moving to next
+                        cameraTimeoutRunnable?.let { bgHandler.removeCallbacks(it) }
+                        bgHandler.postDelayed({
+                            closeCurrentCamera()
+                            bgHandler.postDelayed({ captureNextCamera() }, 300L)
+                        }, 200L)
                     }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error acquiring image from reader on camera $cameraId", e)
                 }
             }, bgHandler)
 
             cm.openCamera(cameraId, object : CameraDevice.StateCallback() {
                 override fun onOpened(camera: CameraDevice) {
+                    Log.i(TAG, "Camera $cameraId opened successfully. Waiting 500ms for sensor warm-up.")
                     cameraDevice = camera
+                    isCameraClosing = false
+                    // Sensor warm-up delay (500ms) matches native reference to avoid black frames or AE crash
                     bgHandler.postDelayed({
-                        takeStillPicture(camera, cameraId)
-                    }, 400L)
+                        takeStillPicture(camera, cameraId, chars)
+                    }, 500L)
                 }
 
                 override fun onDisconnected(camera: CameraDevice) {
+                    Log.w(TAG, "Camera $cameraId disconnected.")
+                    cameraTimeoutRunnable?.let { bgHandler.removeCallbacks(it) }
                     closeCurrentCamera()
-                    captureNextCamera()
+                    bgHandler.postDelayed({ captureNextCamera() }, 300L)
                 }
 
                 override fun onError(camera: CameraDevice, error: Int) {
-                    Log.e(TAG, "Camera error $error on camera $cameraId")
+                    Log.e(TAG, "Camera $cameraId encountered error: $error")
+                    cameraTimeoutRunnable?.let { bgHandler.removeCallbacks(it) }
                     closeCurrentCamera()
-                    captureNextCamera()
+                    bgHandler.postDelayed({ captureNextCamera() }, 300L)
                 }
             }, bgHandler)
 
         } catch (e: Exception) {
             Log.e(TAG, "Failed to open camera $cameraId", e)
+            cameraTimeoutRunnable?.let { bgHandler.removeCallbacks(it) }
             closeCurrentCamera()
-            captureNextCamera()
+            bgHandler.postDelayed({ captureNextCamera() }, 300L)
         }
     }
 
-    private fun takeStillPicture(camera: CameraDevice, cameraId: String) {
+    private fun takeStillPicture(camera: CameraDevice, cameraId: String, chars: CameraCharacteristics) {
         val reader = imageReader ?: run {
+            Log.e(TAG, "Cannot take picture: ImageReader is null")
             closeCurrentCamera()
             captureNextCamera()
             return
@@ -279,15 +392,23 @@ class IntruderCaptureService : Service() {
         val bgHandler = backgroundHandler ?: return
 
         try {
+            val facing = chars.get(CameraCharacteristics.LENS_FACING)
             val captureBuilder = camera.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE).apply {
                 addTarget(reader.surface)
+                set(CaptureRequest.CONTROL_MODE, CaptureRequest.CONTROL_MODE_AUTO)
                 set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE)
                 set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON)
+                set(CaptureRequest.CONTROL_AE_LOCK, false)
+
+                // Set orientation: Front = 270, Back = 90 (matches native reference)
+                val orientation = if (facing == CameraCharacteristics.LENS_FACING_FRONT) 270 else 90
+                set(CaptureRequest.JPEG_ORIENTATION, orientation)
             }
 
             camera.createCaptureSession(listOf(reader.surface), object : CameraCaptureSession.StateCallback() {
                 override fun onConfigured(session: CameraCaptureSession) {
                     try {
+                        Log.i(TAG, "Capture session configured for camera $cameraId. Dispatching still capture request.")
                         session.capture(captureBuilder.build(), object : CameraCaptureSession.CaptureCallback() {
                             override fun onCaptureCompleted(
                                 session: CameraCaptureSession,
@@ -295,31 +416,35 @@ class IntruderCaptureService : Service() {
                                 result: TotalCaptureResult
                             ) {
                                 super.onCaptureCompleted(session, request, result)
-                                Log.i(TAG, "Capture completed for camera $cameraId")
-                                bgHandler.postDelayed({
-                                    closeCurrentCamera()
-                                    captureNextCamera()
-                                }, 300L)
+                                Log.i(TAG, "Hardware still capture completed for camera $cameraId. Awaiting ImageReader frame...")
+                                // Note: Camera is NOT closed here. It is closed in OnImageAvailableListener when bytes are written!
+                            }
+
+                            override fun onCaptureFailed(
+                                session: CameraCaptureSession,
+                                request: CaptureRequest,
+                                failure: CaptureFailure
+                            ) {
+                                super.onCaptureFailed(session, request, failure)
+                                Log.w(TAG, "Hardware capture failed for camera $cameraId: reason=${failure.reason}")
                             }
                         }, bgHandler)
                     } catch (e: Exception) {
-                        Log.e(TAG, "Capture session error", e)
-                        closeCurrentCamera()
-                        captureNextCamera()
+                        Log.e(TAG, "Capture session execution error", e)
                     }
                 }
 
                 override fun onConfigureFailed(session: CameraCaptureSession) {
-                    Log.e(TAG, "Camera capture session configuration failed")
+                    Log.e(TAG, "Camera capture session configuration failed for camera $cameraId")
                     closeCurrentCamera()
-                    captureNextCamera()
+                    bgHandler.postDelayed({ captureNextCamera() }, 300L)
                 }
             }, bgHandler)
 
         } catch (e: Exception) {
-            Log.e(TAG, "Error taking still picture", e)
+            Log.e(TAG, "Error configuring still picture capture", e)
             closeCurrentCamera()
-            captureNextCamera()
+            bgHandler.postDelayed({ captureNextCamera() }, 300L)
         }
     }
 
@@ -341,24 +466,31 @@ class IntruderCaptureService : Service() {
                 out.flush()
             }
             capturedFiles.add(file)
-            Log.i(TAG, "Saved intruder photo to private app memory: ${file.absolutePath} (${file.length()} bytes)")
+            Log.i(TAG, "✅ Successfully saved intruder photo: ${file.absolutePath} (${file.length()} bytes)")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to write photo file", e)
         }
     }
 
     private fun closeCurrentCamera() {
+        if (isCameraClosing) return
+        isCameraClosing = true
         try {
             cameraDevice?.close()
             cameraDevice = null
+        } catch (e: Exception) {
+            Log.e(TAG, "Error closing cameraDevice", e)
+        }
+        try {
             imageReader?.close()
             imageReader = null
         } catch (e: Exception) {
-            Log.e(TAG, "Error closing camera", e)
+            Log.e(TAG, "Error closing imageReader", e)
         }
     }
 
     private fun finishAndSendEmail() {
+        isCapturing = false
         closeCurrentCamera()
 
         val email = recipientEmail.ifBlank { AntiTheftPrefs.getAlertEmail(this) }
@@ -372,19 +504,24 @@ class IntruderCaptureService : Service() {
                 latitude = latitude,
                 longitude = longitude
             ) { success, error ->
-                Log.d(TAG, "Email dispatch status: $success (error: $error)")
+                Log.d(TAG, "Email dispatch result: success=$success (error=$error)")
+                releaseWakeLock()
                 stopSelf()
             }
         } else {
-            Log.w(TAG, "No alert email set in settings. Skipping email dispatch.")
+            Log.w(TAG, "No alert email configured in settings. Skipping email dispatch.")
+            releaseWakeLock()
             stopSelf()
         }
     }
 
     override fun onDestroy() {
         super.onDestroy()
+        isCapturing = false
         closeCurrentCamera()
         stopBackgroundThread()
+        releaseWakeLock()
         Log.d(TAG, "IntruderCaptureService destroyed")
     }
 }
+

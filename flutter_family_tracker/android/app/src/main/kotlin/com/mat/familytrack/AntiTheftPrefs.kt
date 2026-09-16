@@ -56,4 +56,15 @@ object AntiTheftPrefs {
     fun setFailedAttemptsThreshold(context: Context, threshold: Int) {
         getPrefs(context).edit().putInt(KEY_FAILED_ATTEMPTS, threshold).apply()
     }
+
+    fun incrementFailedAttempts(context: Context): Int {
+        val prefs = getPrefs(context)
+        val count = prefs.getInt("failed_attempts_count", 0) + 1
+        prefs.edit().putInt("failed_attempts_count", count).apply()
+        return count
+    }
+
+    fun resetFailedAttempts(context: Context) {
+        getPrefs(context).edit().putInt("failed_attempts_count", 0).apply()
+    }
 }
