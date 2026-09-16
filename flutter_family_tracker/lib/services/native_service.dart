@@ -216,7 +216,7 @@ class NativeService {
   static Future<bool> testIntruderAlarm({
     String? alertEmail,
     bool playSiren = true,
-    bool dualCam = true,
+    bool dualCam = false,
   }) async {
     if (_isAndroid) {
       try {

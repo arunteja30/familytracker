@@ -148,7 +148,7 @@ class IntruderCaptureService : Service() {
         isCapturing = true
 
         recipientEmail = intent?.getStringExtra(EXTRA_ALERT_EMAIL) ?: AntiTheftPrefs.getAlertEmail(this)
-        captureDual = intent?.getBooleanExtra(EXTRA_CAPTURE_DUAL, AntiTheftPrefs.isDualCamEnabled(this)) ?: true
+        captureDual = intent?.getBooleanExtra(EXTRA_CAPTURE_DUAL, AntiTheftPrefs.isDualCamEnabled(this)) ?: AntiTheftPrefs.isDualCamEnabled(this)
         latitude = intent?.getDoubleExtra(EXTRA_LATITUDE, 0.0) ?: 0.0
         longitude = intent?.getDoubleExtra(EXTRA_LONGITUDE, 0.0) ?: 0.0
 

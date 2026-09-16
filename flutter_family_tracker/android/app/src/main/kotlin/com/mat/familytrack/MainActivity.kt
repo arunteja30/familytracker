@@ -184,7 +184,7 @@ class MainActivity : FlutterActivity() {
                 "testIntruderAlarm" -> {
                     val email = call.argument<String>("alertEmail") ?: AntiTheftPrefs.getAlertEmail(this)
                     val playSiren = call.argument<Boolean>("playSiren") ?: false
-                    val dualCam = call.argument<Boolean>("dualCam") ?: true
+                    val dualCam = call.argument<Boolean>("dualCam") ?: AntiTheftPrefs.isDualCamEnabled(this)
 
                     if (playSiren) {
                         AlarmPlayer.startAlarm(this, durationSeconds = 5)

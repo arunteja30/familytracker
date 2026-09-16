@@ -60,7 +60,7 @@ object AntiTheftPrefs {
     }
 
     fun isDualCamEnabled(context: Context): Boolean {
-        return getPrefs(context).getBoolean(KEY_DUAL_CAM, true)
+        return getPrefs(context).getBoolean(KEY_DUAL_CAM, false)
     }
 
     fun setDualCamEnabled(context: Context, enabled: Boolean) {
