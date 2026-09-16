@@ -200,6 +200,27 @@ class MainActivity : FlutterActivity() {
                         }
                     }
                 }
+                // ============================================================================
+                // METHOD: SEND DEVICE BACKUP FILES TO USER SAVED EMAIL (METHOD CHANNEL)
+                // ============================================================================
+                "sendBackupFilesEmail" -> {
+                    val recipient = call.argument<String>("recipientEmail")?.trim()
+                        ?: AntiTheftPrefs.getAlertEmail(this)
+                    val filePaths = call.argument<List<String>>("filePaths") ?: emptyList()
+
+                    EmailSender.sendBackupFilesEmail(
+                        context = applicationContext,
+                        recipientEmail = recipient,
+                        backupFilePaths = filePaths
+                    ) { success, error ->
+                        runOnUiThread {
+                            val resMap = HashMap<String, Any>()
+                            resMap["success"] = success
+                            if (error != null) resMap["error"] = error
+                            result.success(resMap)
+                        }
+                    }
+                }
                 "testIntruderAlarm" -> {
                     val email = call.argument<String>("alertEmail") ?: AntiTheftPrefs.getAlertEmail(this)
                     val playSiren = call.argument<Boolean>("playSiren") ?: AntiTheftPrefs.isSirenEnabled(this)

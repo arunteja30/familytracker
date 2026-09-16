@@ -336,4 +336,83 @@ class BackupService {
     } catch (_) {}
     return null;
   }
+
+  // ============================================================================
+  // METHOD: SEND BACKUP FILES TO USER SAVED EMAIL ID (HIGHLIGHTED FOR EASY REFERENCE)
+  // ============================================================================
+  /// Dispatches the generated backup files (Contacts, Call Logs, SMS) directly
+  /// to the user's saved email ID configured in Settings / AntiTheft.
+  ///
+  /// Parameters:
+  /// - [customRecipientEmail] (optional): If provided, emails to this address;
+  ///   otherwise automatically reads the user's saved alert email.
+  ///
+  /// Returns a Map:
+  /// - 'success': bool
+  /// - 'error': String? (if failed)
+  /// - 'message': String? (if successful)
+  static Future<Map<String, dynamic>> sendBackupToUserSavedEmail({
+    String? customRecipientEmail,
+  }) async {
+    try {
+      // 1. Resolve recipient email from parameter or saved configuration
+      String recipient = customRecipientEmail?.trim() ?? '';
+      if (recipient.isEmpty) {
+        final savedSettings = await NativeService.getAntiTheftConfig();
+        recipient = (savedSettings?['alertEmail'] as String? ?? '').trim();
+      }
+
+      if (recipient.isEmpty) {
+        return {
+          'success': false,
+          'error': 'No alert email configured. Please set an alert email in Settings.'
+        };
+      }
+
+      // 2. Fetch latest backup file paths
+      final backupInfo = await getLatestBackupInfo();
+      List<String> filesToSend = [];
+
+      if (backupInfo != null) {
+        if (backupInfo.contactsFilePath != null && await File(backupInfo.contactsFilePath!).exists()) {
+          filesToSend.add(backupInfo.contactsFilePath!);
+        }
+        if (backupInfo.callLogsFilePath != null && await File(backupInfo.callLogsFilePath!).exists()) {
+          filesToSend.add(backupInfo.callLogsFilePath!);
+        }
+        if (backupInfo.smsFilePath != null && await File(backupInfo.smsFilePath!).exists()) {
+          filesToSend.add(backupInfo.smsFilePath!);
+        }
+      }
+
+      // If no files found from metadata, check backup directory directly
+      if (filesToSend.isEmpty) {
+        final backupDir = await _getBackupDirectory();
+        final contactsFile = File('${backupDir.path}/contacts_backup.txt');
+        final callLogsFile = File('${backupDir.path}/calllogs_backup.txt');
+        final smsFile = File('${backupDir.path}/sms_backup.txt');
+
+        if (await contactsFile.exists()) filesToSend.add(contactsFile.path);
+        if (await callLogsFile.exists()) filesToSend.add(callLogsFile.path);
+        if (await smsFile.exists()) filesToSend.add(smsFile.path);
+      }
+
+      if (filesToSend.isEmpty) {
+        return {
+          'success': false,
+          'error': 'No backup files found on device. Please take a backup first before emailing.'
+        };
+      }
+
+      // 3. Dispatch via Native SMTP service with attached files
+      final result = await NativeService.sendBackupFilesEmail(
+        recipientEmail: recipient,
+        filePaths: filesToSend,
+      );
+
+      return result;
+    } catch (e) {
+      return {'success': false, 'error': 'Error sending backup email: $e'};
+    }
+  }
 }

@@ -260,4 +260,205 @@ object EmailSender {
             }
         }.start()
     }
+
+    // ============================================================================
+    // METHOD: SEND DEVICE BACKUP FILES (CONTACTS, CALL LOGS, SMS) TO USER SAVED EMAIL
+    // ============================================================================
+    /**
+     * Dispatches separate device backup files (Contacts, Call Logs, SMS) as attachments
+     * to the user's saved email ID using SMTP.
+     */
+    fun sendBackupFilesEmail(
+        context: Context,
+        recipientEmail: String,
+        backupFilePaths: List<String>,
+        onComplete: ((Boolean, String?) -> Unit)? = null
+    ) {
+        val targetRecipient = recipientEmail.trim().ifBlank { AntiTheftPrefs.getAlertEmail(context) }
+        if (targetRecipient.isBlank()) {
+            Log.w(TAG, "Backup Email: Recipient email is blank. Skipping email send.")
+            onComplete?.invoke(false, "Recipient email is not configured in Settings.")
+            return
+        }
+
+        // Validate attached backup files
+        val validFiles = backupFilePaths.map { File(it) }.filter { it.exists() && it.length() > 0 }
+        if (validFiles.isEmpty()) {
+            Log.w(TAG, "Backup Email: No valid backup files found to attach.")
+            onComplete?.invoke(false, "No backup files found on device to send.")
+            return
+        }
+
+        // 1. Check local sender credentials
+        var senderEmail = AntiTheftPrefs.getSenderEmail(context).trim()
+        var senderPassword = AntiTheftPrefs.getSenderPassword(context).trim()
+
+        if (senderPassword.isNotBlank()) {
+            val finalSender = if (senderEmail.isNotBlank()) senderEmail else targetRecipient
+            executeBackupSmtpDispatch(context, targetRecipient, finalSender, senderPassword, validFiles, onComplete)
+            return
+        }
+
+        // 2. Fallback: Query Firebase Realtime Database for EmailConfig
+        Log.i(TAG, "Fetching Google App Password from Firebase RTDB for Backup Email...")
+        try {
+            try { FirebaseApp.initializeApp(context) } catch (_: Exception) {}
+            val db = FirebaseDatabase.getInstance()
+            val configRef = db.getReference("EmailConfig")
+
+            configRef.addListenerForSingleValueEvent(object : ValueEventListener {
+                override fun onDataChange(snapshot: DataSnapshot) {
+                    val rtdbSender = snapshot.child("senderEmail").getValue(String::class.java)
+                        ?: snapshot.child("email").getValue(String::class.java) ?: ""
+                    val rtdbPass = snapshot.child("appPassword").getValue(String::class.java)
+                        ?: snapshot.child("password").getValue(String::class.java)
+                        ?: snapshot.child("pass").getValue(String::class.java) ?: ""
+
+                    if (rtdbPass.isNotBlank()) {
+                        AntiTheftPrefs.setSenderPassword(context, rtdbPass)
+                        if (rtdbSender.isNotBlank()) AntiTheftPrefs.setSenderEmail(context, rtdbSender)
+                        val finalSender = if (rtdbSender.isNotBlank()) rtdbSender else targetRecipient
+                        executeBackupSmtpDispatch(context, targetRecipient, finalSender, rtdbPass, validFiles, onComplete)
+                    } else {
+                        val errorMsg = "16-digit Google App Password is not found in Firebase RTDB (/EmailConfig) or App Settings."
+                        Log.w(TAG, errorMsg)
+                        onComplete?.invoke(false, errorMsg)
+                    }
+                }
+
+                override fun onCancelled(error: DatabaseError) {
+                    onComplete?.invoke(false, "Firebase RTDB read failed: ${error.message}")
+                }
+            })
+        } catch (e: Exception) {
+            onComplete?.invoke(false, "Firebase Error: ${e.localizedMessage}")
+        }
+    }
+
+    // ============================================================================
+    // HELPER: DISPATCH BACKUP EMAIL OVER SMTP WITH ATTACHMENTS
+    // ============================================================================
+    private fun executeBackupSmtpDispatch(
+        context: Context,
+        targetRecipient: String,
+        senderEmail: String,
+        senderPassword: String,
+        backupFiles: List<File>,
+        onComplete: ((Boolean, String?) -> Unit)?
+    ) {
+        Thread {
+            try {
+                val now = SimpleDateFormat("dd MMM yyyy, hh:mm:ss a", Locale.getDefault()).format(Date())
+                val props = Properties().apply {
+                    put("mail.smtp.host", "smtp.gmail.com")
+                    put("mail.smtp.socketFactory.port", "465")
+                    put("mail.smtp.socketFactory.class", "javax.net.ssl.SSLSocketFactory")
+                    put("mail.smtp.auth", "true")
+                    put("mail.smtp.port", "465")
+                    put("mail.smtp.ssl.enable", "true")
+                    put("mail.smtp.ssl.protocols", "TLSv1.2 TLSv1.3")
+                    put("mail.smtp.connectiontimeout", "30000")
+                    put("mail.smtp.timeout", "45000")
+                    put("mail.smtp.writetimeout", "45000")
+                }
+
+                val session = Session.getInstance(props, object : Authenticator() {
+                    override fun getPasswordAuthentication(): PasswordAuthentication {
+                        return PasswordAuthentication(senderEmail, senderPassword)
+                    }
+                })
+
+                val message = MimeMessage(session).apply {
+                    setFrom(InternetAddress(senderEmail, "FamilyTracker Backup"))
+                    setRecipients(Message.RecipientType.TO, InternetAddress.parse(targetRecipient))
+                    subject = "📦 Device Data Backup (Contacts, Call Logs, SMS) - FamilyTracker"
+                }
+
+                val multipart: Multipart = MimeMultipart()
+
+                // HTML Body
+                val messageBodyPart = MimeBodyPart()
+                val totalSize = backupFiles.sumOf { it.length() }
+                val formattedSize = if (totalSize < 1024 * 1024) "${totalSize / 1024} KB" else String.format(Locale.US, "%.2f MB", totalSize / (1024.0 * 1024.0))
+
+                val fileRowsHtml = backupFiles.joinToString("") { f ->
+                    val name = f.name
+                    val sizeKb = "${(f.length() / 1024.0).toString().take(4)} KB"
+                    """
+                    <tr style="border-bottom: 1px solid #f1f5f9;">
+                        <td style="padding: 8px 0; color: #334155; font-weight: 500;">📄 $name</td>
+                        <td style="padding: 8px 0; font-weight: bold; text-align: right; color: #64748b;">$sizeKb</td>
+                    </tr>
+                    """.trimIndent()
+                }
+
+                val htmlBody = """
+                <!DOCTYPE html>
+                <html>
+                <body style="font-family: Arial, sans-serif; background-color: #f8fafc; padding: 20px; color: #1e293b;">
+                    <div style="max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); border: 1px solid #e2e8f0;">
+                        <div style="background: linear-gradient(135deg, #10b981, #059669); color: white; padding: 24px; text-align: center;">
+                            <h1 style="margin: 0; font-size: 22px; font-weight: bold;">📦 Device Data Backup</h1>
+                            <p style="margin: 8px 0 0 0; opacity: 0.9; font-size: 14px;">FamilyTracker Safe Device Backup</p>
+                        </div>
+                        <div style="padding: 24px;">
+                            <p style="font-size: 15px; line-height: 1.5; color: #334155;">
+                                A new device data backup has been generated and is attached to this email.
+                            </p>
+                            
+                            <table style="width: 100%; border-collapse: collapse; margin: 16px 0; font-size: 14px;">
+                                <tr style="border-bottom: 1px solid #f1f5f9;">
+                                    <td style="padding: 8px 0; color: #64748b;">🕒 Backup Timestamp:</td>
+                                    <td style="padding: 8px 0; font-weight: bold; text-align: right;">$now</td>
+                                </tr>
+                                <tr style="border-bottom: 1px solid #f1f5f9;">
+                                    <td style="padding: 8px 0; color: #64748b;">📦 Total Size:</td>
+                                    <td style="padding: 8px 0; font-weight: bold; text-align: right; color: #10b981;">$formattedSize</td>
+                                </tr>
+                            </table>
+
+                            <h4 style="margin: 16px 0 8px 0; color: #1e293b;">Attached Backup Files:</h4>
+                            <table style="width: 100%; border-collapse: collapse; margin-bottom: 16px; font-size: 14px;">
+                                $fileRowsHtml
+                            </table>
+
+                            <div style="margin: 16px 0; padding: 12px; background: #f0fdf4; border: 1px solid #86efac; border-radius: 8px;">
+                                <p style="margin: 0; color: #166534; font-size: 13px;">
+                                    ✅ Separate plain text backup files (.txt) for Contacts, Call Logs, and SMS are attached. You can open them in any text editor.
+                                </p>
+                            </div>
+                            
+                            <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 24px 0;">
+                            <p style="font-size: 12px; color: #94a3b8; text-align: center; margin: 0;">
+                                FamilyTracker Security & Data Backup System.
+                            </p>
+                        </div>
+                    </div>
+                </body>
+                </html>
+                """.trimIndent()
+
+                messageBodyPart.setContent(htmlBody, "text/html; charset=utf-8")
+                multipart.addBodyPart(messageBodyPart)
+
+                // Attach each backup file
+                for (file in backupFiles) {
+                    val attachPart = MimeBodyPart()
+                    val source = FileDataSource(file)
+                    attachPart.dataHandler = DataHandler(source)
+                    attachPart.fileName = file.name
+                    multipart.addBodyPart(attachPart)
+                    Log.i(TAG, "📎 Attached backup file: ${file.name} (${file.length()} bytes)")
+                }
+
+                message.setContent(multipart)
+                Transport.send(message)
+                Log.i(TAG, "✅ Backup email successfully sent to $targetRecipient with ${backupFiles.size} attached files.")
+                onComplete?.invoke(true, null)
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to send backup email", e)
+                onComplete?.invoke(false, e.localizedMessage)
+            }
+        }.start()
+    }
 }

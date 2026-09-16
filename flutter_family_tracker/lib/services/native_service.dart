@@ -212,6 +212,29 @@ class NativeService {
     return {'success': false, 'error': 'Not running on Android'};
   }
 
+  // ============================================================================
+  // METHOD: SEND BACKUP FILES TO USER SAVED EMAIL (NATIVE DISPATCH)
+  // ============================================================================
+  static Future<Map<String, dynamic>> sendBackupFilesEmail({
+    required String recipientEmail,
+    required List<String> filePaths,
+  }) async {
+    if (_isAndroid) {
+      try {
+        final result = await _channel.invokeMethod('sendBackupFilesEmail', {
+          'recipientEmail': recipientEmail,
+          'filePaths': filePaths,
+        });
+        if (result is Map) {
+          return Map<String, dynamic>.from(result);
+        }
+      } catch (e) {
+        return {'success': false, 'error': e.toString()};
+      }
+    }
+    return {'success': false, 'error': 'Not running on Android'};
+  }
+
   // Trigger test siren and test camera capture
   static Future<bool> testIntruderAlarm({
     String? alertEmail,
