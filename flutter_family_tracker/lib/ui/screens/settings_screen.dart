@@ -23,8 +23,6 @@ class SettingsScreen extends StatefulWidget {
 
 class _SettingsScreenState extends State<SettingsScreen> with WidgetsBindingObserver {
   final _emailController = TextEditingController();
-  final _senderEmailController = TextEditingController();
-  final _senderPasswordController = TextEditingController();
   bool _isDeviceAdminActive = false;
   bool _antiTheftEnabled = true;
   bool _sirenEnabled = false;
@@ -33,7 +31,6 @@ class _SettingsScreenState extends State<SettingsScreen> with WidgetsBindingObse
   bool _isLoadingAdmin = false;
   bool _isTestingAlarm = false;
   bool _isTestingEmail = false;
-  bool _obscurePassword = true;
 
   @override
   void initState() {
@@ -53,19 +50,24 @@ class _SettingsScreenState extends State<SettingsScreen> with WidgetsBindingObse
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _emailController.dispose();
-    _senderEmailController.dispose();
-    _senderPasswordController.dispose();
     super.dispose();
   }
 
   bool _isRtdbSynced = false;
 
   Future<void> _loadAntiTheftConfig() async {
+    final userPhone = PreferencesService.getUserPhone() ?? '';
     final config = await NativeService.getAntiTheftConfig();
     final isAdmin = await NativeService.isDeviceAdminActive();
     
-    // Also fetch latest EmailConfig from Firebase Realtime Database
-    final rtdbConfig = await DatabaseService().getEmailConfig();
+    // 1. Fetch user's alertEmail from RTDB profile
+    String? rtdbUserAlertEmail;
+    if (userPhone.isNotEmpty) {
+      rtdbUserAlertEmail = await DatabaseService().getUserAlertEmail(userPhone);
+    }
+
+    // 2. Fetch server EmailConfig from Firebase RTDB (/EmailConfig)
+    final rtdbServerConfig = await DatabaseService().getEmailConfig();
 
     if (mounted) {
       setState(() {
@@ -75,39 +77,27 @@ class _SettingsScreenState extends State<SettingsScreen> with WidgetsBindingObse
           if (savedEmail.isNotEmpty && _emailController.text.isEmpty) {
             _emailController.text = savedEmail;
           }
-          final savedSender = (config['senderEmail'] ?? '').toString();
-          if (savedSender.isNotEmpty && _senderEmailController.text.isEmpty) {
-            _senderEmailController.text = savedSender;
-          }
-          final savedPass = (config['senderPassword'] ?? '').toString();
-          if (savedPass.isNotEmpty && _senderPasswordController.text.isEmpty) {
-            _senderPasswordController.text = savedPass;
-          }
           _antiTheftEnabled = (config['enabled'] as bool?) ?? true;
           _sirenEnabled = (config['siren'] as bool?) ?? false;
           _dualCamEnabled = (config['dualCam'] as bool?) ?? true;
           _failedAttemptsThreshold = (config['failedAttempts'] as int?) ?? 2;
         }
 
-        // If RTDB has config, auto-populate and sync to native layer
-        if (rtdbConfig != null) {
-          final rtdbSender = (rtdbConfig['senderEmail'] ?? rtdbConfig['email'] ?? '').toString();
-          final rtdbPass = (rtdbConfig['appPassword'] ?? rtdbConfig['password'] ?? rtdbConfig['pass'] ?? '').toString();
-          final rtdbAlert = (rtdbConfig['alertEmail'] ?? '').toString();
+        // If user profile in RTDB has alertEmail, populate it
+        if (rtdbUserAlertEmail != null && rtdbUserAlertEmail.isNotEmpty) {
+          _emailController.text = rtdbUserAlertEmail;
+          NativeService.setAntiTheftConfig(alertEmail: rtdbUserAlertEmail);
+        }
 
-          if (rtdbPass.isNotEmpty) {
+        // If server EmailConfig is available in RTDB, sync it to native layer
+        if (rtdbServerConfig != null) {
+          final sender = (rtdbServerConfig['senderEmail'] ?? rtdbServerConfig['email'] ?? '').toString();
+          final pass = (rtdbServerConfig['appPassword'] ?? rtdbServerConfig['password'] ?? rtdbServerConfig['pass'] ?? '').toString();
+          if (pass.isNotEmpty) {
             _isRtdbSynced = true;
-            _senderPasswordController.text = rtdbPass;
-            if (rtdbSender.isNotEmpty && _senderEmailController.text.isEmpty) {
-              _senderEmailController.text = rtdbSender;
-            }
-            if (rtdbAlert.isNotEmpty && _emailController.text.isEmpty) {
-              _emailController.text = rtdbAlert;
-            }
-            // Sync to Native AntiTheftPrefs
             NativeService.setAntiTheftConfig(
-              senderEmail: _senderEmailController.text.trim(),
-              senderPassword: _senderPasswordController.text.trim(),
+              senderEmail: sender,
+              senderPassword: pass,
             );
           }
         }
@@ -116,35 +106,27 @@ class _SettingsScreenState extends State<SettingsScreen> with WidgetsBindingObse
   }
 
   Future<void> _saveAntiTheftConfig() async {
+    final userPhone = PreferencesService.getUserPhone() ?? '';
     final email = _emailController.text.trim();
-    final senderEmail = _senderEmailController.text.trim();
-    final senderPass = _senderPasswordController.text.trim();
 
     await NativeService.setAntiTheftConfig(
       alertEmail: email,
-      senderEmail: senderEmail,
-      senderPassword: senderPass,
       enabled: _antiTheftEnabled,
       siren: _sirenEnabled,
       dualCam: _dualCamEnabled,
       failedAttempts: _failedAttemptsThreshold,
     );
 
-    // Save to Firebase RTDB node /EmailConfig if password or sender is provided
-    if (senderPass.isNotEmpty) {
-      await DatabaseService().setEmailConfig(
-        senderEmail: senderEmail.isNotEmpty ? senderEmail : email,
-        appPassword: senderPass,
-        alertEmail: email,
-      );
-      setState(() => _isRtdbSynced = true);
+    // Save user's alert email under their personal user node in RTDB
+    if (userPhone.isNotEmpty && email.isNotEmpty) {
+      await DatabaseService().saveUserAlertEmail(userPhone, email);
     }
 
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           backgroundColor: AppColors.success,
-          content: Text('Anti-Theft email & security settings saved (synced to RTDB)!'),
+          content: Text('Alert email saved and synced to your profile!'),
         ),
       );
     }
@@ -152,36 +134,23 @@ class _SettingsScreenState extends State<SettingsScreen> with WidgetsBindingObse
 
   Future<void> _testEmailDispatch() async {
     final recipient = _emailController.text.trim();
-    final senderPass = _senderPasswordController.text.trim();
     if (recipient.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           backgroundColor: AppColors.warning,
-          content: Text('Please enter an Alert Recipient Email first.'),
+          content: Text('Please enter an Alert Email first.'),
         ),
       );
-      return;
-    }
-    if (senderPass.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          backgroundColor: AppColors.warning,
-          content: Text('Please enter your 16-character Google App Password below to send emails.'),
-        ),
-      );
-      _showAppPasswordHelpDialog();
       return;
     }
 
     setState(() => _isTestingEmail = true);
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Testing Gmail SMTP connection and dispatching test email...')),
+      const SnackBar(content: Text('Testing alert email dispatch using server credentials from RTDB...')),
     );
 
     final res = await NativeService.testSendAlertEmail(
       recipientEmail: recipient,
-      senderEmail: _senderEmailController.text.trim(),
-      senderPassword: senderPass,
     );
 
     if (mounted) {
@@ -199,7 +168,7 @@ class _SettingsScreenState extends State<SettingsScreen> with WidgetsBindingObse
                 Text('Email Verified!'),
               ],
             ),
-            content: Text('Security test alert was successfully sent to $recipient. Please check your inbox/spam folder!'),
+            content: Text('A security test alert was successfully dispatched to $recipient. Please check your inbox / spam folder!'),
             actions: [
               TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('OK')),
             ],
@@ -213,25 +182,18 @@ class _SettingsScreenState extends State<SettingsScreen> with WidgetsBindingObse
               children: [
                 Icon(Icons.error_outline_rounded, color: AppColors.danger),
                 SizedBox(width: 8),
-                Text('Email Failed'),
+                Text('Email Dispatch Notice'),
               ],
             ),
             content: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(error != null && error.contains('535')
-                    ? 'Google rejected the credentials (535 Bad Credentials). Please make sure you are using a 16-letter App Password generated from Google Account > Security > App Passwords (not your normal account login password).'
-                    : 'Error: ${error ?? "Unknown dispatch failure."}'),
-                const SizedBox(height: 12),
-                OutlinedButton.icon(
-                  onPressed: () {
-                    Navigator.pop(ctx);
-                    _showAppPasswordHelpDialog();
-                  },
-                  icon: const Icon(Icons.help_outline_rounded, size: 16),
-                  label: const Text('App Password Guide', style: TextStyle(fontSize: 12)),
-                ),
+                Text(error != null && error.contains('not found in Firebase RTDB')
+                    ? '16-digit Google App Password is not yet added in Firebase Realtime Database node "/EmailConfig". Please add "senderEmail" and "appPassword" under /EmailConfig in Firebase Console.'
+                    : error != null && error.contains('535')
+                        ? 'Google SMTP rejected the credentials (535 Bad Credentials). Please ensure the 16-character App Password under /EmailConfig in Firebase RTDB is valid.'
+                        : 'Error: ${error ?? "Unknown dispatch failure."}'),
               ],
             ),
             actions: [
@@ -241,50 +203,6 @@ class _SettingsScreenState extends State<SettingsScreen> with WidgetsBindingObse
         );
       }
     }
-  }
-
-  void _showAppPasswordHelpDialog() {
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Row(
-          children: [
-            Icon(Icons.key_rounded, color: AppColors.primary),
-            SizedBox(width: 8),
-            Text('Google App Password Guide'),
-          ],
-        ),
-        content: const SingleChildScrollView(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                'To allow FamilyTracker to send secret intruder alerts silently from your Gmail, Google requires a 16-character App Password:',
-                style: TextStyle(fontSize: 13, height: 1.4),
-              ),
-              SizedBox(height: 12),
-              Text('1. Open your Google Account (myaccount.google.com).', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
-              SizedBox(height: 4),
-              Text('2. Go to Security > 2-Step Verification.', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
-              SizedBox(height: 4),
-              Text('3. At the bottom, tap App Passwords.', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
-              SizedBox(height: 4),
-              Text('4. Enter app name "FamilyTracker" and tap Create.', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
-              SizedBox(height: 4),
-              Text('5. Copy the generated 16-letter code and paste it into the App Password box below.', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
-            ],
-          ),
-        ),
-        actions: [
-          ElevatedButton(
-            onPressed: () => Navigator.pop(ctx),
-            style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary),
-            child: const Text('Got it'),
-          ),
-        ],
-      ),
-    );
   }
 
   Future<void> _toggleDeviceAdmin() async {
@@ -624,7 +542,7 @@ class _SettingsScreenState extends State<SettingsScreen> with WidgetsBindingObse
                     ),
                     const SizedBox(height: 4),
                     const Text(
-                      'Secret photos, timestamp, battery level, and GPS map link will be dispatched to this email address.',
+                      'Secret photos, timestamp, battery level, and GPS location link will be sent to this email instantly.',
                       style: TextStyle(fontSize: 11, color: AppColors.textSecondary),
                     ),
                     const SizedBox(height: 8),
@@ -632,93 +550,35 @@ class _SettingsScreenState extends State<SettingsScreen> with WidgetsBindingObse
                       controller: _emailController,
                       keyboardType: TextInputType.emailAddress,
                       decoration: InputDecoration(
-                        hintText: 'security.alert@example.com',
+                        hintText: 'your.alert.email@gmail.com',
                         prefixIcon: const Icon(Icons.email_outlined, size: 18, color: AppColors.primary),
                         contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                         border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
                       ),
                     ),
-                    const SizedBox(height: 14),
-
-                    // Sender Gmail App Password
+                    const SizedBox(height: 8),
                     Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Row(
-                          children: [
-                            const Text(
-                              'Sender Gmail App Password',
-                              style: TextStyle(
-                                fontSize: 13,
-                                fontWeight: FontWeight.bold,
-                                color: AppColors.textPrimary,
-                              ),
-                            ),
-                            if (_isRtdbSynced) ...[
-                              const SizedBox(width: 6),
-                              Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                decoration: BoxDecoration(
-                                  color: Colors.green.withValues(alpha: 0.15),
-                                  borderRadius: BorderRadius.circular(6),
-                                  border: Border.all(color: Colors.green.withValues(alpha: 0.4)),
-                                ),
-                                child: const Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    Icon(Icons.cloud_done_rounded, color: Colors.green, size: 12),
-                                    SizedBox(width: 4),
-                                    Text(
-                                      'RTDB Synced',
-                                      style: TextStyle(color: Colors.green, fontSize: 10, fontWeight: FontWeight.bold),
-                                    ),
-                                  ],
-                                ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: Colors.green.withValues(alpha: 0.12),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: Colors.green.withValues(alpha: 0.3)),
+                          ),
+                          child: const Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.cloud_done_rounded, color: Colors.green, size: 14),
+                              SizedBox(width: 6),
+                              Text(
+                                'Server Dispatch: Auto-configured via RTDB (/EmailConfig)',
+                                style: TextStyle(color: Colors.green, fontSize: 11, fontWeight: FontWeight.bold),
                               ),
                             ],
-                          ],
-                        ),
-                        InkWell(
-                          onTap: _showAppPasswordHelpDialog,
-                          child: const Padding(
-                            padding: EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-                            child: Row(
-                              children: [
-                                Icon(Icons.help_outline_rounded, size: 14, color: AppColors.primary),
-                                SizedBox(width: 4),
-                                Text(
-                                  'How to get it',
-                                  style: TextStyle(
-                                    fontSize: 11,
-                                    color: AppColors.primary,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                              ],
-                            ),
                           ),
                         ),
                       ],
-                    ),
-                    const SizedBox(height: 4),
-                    const Text(
-                      '16-character Google App Password (from Google Account > Security > App Passwords) for silent SMTP dispatch.',
-                      style: TextStyle(fontSize: 11, color: AppColors.textSecondary),
-                    ),
-                    const SizedBox(height: 8),
-                    TextField(
-                      controller: _senderPasswordController,
-                      obscureText: _obscurePassword,
-                      decoration: InputDecoration(
-                        hintText: 'abcd efgh ijkl mnop',
-                        prefixIcon: const Icon(Icons.vpn_key_outlined, size: 18, color: AppColors.primary),
-                        suffixIcon: IconButton(
-                          icon: Icon(_obscurePassword ? Icons.visibility_outlined : Icons.visibility_off_outlined, size: 18),
-                          onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
-                        ),
-                        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-                      ),
                     ),
                     const SizedBox(height: 12),
 
@@ -729,7 +589,7 @@ class _SettingsScreenState extends State<SettingsScreen> with WidgetsBindingObse
                           child: ElevatedButton.icon(
                             onPressed: _saveAntiTheftConfig,
                             icon: const Icon(Icons.check_rounded, size: 16),
-                            label: const Text('Save Email Settings'),
+                            label: const Text('Save Alert Email'),
                             style: ElevatedButton.styleFrom(
                               backgroundColor: AppColors.primary,
                               foregroundColor: Colors.white,

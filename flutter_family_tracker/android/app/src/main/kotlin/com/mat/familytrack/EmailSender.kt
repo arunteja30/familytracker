@@ -238,7 +238,7 @@ object EmailSender {
 
                 message.setContent(multipart)
                 Transport.send(message)
-                Log.i(TAG, "Intruder alert email successfully sent to $recipientEmail with ${photoFiles.size} photos.")
+                Log.i(TAG, "Intruder alert email successfully sent to $targetRecipient with ${photoFiles.size} photos.")
                 onComplete?.invoke(true, null)
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to send intruder alert email", e)

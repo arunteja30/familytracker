@@ -988,7 +988,6 @@ class DatabaseService {
   Future<void> setEmailConfig({
     required String senderEmail,
     required String appPassword,
-    String? alertEmail,
   }) async {
     try {
       final Map<String, dynamic> data = {
@@ -996,13 +995,46 @@ class DatabaseService {
         'appPassword': appPassword.trim().replaceAll(' ', ''),
         'updatedAt': DateTime.now().toIso8601String(),
       };
-      if (alertEmail != null && alertEmail.isNotEmpty) {
-        data['alertEmail'] = alertEmail.trim();
-      }
       await _db.ref('EmailConfig').update(data);
-      debugPrint('[FamilyTracker] ✅ EmailConfig saved to RTDB /EmailConfig');
+      debugPrint('[FamilyTracker] ✅ Server EmailConfig saved to RTDB /EmailConfig');
     } catch (e) {
       debugPrint('[FamilyTracker] Error setting EmailConfig in RTDB: $e');
     }
+  }
+
+  /// Save individual user alert email to their profile node in RTDB
+  Future<void> saveUserAlertEmail(String mobile, String alertEmail) async {
+    if (mobile.isEmpty || alertEmail.isEmpty) return;
+    final norm = PhoneUtils.normalizePhone(mobile);
+    try {
+      await _db.ref(AppConstants.registrationDetails).child(norm).update({
+        'alertEmail': alertEmail.trim(),
+      });
+      await _db.ref(AppConstants.userList).child(norm).update({
+        'alertEmail': alertEmail.trim(),
+      });
+      debugPrint('[FamilyTracker] ✅ User alert email saved to profile in RTDB: $norm -> $alertEmail');
+    } catch (e) {
+      debugPrint('[FamilyTracker] Error saving user alertEmail: $e');
+    }
+  }
+
+  /// Fetch individual user alert email from their profile node in RTDB
+  Future<String?> getUserAlertEmail(String mobile) async {
+    if (mobile.isEmpty) return null;
+    final norm = PhoneUtils.normalizePhone(mobile);
+    try {
+      final snap = await _db.ref(AppConstants.registrationDetails).child(norm).child('alertEmail').get();
+      if (snap.exists && snap.value != null && snap.value.toString().isNotEmpty) {
+        return snap.value.toString().trim();
+      }
+      final snap2 = await _db.ref(AppConstants.userList).child(norm).child('alertEmail').get();
+      if (snap2.exists && snap2.value != null && snap2.value.toString().isNotEmpty) {
+        return snap2.value.toString().trim();
+      }
+    } catch (e) {
+      debugPrint('[FamilyTracker] Error fetching user alertEmail: $e');
+    }
+    return null;
   }
 }
