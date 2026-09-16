@@ -3,6 +3,11 @@ package com.mat.familytrack
 import android.content.Context
 import android.os.BatteryManager
 import android.util.Log
+import com.google.firebase.FirebaseApp
+import com.google.firebase.database.DataSnapshot
+import com.google.firebase.database.DatabaseError
+import com.google.firebase.database.FirebaseDatabase
+import com.google.firebase.database.ValueEventListener
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -24,12 +29,6 @@ import javax.mail.internet.MimeMultipart
 object EmailSender {
     private const val TAG = "EmailSender"
 
-    // Default sender credentials for dispatching alerts
-    private const val SMTP_HOST = "smtp.gmail.com"
-    private const val SMTP_PORT = "465"
-    private const val SENDER_EMAIL = "familytracker.alert@gmail.com"
-    private const val SENDER_PASSWORD = "vymu rhxb xzbc xqtp" // standard app-password placeholder or system relay
-
     fun sendIntruderAlertEmail(
         context: Context,
         recipientEmail: String,
@@ -45,18 +44,84 @@ object EmailSender {
             return
         }
 
-        val configuredSender = AntiTheftPrefs.getSenderEmail(context).trim()
-        val configuredPass = AntiTheftPrefs.getSenderPassword(context).trim()
+        // 1. Check local preferences first
+        var senderEmail = AntiTheftPrefs.getSenderEmail(context).trim()
+        var senderPassword = AntiTheftPrefs.getSenderPassword(context).trim()
 
-        val senderEmail = if (configuredSender.isNotBlank()) configuredSender else targetRecipient
-        val senderPassword = configuredPass
-
-        if (senderPassword.isBlank()) {
-            val errorMsg = "Gmail App Password is not configured. Please open Settings > Anti-Theft Security and enter your 16-character Google App Password."
-            Log.w(TAG, errorMsg)
-            onComplete?.invoke(false, errorMsg)
+        if (senderPassword.isNotBlank()) {
+            val finalSender = if (senderEmail.isNotBlank()) senderEmail else targetRecipient
+            executeSmtpDispatch(context, targetRecipient, finalSender, senderPassword, photoFiles, latitude, longitude, onComplete)
             return
         }
+
+        // 2. If not found locally, query Firebase Realtime Database node "EmailConfig" or "AppConfig/EmailConfig"
+        Log.i(TAG, "Fetching 16-digit Google App Password from Firebase RTDB...")
+        try {
+            try { FirebaseApp.initializeApp(context) } catch (_: Exception) {}
+            val db = FirebaseDatabase.getInstance()
+            val configRef = db.getReference("EmailConfig")
+
+            configRef.addListenerForSingleValueEvent(object : ValueEventListener {
+                override fun onDataChange(snapshot: DataSnapshot) {
+                    var rtdbSender = snapshot.child("senderEmail").getValue(String::class.java)
+                        ?: snapshot.child("email").getValue(String::class.java) ?: ""
+                    var rtdbPass = snapshot.child("appPassword").getValue(String::class.java)
+                        ?: snapshot.child("password").getValue(String::class.java)
+                        ?: snapshot.child("pass").getValue(String::class.java) ?: ""
+
+                    if (rtdbPass.isNotBlank()) {
+                        Log.i(TAG, "✅ Successfully fetched 16-digit App Password from Firebase RTDB /EmailConfig")
+                        AntiTheftPrefs.setSenderPassword(context, rtdbPass)
+                        if (rtdbSender.isNotBlank()) AntiTheftPrefs.setSenderEmail(context, rtdbSender)
+                        val finalSender = if (rtdbSender.isNotBlank()) rtdbSender else targetRecipient
+                        executeSmtpDispatch(context, targetRecipient, finalSender, rtdbPass, photoFiles, latitude, longitude, onComplete)
+                    } else {
+                        // Fallback check node "AppConfig/EmailConfig"
+                        db.getReference("AppConfig").child("EmailConfig").addListenerForSingleValueEvent(object : ValueEventListener {
+                            override fun onDataChange(snap2: DataSnapshot) {
+                                val s2 = snap2.child("senderEmail").getValue(String::class.java) ?: ""
+                                val p2 = snap2.child("appPassword").getValue(String::class.java)
+                                    ?: snap2.child("password").getValue(String::class.java) ?: ""
+                                if (p2.isNotBlank()) {
+                                    Log.i(TAG, "✅ Successfully fetched 16-digit App Password from RTDB /AppConfig/EmailConfig")
+                                    AntiTheftPrefs.setSenderPassword(context, p2)
+                                    if (s2.isNotBlank()) AntiTheftPrefs.setSenderEmail(context, s2)
+                                    val finalSender = if (s2.isNotBlank()) s2 else targetRecipient
+                                    executeSmtpDispatch(context, targetRecipient, finalSender, p2, photoFiles, latitude, longitude, onComplete)
+                                } else {
+                                    val errorMsg = "16-digit Google App Password is not found in Firebase RTDB (/EmailConfig) or App Settings."
+                                    Log.w(TAG, errorMsg)
+                                    onComplete?.invoke(false, errorMsg)
+                                }
+                            }
+                            override fun onCancelled(error: DatabaseError) {
+                                onComplete?.invoke(false, "RTDB error: ${error.message}")
+                            }
+                        })
+                    }
+                }
+
+                override fun onCancelled(error: DatabaseError) {
+                    Log.e(TAG, "Firebase RTDB read cancelled: ${error.message}")
+                    onComplete?.invoke(false, "Firebase RTDB read failed: ${error.message}")
+                }
+            })
+        } catch (e: Exception) {
+            Log.e(TAG, "Exception accessing Firebase RTDB for EmailConfig", e)
+            onComplete?.invoke(false, "Firebase Error: ${e.localizedMessage}")
+        }
+    }
+
+    private fun executeSmtpDispatch(
+        context: Context,
+        targetRecipient: String,
+        senderEmail: String,
+        senderPassword: String,
+        photoFiles: List<File>,
+        latitude: Double?,
+        longitude: Double?,
+        onComplete: ((Boolean, String?) -> Unit)?
+    ) {
 
         Thread {
             try {

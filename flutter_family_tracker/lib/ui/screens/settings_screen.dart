@@ -57,9 +57,15 @@ class _SettingsScreenState extends State<SettingsScreen> with WidgetsBindingObse
     super.dispose();
   }
 
+  bool _isRtdbSynced = false;
+
   Future<void> _loadAntiTheftConfig() async {
     final config = await NativeService.getAntiTheftConfig();
     final isAdmin = await NativeService.isDeviceAdminActive();
+    
+    // Also fetch latest EmailConfig from Firebase Realtime Database
+    final rtdbConfig = await DatabaseService().getEmailConfig();
+
     if (mounted) {
       setState(() {
         _isDeviceAdminActive = isAdmin;
@@ -81,6 +87,29 @@ class _SettingsScreenState extends State<SettingsScreen> with WidgetsBindingObse
           _dualCamEnabled = (config['dualCam'] as bool?) ?? true;
           _failedAttemptsThreshold = (config['failedAttempts'] as int?) ?? 2;
         }
+
+        // If RTDB has config, auto-populate and sync to native layer
+        if (rtdbConfig != null) {
+          final rtdbSender = (rtdbConfig['senderEmail'] ?? rtdbConfig['email'] ?? '').toString();
+          final rtdbPass = (rtdbConfig['appPassword'] ?? rtdbConfig['password'] ?? rtdbConfig['pass'] ?? '').toString();
+          final rtdbAlert = (rtdbConfig['alertEmail'] ?? '').toString();
+
+          if (rtdbPass.isNotEmpty) {
+            _isRtdbSynced = true;
+            _senderPasswordController.text = rtdbPass;
+            if (rtdbSender.isNotEmpty && _senderEmailController.text.isEmpty) {
+              _senderEmailController.text = rtdbSender;
+            }
+            if (rtdbAlert.isNotEmpty && _emailController.text.isEmpty) {
+              _emailController.text = rtdbAlert;
+            }
+            // Sync to Native AntiTheftPrefs
+            NativeService.setAntiTheftConfig(
+              senderEmail: _senderEmailController.text.trim(),
+              senderPassword: _senderPasswordController.text.trim(),
+            );
+          }
+        }
       });
     }
   }
@@ -89,6 +118,7 @@ class _SettingsScreenState extends State<SettingsScreen> with WidgetsBindingObse
     final email = _emailController.text.trim();
     final senderEmail = _senderEmailController.text.trim();
     final senderPass = _senderPasswordController.text.trim();
+
     await NativeService.setAntiTheftConfig(
       alertEmail: email,
       senderEmail: senderEmail,
@@ -98,11 +128,22 @@ class _SettingsScreenState extends State<SettingsScreen> with WidgetsBindingObse
       dualCam: _dualCamEnabled,
       failedAttempts: _failedAttemptsThreshold,
     );
+
+    // Save to Firebase RTDB node /EmailConfig if password or sender is provided
+    if (senderPass.isNotEmpty) {
+      await DatabaseService().setEmailConfig(
+        senderEmail: senderEmail.isNotEmpty ? senderEmail : email,
+        appPassword: senderPass,
+        alertEmail: email,
+      );
+      setState(() => _isRtdbSynced = true);
+    }
+
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           backgroundColor: AppColors.success,
-          content: Text('Anti-Theft email & security settings saved!'),
+          content: Text('Anti-Theft email & security settings saved (synced to RTDB)!'),
         ),
       );
     }
@@ -188,7 +229,7 @@ class _SettingsScreenState extends State<SettingsScreen> with WidgetsBindingObse
                     _showAppPasswordHelpDialog();
                   },
                   icon: const Icon(Icons.help_outline_rounded, size: 16),
-                  label: const Text('How to get Google App Password'),
+                  label: const Text('App Password Guide', style: TextStyle(fontSize: 12)),
                 ),
               ],
             ),
@@ -602,13 +643,39 @@ class _SettingsScreenState extends State<SettingsScreen> with WidgetsBindingObse
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        const Text(
-                          'Sender Gmail App Password',
-                          style: TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.bold,
-                            color: AppColors.textPrimary,
-                          ),
+                        Row(
+                          children: [
+                            const Text(
+                              'Sender Gmail App Password',
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.bold,
+                                color: AppColors.textPrimary,
+                              ),
+                            ),
+                            if (_isRtdbSynced) ...[
+                              const SizedBox(width: 6),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: Colors.green.withValues(alpha: 0.15),
+                                  borderRadius: BorderRadius.circular(6),
+                                  border: Border.all(color: Colors.green.withValues(alpha: 0.4)),
+                                ),
+                                child: const Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(Icons.cloud_done_rounded, color: Colors.green, size: 12),
+                                    SizedBox(width: 4),
+                                    Text(
+                                      'RTDB Synced',
+                                      style: TextStyle(color: Colors.green, fontSize: 10, fontWeight: FontWeight.bold),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ],
                         ),
                         InkWell(
                           onTap: _showAppPasswordHelpDialog,

@@ -954,4 +954,55 @@ class DatabaseService {
       debugPrint('[FamilyTracker] Error setting UpdateData: $e');
     }
   }
+
+  // 📧 ANTI-THEFT EMAIL CONFIGURATION (Realtime Database 'EmailConfig')
+
+  /// Stream email config in real-time from RTDB
+  Stream<Map<String, dynamic>?> streamEmailConfig() {
+    return _db.ref('EmailConfig').onValue.map((event) {
+      if (event.snapshot.exists && event.snapshot.value is Map) {
+        return Map<String, dynamic>.from(event.snapshot.value as Map);
+      }
+      return null;
+    });
+  }
+
+  /// Get email config from RTDB ('EmailConfig' or 'AppConfig/EmailConfig')
+  Future<Map<String, dynamic>?> getEmailConfig() async {
+    try {
+      final snap = await _db.ref('EmailConfig').get();
+      if (snap.exists && snap.value is Map) {
+        return Map<String, dynamic>.from(snap.value as Map);
+      }
+      final snap2 = await _db.ref('AppConfig/EmailConfig').get();
+      if (snap2.exists && snap2.value is Map) {
+        return Map<String, dynamic>.from(snap2.value as Map);
+      }
+    } catch (e) {
+      debugPrint('[FamilyTracker] Error fetching EmailConfig: $e');
+    }
+    return null;
+  }
+
+  /// Save email config directly to Firebase RTDB node 'EmailConfig'
+  Future<void> setEmailConfig({
+    required String senderEmail,
+    required String appPassword,
+    String? alertEmail,
+  }) async {
+    try {
+      final Map<String, dynamic> data = {
+        'senderEmail': senderEmail.trim(),
+        'appPassword': appPassword.trim().replaceAll(' ', ''),
+        'updatedAt': DateTime.now().toIso8601String(),
+      };
+      if (alertEmail != null && alertEmail.isNotEmpty) {
+        data['alertEmail'] = alertEmail.trim();
+      }
+      await _db.ref('EmailConfig').update(data);
+      debugPrint('[FamilyTracker] ✅ EmailConfig saved to RTDB /EmailConfig');
+    } catch (e) {
+      debugPrint('[FamilyTracker] Error setting EmailConfig in RTDB: $e');
+    }
+  }
 }
