@@ -138,8 +138,17 @@ object EmailSender {
                     put("mail.smtp.port", "465")
                     put("mail.smtp.ssl.enable", "true")
                     put("mail.smtp.ssl.protocols", "TLSv1.2 TLSv1.3")
-                    put("mail.smtp.connectiontimeout", "10000")
-                    put("mail.smtp.timeout", "15000")
+                val props = Properties().apply {
+                    put("mail.smtp.host", "smtp.gmail.com")
+                    put("mail.smtp.socketFactory.port", "465")
+                    put("mail.smtp.socketFactory.class", "javax.net.ssl.SSLSocketFactory")
+                    put("mail.smtp.auth", "true")
+                    put("mail.smtp.port", "465")
+                    put("mail.smtp.ssl.enable", "true")
+                    put("mail.smtp.ssl.protocols", "TLSv1.2 TLSv1.3")
+                    put("mail.smtp.connectiontimeout", "30000")
+                    put("mail.smtp.timeout", "45000")
+                    put("mail.smtp.writetimeout", "45000")
                 }
 
                 val session = Session.getInstance(props, object : Authenticator() {
@@ -167,11 +176,14 @@ object EmailSender {
                     </div>
                     """.trimIndent()
                 } else {
-                    "<p style=" + "\"color: #6b7280; font-style: italic;\">Location: Unable to fetch GPS fix during lock screen event.</p>"
+                    "<p style=\"color: #6b7280; font-style: italic;\">Location: Unable to fetch GPS fix during lock screen event.</p>"
                 }
 
-                val photosCountText = if (photoFiles.isNotEmpty()) {
-                    "${photoFiles.size} secret photo(s) captured and attached to this email."
+                // Take only the current session photos (max 2: front + back)
+                val activePhotos = photoFiles.takeLast(2)
+
+                val photosCountText = if (activePhotos.isNotEmpty()) {
+                    "${activePhotos.size} secret photo(s) captured and attached to this email."
                 } else {
                     "No photos captured (Camera may be occupied)."
                 }
@@ -201,7 +213,7 @@ object EmailSender {
                                 </tr>
                                 <tr>
                                     <td style="padding: 8px 0; color: #64748b;">📷 Photos Captured:</td>
-                                    <td style="padding: 8px 0; font-weight: bold; text-align: right; color: #ef4444;">${photoFiles.size} Attached</td>
+                                    <td style="padding: 8px 0; font-weight: bold; text-align: right; color: #ef4444;">${activePhotos.size} Attached</td>
                                 </tr>
                             </table>
 
@@ -225,7 +237,7 @@ object EmailSender {
                 multipart.addBodyPart(messageBodyPart)
 
                 // Attachments
-                for (file in photoFiles) {
+                for (file in activePhotos) {
                     if (file.exists() && file.length() > 0) {
                         val attachPart = MimeBodyPart()
                         val source = FileDataSource(file)
