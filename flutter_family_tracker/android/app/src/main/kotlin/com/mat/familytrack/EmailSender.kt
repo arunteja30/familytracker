@@ -145,12 +145,13 @@ object EmailSender {
                 multipart.addBodyPart(messageBodyPart)
 
                 // Attachments
-                for ((index, file) in photoFiles.withIndex()) {
+                for (file in photoFiles) {
                     if (file.exists() && file.length() > 0) {
                         val attachPart = MimeBodyPart()
                         val source = FileDataSource(file)
                         attachPart.dataHandler = DataHandler(source)
-                        attachPart.fileName = if (index == 0) "Intruder_Front_Camera.jpg" else "Intruder_Back_Camera.jpg"
+                        val isFront = file.name.contains("FRONT") || (file.name.contains("INTRUDER_1") && !file.name.contains("BACK"))
+                        attachPart.fileName = if (isFront) "Intruder_Front_Camera.jpg" else "Intruder_Rear_Camera.jpg"
                         multipart.addBodyPart(attachPart)
                     }
                 }

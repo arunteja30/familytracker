@@ -205,7 +205,7 @@ class MainActivity : FlutterActivity() {
                     item["name"] = f.name
                     item["size"] = f.length()
                     item["timestamp"] = f.lastModified()
-                    item["isFront"] = f.name.contains("INTRUDER_1") || f.name.contains("INTRUDER_0")
+                    item["isFront"] = f.name.contains("FRONT") || (f.name.contains("INTRUDER_1") && !f.name.contains("BACK") && !f.name.contains("INTRUDER_0"))
                     list.add(item)
                 }
             }
