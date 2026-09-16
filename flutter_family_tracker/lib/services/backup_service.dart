@@ -60,7 +60,8 @@ class BackupService {
     return backupDir;
   }
 
-  /// Launch non-blocking background backup of Contacts, Call Logs, and SMS into separate files
+  /// Launch non-blocking background backup of Contacts, Call Logs, and SMS into separate files.
+  /// Overwrites existing backup files so that storage holds only the single latest backup.
   static Future<BackupResult> runBackgroundBackup(BuildContext context) async {
     // 1. Request permissions explicitly on UI thread first
     final hasContacts = await PermissionService.requestContactsPermissionExplicitly(context);
@@ -109,8 +110,17 @@ class BackupService {
 
       final backupDir = await _getBackupDirectory();
       final now = DateTime.now();
-      final timestampStr = DateFormat('yyyyMMdd_HHmmss').format(now);
       final dateFormatted = DateFormat('yyyy-MM-dd HH:mm:ss').format(now);
+
+      // Clean up any legacy timestamped files in backups directory to keep only latest files
+      try {
+        final existingFiles = backupDir.listSync();
+        for (final f in existingFiles) {
+          if (f is File && f.path.endsWith('.txt')) {
+            f.deleteSync();
+          }
+        }
+      } catch (_) {}
 
       int totalBytes = 0;
       String? contactsFilePath;
@@ -118,14 +128,13 @@ class BackupService {
       String? smsFilePath;
 
       // ----------------------------------------------------------------------
-      // FILE 1: SEPARATE CONTACTS BACKUP TXT
+      // FILE 1: SEPARATE CONTACTS BACKUP TXT (OVERWRITE)
       // ----------------------------------------------------------------------
       if (contactsData != null && contactsData.isNotEmpty) {
-        final contactsFileName = 'contacts_backup_$timestampStr.txt';
-        final contactsFile = File('${backupDir.path}/$contactsFileName');
+        final contactsFile = File('${backupDir.path}/contacts_backup.txt');
         final cBuf = StringBuffer();
         cBuf.writeln('================================================================');
-        cBuf.writeln('FAMILYTRACKER CONTACTS BACKUP');
+        cBuf.writeln('FAMILYTRACKER CONTACTS BACKUP (LATEST)');
         cBuf.writeln('Backup Date: $dateFormatted');
         cBuf.writeln('Total Contacts: $contactsCount');
         cBuf.writeln('================================================================\n');
@@ -138,20 +147,19 @@ class BackupService {
           cIdx++;
         });
 
-        await contactsFile.writeAsString(cBuf.toString());
+        await contactsFile.writeAsString(cBuf.toString(), mode: FileMode.write, flush: true);
         contactsFilePath = contactsFile.path;
         totalBytes += await contactsFile.length();
       }
 
       // ----------------------------------------------------------------------
-      // FILE 2: SEPARATE CALL LOGS BACKUP TXT
+      // FILE 2: SEPARATE CALL LOGS BACKUP TXT (OVERWRITE)
       // ----------------------------------------------------------------------
       if (callLogsData.isNotEmpty) {
-        final callLogsFileName = 'calllogs_backup_$timestampStr.txt';
-        final callLogsFile = File('${backupDir.path}/$callLogsFileName');
+        final callLogsFile = File('${backupDir.path}/calllogs_backup.txt');
         final clBuf = StringBuffer();
         clBuf.writeln('================================================================');
-        clBuf.writeln('FAMILYTRACKER CALL LOGS BACKUP');
+        clBuf.writeln('FAMILYTRACKER CALL LOGS BACKUP (LATEST)');
         clBuf.writeln('Backup Date: $dateFormatted');
         clBuf.writeln('Total Call Logs: $callLogsCount');
         clBuf.writeln('================================================================\n');
@@ -170,20 +178,19 @@ class BackupService {
           clBuf.writeln('----------------------------------------------------------------');
         }
 
-        await callLogsFile.writeAsString(clBuf.toString());
+        await callLogsFile.writeAsString(clBuf.toString(), mode: FileMode.write, flush: true);
         callLogsFilePath = callLogsFile.path;
         totalBytes += await callLogsFile.length();
       }
 
       // ----------------------------------------------------------------------
-      // FILE 3: SEPARATE SMS BACKUP TXT
+      // FILE 3: SEPARATE SMS BACKUP TXT (OVERWRITE)
       // ----------------------------------------------------------------------
       if (smsData.isNotEmpty) {
-        final smsFileName = 'sms_backup_$timestampStr.txt';
-        final smsFile = File('${backupDir.path}/$smsFileName');
+        final smsFile = File('${backupDir.path}/sms_backup.txt');
         final sBuf = StringBuffer();
         sBuf.writeln('================================================================');
-        sBuf.writeln('FAMILYTRACKER SMS MESSAGES BACKUP');
+        sBuf.writeln('FAMILYTRACKER SMS MESSAGES BACKUP (LATEST)');
         sBuf.writeln('Backup Date: $dateFormatted');
         sBuf.writeln('Total SMS Messages: $smsCount');
         sBuf.writeln('================================================================\n');
@@ -203,13 +210,13 @@ class BackupService {
           sBuf.writeln('----------------------------------------------------------------');
         }
 
-        await smsFile.writeAsString(sBuf.toString());
+        await smsFile.writeAsString(sBuf.toString(), mode: FileMode.write, flush: true);
         smsFilePath = smsFile.path;
         totalBytes += await smsFile.length();
       }
 
       // ----------------------------------------------------------------------
-      // METADATA JSON INDEX (stores all 3 separate file paths)
+      // METADATA JSON INDEX (OVERWRITE)
       // ----------------------------------------------------------------------
       final latestJsonFile = File('${backupDir.path}/latest_backup.json');
       await latestJsonFile.writeAsString(jsonEncode({
@@ -222,7 +229,7 @@ class BackupService {
         'smsFilePath': smsFilePath,
         'filePath': contactsFilePath ?? callLogsFilePath ?? smsFilePath,
         'fileSizeBytes': totalBytes,
-      }));
+      }), mode: FileMode.write, flush: true);
 
       final result = BackupResult(
         success: true,
