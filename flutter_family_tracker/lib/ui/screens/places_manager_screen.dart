@@ -7,6 +7,7 @@ import '../../models/family_member_model.dart';
 import '../../models/geofence_place_model.dart';
 import '../../models/place_event_model.dart';
 import '../../services/database_service.dart';
+import 'place_picker_screen.dart';
 
 class PlacesManagerScreen extends StatefulWidget {
   final String familyName;
@@ -740,13 +741,59 @@ class _PlacesManagerScreenState extends State<PlacesManagerScreen> with SingleTi
                               icon: _isLoadingLocation
                                   ? const SizedBox(width: 12, height: 12, child: CircularProgressIndicator(strokeWidth: 2))
                                   : const Icon(Icons.gps_fixed_rounded, size: 14),
-                              label: const Text('Use Current GPS', style: TextStyle(fontSize: 11)),
+                              label: const Text('Use GPS', style: TextStyle(fontSize: 11)),
                             ),
                           ],
                         ),
-                        Text(
-                          'Latitude: ${lat.toStringAsFixed(6)} • Longitude: ${lng.toStringAsFixed(6)}',
-                          style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
+                        const SizedBox(height: 4),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                lat == 0.0 && lng == 0.0
+                                    ? 'No location set yet'
+                                    : 'Lat: ${lat.toStringAsFixed(5)} • Lng: ${lng.toStringAsFixed(5)}',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w500,
+                                  color: lat == 0.0 && lng == 0.0 ? Colors.red.shade400 : AppColors.textSecondary,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            ElevatedButton.icon(
+                              onPressed: () async {
+                                final result = await Navigator.push<PlacePickerResult>(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (ctx) => PlacePickerScreen(
+                                      initialLat: lat != 0.0 ? lat : (_currentPosition?.latitude ?? 0.0),
+                                      initialLng: lng != 0.0 ? lng : (_currentPosition?.longitude ?? 0.0),
+                                      initialRadius: radius,
+                                      category: selectedCategory,
+                                      placeName: nameCtrl.text.trim(),
+                                    ),
+                                  ),
+                                );
+                                if (result != null) {
+                                  setModalState(() {
+                                    lat = result.latitude;
+                                    lng = result.longitude;
+                                    radius = result.radiusMeters;
+                                  });
+                                }
+                              },
+                              icon: const Icon(Icons.map_rounded, size: 15),
+                              label: const Text('Pick on Map', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: selectedCategory.color,
+                                foregroundColor: Colors.white,
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                elevation: 1,
+                              ),
+                            ),
+                          ],
                         ),
                       ],
                     ),
