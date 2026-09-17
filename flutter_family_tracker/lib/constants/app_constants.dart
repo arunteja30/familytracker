@@ -18,6 +18,6 @@ class AppConstants {
   static const String prefIsLoggedIn = 'is_logged_in';
   static const String prefAutostartGuidanceShown = 'autostart_guidance_shown';
 
-  static const String appVersionName = '1.0.0';
-  static const int appVersionCode = 1;
+  static const String appVersionName = '2.0.0';
+  static const int appVersionCode = 2;
 }
