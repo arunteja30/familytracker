@@ -1640,18 +1640,18 @@ class _SettingsScreenState extends State<SettingsScreen> with WidgetsBindingObse
   Widget _buildAppUpdateBody() {
     return Row(
       children: [
-        const Expanded(
+        Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
+              const Text(
                 'FamilyTracker for Android',
                 style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
               ),
-              SizedBox(height: 2),
+              const SizedBox(height: 2),
               Text(
-                'Version: 1.0.0 (Build 1)',
-                style: TextStyle(fontSize: 11.5, color: AppColors.textSecondary),
+                'Version: ${AppConstants.appVersionName} (Build ${AppConstants.appVersionCode})',
+                style: const TextStyle(fontSize: 11.5, color: AppColors.textSecondary),
               ),
             ],
           ),
