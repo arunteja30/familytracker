@@ -63,6 +63,8 @@ class GeofencePlaceModel {
   double radiusMeters;
   bool notifyOnEntry;
   bool notifyOnExit;
+  String targetMemberMobile; // Empty or 'all' = applies to everyone in family; or specific mobile e.g. '+919876543210'
+  String targetMemberName;   // e.g. 'Everyone', 'Alex', 'Mom'
   String createdBy;
   int createdAt;
 
@@ -76,9 +78,24 @@ class GeofencePlaceModel {
     this.radiusMeters = 150.0,
     this.notifyOnEntry = true,
     this.notifyOnExit = true,
+    this.targetMemberMobile = '',
+    this.targetMemberName = 'Everyone',
     this.createdBy = '',
     int? createdAt,
   }) : createdAt = createdAt ?? DateTime.now().millisecondsSinceEpoch;
+
+  bool get isForAllMembers => targetMemberMobile.isEmpty || targetMemberMobile == 'all';
+
+  bool appliesToMember(String mobile) {
+    if (isForAllMembers) return true;
+    if (mobile.isEmpty) return false;
+    final cleanTarget = targetMemberMobile.replaceAll(RegExp(r'\D'), '');
+    final cleanMobile = mobile.replaceAll(RegExp(r'\D'), '');
+    if (cleanTarget == cleanMobile) return true;
+    final s1 = cleanTarget.length >= 10 ? cleanTarget.substring(cleanTarget.length - 10) : cleanTarget;
+    final s2 = cleanMobile.length >= 10 ? cleanMobile.substring(cleanMobile.length - 10) : cleanMobile;
+    return s1 == s2;
+  }
 
   factory GeofencePlaceModel.fromJson(Map<dynamic, dynamic> json, [String? fallbackId]) {
     double parseDouble(dynamic val, double fallback) {
@@ -105,6 +122,9 @@ class GeofencePlaceModel {
       radiusMeters: parseDouble(json['radiusMeters'] ?? json['radius'], 150.0),
       notifyOnEntry: json['notifyOnEntry'] != false,
       notifyOnExit: json['notifyOnExit'] != false,
+      targetMemberMobile: json['targetMemberMobile']?.toString() ?? '',
+      targetMemberName: json['targetMemberName']?.toString() ??
+          (json['targetMemberMobile']?.toString().isNotEmpty == true ? 'Individual Member' : 'Everyone'),
       createdBy: json['createdBy']?.toString() ?? '',
       createdAt: json['createdAt'] is num
           ? (json['createdAt'] as num).toInt()
@@ -123,6 +143,8 @@ class GeofencePlaceModel {
       'radiusMeters': radiusMeters,
       'notifyOnEntry': notifyOnEntry,
       'notifyOnExit': notifyOnExit,
+      'targetMemberMobile': targetMemberMobile,
+      'targetMemberName': targetMemberName,
       'createdBy': createdBy,
       'createdAt': createdAt,
     };

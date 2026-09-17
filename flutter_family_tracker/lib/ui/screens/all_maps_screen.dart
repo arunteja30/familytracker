@@ -140,7 +140,7 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
           ),
           infoWindow: InfoWindow(
             title: '${place.category.displayName}: ${place.name}',
-            snippet: 'Safe Place • Radius ${place.radiusMeters.round()}m',
+            snippet: '${place.isForAllMembers ? "For: All Family" : "For: ${place.targetMemberName}"} • Radius ${place.radiusMeters.round()}m',
           ),
         ),
       );

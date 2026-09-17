@@ -36,9 +36,13 @@ class GeofenceService {
     if (location.latitude == 0.0 && location.longitude == 0.0) return;
     if (member.mobile.isEmpty || places.isEmpty) return;
 
+    // Filter places applicable to this member (either 'Everyone' or specifically assigned to this member)
+    final memberPlaces = places.where((p) => p.appliesToMember(member.mobile)).toList();
+    if (memberPlaces.isEmpty) return;
+
     final now = DateTime.now().millisecondsSinceEpoch;
 
-    for (final place in places) {
+    for (final place in memberPlaces) {
       if (place.latitude == 0.0 && place.longitude == 0.0) continue;
 
       final distance = Geolocator.distanceBetween(
@@ -132,7 +136,8 @@ class GeofenceService {
     required List<GeofencePlaceModel> places,
   }) {
     final List<GeofencePlaceModel> inside = [];
-    for (final p in places) {
+    final memberPlaces = places.where((p) => p.appliesToMember(memberMobile)).toList();
+    for (final p in memberPlaces) {
       final key = '${memberMobile.trim()}_${p.id.trim()}';
       if (_memberPlaceStates[key] == true) {
         inside.add(p);

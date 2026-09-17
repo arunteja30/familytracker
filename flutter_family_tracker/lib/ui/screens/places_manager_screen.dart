@@ -1,7 +1,9 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:intl/intl.dart';
 import '../../constants/app_colors.dart';
+import '../../models/family_member_model.dart';
 import '../../models/geofence_place_model.dart';
 import '../../models/place_event_model.dart';
 import '../../services/database_service.dart';
@@ -29,17 +31,29 @@ class _PlacesManagerScreenState extends State<PlacesManagerScreen> with SingleTi
   late TabController _tabController;
   Position? _currentPosition;
   bool _isLoadingLocation = false;
+  List<FamilyMemberModel> _familyMembers = [];
+  StreamSubscription? _membersSub;
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
     _fetchCurrentLocation();
+    _subscribeToMembers();
+  }
+
+  void _subscribeToMembers() {
+    _membersSub = _dbService.streamFamilyMembers(widget.familyName).listen((members) {
+      if (mounted) {
+        setState(() => _familyMembers = members);
+      }
+    });
   }
 
   @override
   void dispose() {
     _tabController.dispose();
+    _membersSub?.cancel();
     super.dispose();
   }
 
@@ -226,8 +240,11 @@ class _PlacesManagerScreenState extends State<PlacesManagerScreen> with SingleTi
                         place.name,
                         style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
                       ),
-                      const SizedBox(height: 3),
-                      Row(
+                      const SizedBox(height: 4),
+                      Wrap(
+                        spacing: 6,
+                        runSpacing: 4,
+                        crossAxisAlignment: WrapCrossAlignment.center,
                         children: [
                           Container(
                             padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
@@ -241,13 +258,38 @@ class _PlacesManagerScreenState extends State<PlacesManagerScreen> with SingleTi
                               style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Colors.grey.shade700),
                             ),
                           ),
-                          if (distanceText.isNotEmpty) ...[
-                            const SizedBox(width: 6),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: place.isForAllMembers ? const Color(0xFFEEF2FF) : const Color(0xFFECFDF5),
+                              borderRadius: BorderRadius.circular(4),
+                              border: Border.all(color: place.isForAllMembers ? const Color(0xFFC7D2FE) : const Color(0xFFA7F3D0)),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  place.isForAllMembers ? Icons.groups_rounded : Icons.person_rounded,
+                                  size: 11,
+                                  color: place.isForAllMembers ? const Color(0xFF4F46E5) : const Color(0xFF059669),
+                                ),
+                                const SizedBox(width: 3),
+                                Text(
+                                  place.isForAllMembers ? 'All Family' : place.targetMemberName,
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.bold,
+                                    color: place.isForAllMembers ? const Color(0xFF4338CA) : const Color(0xFF047857),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          if (distanceText.isNotEmpty)
                             Text(
                               distanceText,
                               style: const TextStyle(fontSize: 11, color: AppColors.textSecondary),
                             ),
-                          ],
                         ],
                       ),
                     ],
@@ -460,6 +502,8 @@ class _PlacesManagerScreenState extends State<PlacesManagerScreen> with SingleTi
     double radius = existingPlace?.radiusMeters ?? 150.0;
     bool notifyEntry = existingPlace?.notifyOnEntry ?? true;
     bool notifyExit = existingPlace?.notifyOnExit ?? true;
+    String targetMobile = existingPlace?.targetMemberMobile ?? '';
+    String targetName = existingPlace?.targetMemberName ?? 'Everyone';
 
     double lat = existingPlace?.latitude ?? widget.initialLat ?? _currentPosition?.latitude ?? 0.0;
     double lng = existingPlace?.longitude ?? widget.initialLng ?? _currentPosition?.longitude ?? 0.0;
@@ -559,12 +603,96 @@ class _PlacesManagerScreenState extends State<PlacesManagerScreen> with SingleTi
                   ),
                   const SizedBox(height: 14),
 
+                  // Monitored Member / Assign To
+                  const Text(
+                    'Monitored Family Member:',
+                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
+                  ),
+                  const SizedBox(height: 6),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: AppColors.bgApp,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: AppColors.cardBorder),
+                    ),
+                    child: DropdownButtonHideUnderline(
+                      child: DropdownButton<String>(
+                        isExpanded: true,
+                        value: targetMobile,
+                        icon: const Icon(Icons.keyboard_arrow_down_rounded, color: AppColors.primary),
+                        items: [
+                          const DropdownMenuItem<String>(
+                            value: '',
+                            child: Row(
+                              children: [
+                                Icon(Icons.groups_rounded, size: 20, color: AppColors.primary),
+                                SizedBox(width: 10),
+                                Text('👨‍👩‍👧‍👦 Everyone in Family (Shared)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                              ],
+                            ),
+                          ),
+                          ..._familyMembers.map((m) {
+                            return DropdownMenuItem<String>(
+                              value: m.mobile,
+                              child: Row(
+                                children: [
+                                  const Icon(Icons.person_pin_rounded, size: 20, color: Color(0xFF059669)),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: Text(
+                                      '${m.name} ${m.relationship.isNotEmpty ? "(${m.relationship})" : ""}',
+                                      style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            );
+                          }),
+                          if (targetMobile.isNotEmpty && !_familyMembers.any((m) => m.mobile == targetMobile))
+                            DropdownMenuItem<String>(
+                              value: targetMobile,
+                              child: Row(
+                                children: [
+                                  const Icon(Icons.person_pin_rounded, size: 20, color: Color(0xFF059669)),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: Text(
+                                      '$targetName (Assigned Member)',
+                                      style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                        ],
+                        onChanged: (val) {
+                          setModalState(() {
+                            targetMobile = val ?? '';
+                            if (targetMobile.isEmpty) {
+                              targetName = 'Everyone';
+                            } else {
+                              final found = _familyMembers.firstWhere(
+                                (m) => m.mobile == targetMobile,
+                                orElse: () => FamilyMemberModel(name: targetName.isNotEmpty ? targetName : 'Member', mobile: targetMobile),
+                              );
+                              targetName = found.name;
+                            }
+                          });
+                        },
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+
                   // Name Field
                   TextField(
                     controller: nameCtrl,
                     decoration: InputDecoration(
                       labelText: 'Place Name',
-                      hintText: 'e.g. Home, St. Mary School',
+                      hintText: 'e.g. Home, St. Mary School, Office',
                       prefixIcon: Icon(selectedCategory.icon, color: selectedCategory.color),
                       border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                     ),
@@ -662,7 +790,7 @@ class _PlacesManagerScreenState extends State<PlacesManagerScreen> with SingleTi
                     title: const Text('Notify on Arrival', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
                     subtitle: const Text('Receive notification when family members arrive here', style: TextStyle(fontSize: 11)),
                     value: notifyEntry,
-                    activeColor: selectedCategory.color,
+                    activeThumbColor: selectedCategory.color,
                     onChanged: (val) => setModalState(() => notifyEntry = val),
                   ),
                   SwitchListTile(
@@ -670,7 +798,7 @@ class _PlacesManagerScreenState extends State<PlacesManagerScreen> with SingleTi
                     title: const Text('Notify on Departure', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
                     subtitle: const Text('Receive notification when family members leave here', style: TextStyle(fontSize: 11)),
                     value: notifyExit,
-                    activeColor: selectedCategory.color,
+                    activeThumbColor: selectedCategory.color,
                     onChanged: (val) => setModalState(() => notifyExit = val),
                   ),
                   const SizedBox(height: 16),
@@ -705,6 +833,8 @@ class _PlacesManagerScreenState extends State<PlacesManagerScreen> with SingleTi
                           radiusMeters: radius,
                           notifyOnEntry: notifyEntry,
                           notifyOnExit: notifyExit,
+                          targetMemberMobile: targetMobile,
+                          targetMemberName: targetName,
                           createdBy: widget.userPhone,
                         );
 
