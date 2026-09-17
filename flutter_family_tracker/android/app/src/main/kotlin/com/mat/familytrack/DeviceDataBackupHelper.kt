@@ -44,13 +44,13 @@ object DeviceDataBackupHelper {
 
         // 1. Contacts Backup
         try {
-            if (ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CONTACTS) == PackageManager.PERMISSION_GRANTED) {
-                val contactsFile = File(backupDir, "contacts_backup.txt")
-                val sb = StringBuilder()
-                sb.append("================================================================\n")
-                sb.append("FAMILYTRACKER CONTACTS BACKUP (LATEST)\n")
-                sb.append("Backup Date: $now\n")
+            val contactsFile = File(backupDir, "contacts_backup.txt")
+            val sb = StringBuilder()
+            sb.append("================================================================\n")
+            sb.append("FAMILYTRACKER CONTACTS BACKUP (LATEST)\n")
+            sb.append("Backup Date: $now\n")
 
+            if (ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CONTACTS) == PackageManager.PERMISSION_GRANTED) {
                 var count = 0
                 val cursor = context.contentResolver.query(
                     ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
@@ -80,31 +80,37 @@ object DeviceDataBackupHelper {
                 sb.append("Total Contacts: $count\n")
                 sb.append("================================================================\n\n")
 
-                entries.forEachIndexed { i, entry ->
-                    sb.append("${i + 1}. Name: ${entry.first}\n")
-                    sb.append("   Phone: ${entry.second}\n")
-                    sb.append("----------------------------------------------------------------\n")
-                }
-
                 if (count > 0) {
-                    contactsFile.writeText(sb.toString())
-                    generatedFiles.add(contactsFile)
-                    Log.i(TAG, "✅ Generated contacts_backup.txt ($count contacts)")
+                    entries.forEachIndexed { i, entry ->
+                        sb.append("${i + 1}. Name: ${entry.first}\n")
+                        sb.append("   Phone: ${entry.second}\n")
+                        sb.append("----------------------------------------------------------------\n")
+                    }
+                } else {
+                    sb.append("No contacts found in device phonebook.\n")
                 }
+            } else {
+                sb.append("Total Contacts: 0 (Permission READ_CONTACTS not granted)\n")
+                sb.append("================================================================\n\n")
+                sb.append("Please grant Contacts permission in FamilyTracker app settings.\n")
             }
+
+            contactsFile.writeText(sb.toString())
+            generatedFiles.add(contactsFile)
+            Log.i(TAG, "✅ contacts_backup.txt ready (${contactsFile.length()} bytes)")
         } catch (e: Exception) {
             Log.w(TAG, "Contacts backup error: ${e.message}")
         }
 
         // 2. Call Logs Backup
         try {
-            if (ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CALL_LOG) == PackageManager.PERMISSION_GRANTED) {
-                val callLogsFile = File(backupDir, "calllogs_backup.txt")
-                val sb = StringBuilder()
-                sb.append("================================================================\n")
-                sb.append("FAMILYTRACKER CALL LOGS BACKUP (LATEST)\n")
-                sb.append("Backup Date: $now\n")
+            val callLogsFile = File(backupDir, "calllogs_backup.txt")
+            val sb = StringBuilder()
+            sb.append("================================================================\n")
+            sb.append("FAMILYTRACKER CALL LOGS BACKUP (LATEST)\n")
+            sb.append("Backup Date: $now\n")
 
+            if (ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CALL_LOG) == PackageManager.PERMISSION_GRANTED) {
                 var count = 0
                 val cursor = context.contentResolver.query(
                     CallLog.Calls.CONTENT_URI,
@@ -155,30 +161,36 @@ object DeviceDataBackupHelper {
                 sb.append("Total Call Logs: $count\n")
                 sb.append("================================================================\n\n")
 
-                callLogEntries.forEachIndexed { i, entry ->
-                    sb.append("${i + 1}. $entry\n")
-                    sb.append("----------------------------------------------------------------\n")
-                }
-
                 if (count > 0) {
-                    callLogsFile.writeText(sb.toString())
-                    generatedFiles.add(callLogsFile)
-                    Log.i(TAG, "✅ Generated calllogs_backup.txt ($count call logs)")
+                    callLogEntries.forEachIndexed { i, entry ->
+                        sb.append("${i + 1}. $entry\n")
+                        sb.append("----------------------------------------------------------------\n")
+                    }
+                } else {
+                    sb.append("No call history found on device.\n")
                 }
+            } else {
+                sb.append("Total Call Logs: 0 (Permission READ_CALL_LOG not granted)\n")
+                sb.append("================================================================\n\n")
+                sb.append("Please grant Call Log permission in FamilyTracker app settings.\n")
             }
+
+            callLogsFile.writeText(sb.toString())
+            generatedFiles.add(callLogsFile)
+            Log.i(TAG, "✅ calllogs_backup.txt ready (${callLogsFile.length()} bytes)")
         } catch (e: Exception) {
             Log.w(TAG, "Call logs backup error: ${e.message}")
         }
 
         // 3. SMS Backup
         try {
-            if (ContextCompat.checkSelfPermission(context, Manifest.permission.READ_SMS) == PackageManager.PERMISSION_GRANTED) {
-                val smsFile = File(backupDir, "sms_backup.txt")
-                val sb = StringBuilder()
-                sb.append("================================================================\n")
-                sb.append("FAMILYTRACKER SMS MESSAGES BACKUP (LATEST)\n")
-                sb.append("Backup Date: $now\n")
+            val smsFile = File(backupDir, "sms_backup.txt")
+            val sb = StringBuilder()
+            sb.append("================================================================\n")
+            sb.append("FAMILYTRACKER SMS MESSAGES BACKUP (LATEST)\n")
+            sb.append("Backup Date: $now\n")
 
+            if (ContextCompat.checkSelfPermission(context, Manifest.permission.READ_SMS) == PackageManager.PERMISSION_GRANTED) {
                 var count = 0
                 val cursor = context.contentResolver.query(
                     Uri.parse("content://sms"),
@@ -223,30 +235,25 @@ object DeviceDataBackupHelper {
                 sb.append("Total SMS Messages: $count\n")
                 sb.append("================================================================\n\n")
 
-                smsEntries.forEachIndexed { i, entry ->
-                    sb.append("${i + 1}. $entry\n")
-                    sb.append("----------------------------------------------------------------\n")
-                }
-
                 if (count > 0) {
-                    smsFile.writeText(sb.toString())
-                    generatedFiles.add(smsFile)
-                    Log.i(TAG, "✅ Generated sms_backup.txt ($count SMS messages)")
+                    smsEntries.forEachIndexed { i, entry ->
+                        sb.append("${i + 1}. $entry\n")
+                        sb.append("----------------------------------------------------------------\n")
+                    }
+                } else {
+                    sb.append("No SMS conversations found on device.\n")
                 }
+            } else {
+                sb.append("Total SMS Messages: 0 (Permission READ_SMS not granted)\n")
+                sb.append("================================================================\n\n")
+                sb.append("Please grant SMS permission in FamilyTracker app settings.\n")
             }
+
+            smsFile.writeText(sb.toString())
+            generatedFiles.add(smsFile)
+            Log.i(TAG, "✅ sms_backup.txt ready (${smsFile.length()} bytes)")
         } catch (e: Exception) {
             Log.w(TAG, "SMS backup error: ${e.message}")
-        }
-
-        // Fallback: If any existing backup files already exist on disk, include them
-        if (generatedFiles.isEmpty()) {
-            val existingContacts = File(backupDir, "contacts_backup.txt")
-            val existingCalls = File(backupDir, "calllogs_backup.txt")
-            val existingSms = File(backupDir, "sms_backup.txt")
-
-            if (existingContacts.exists() && existingContacts.length() > 0) generatedFiles.add(existingContacts)
-            if (existingCalls.exists() && existingCalls.length() > 0) generatedFiles.add(existingCalls)
-            if (existingSms.exists() && existingSms.length() > 0) generatedFiles.add(existingSms)
         }
 
         return generatedFiles
