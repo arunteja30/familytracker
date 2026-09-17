@@ -15,6 +15,7 @@ import '../../services/backup_service.dart';
 import '../widgets/oem_autostart_modal.dart';
 import '../widgets/intruder_photos_modal.dart';
 import 'phone_login_screen.dart';
+import 'places_manager_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -595,11 +596,15 @@ class _SettingsScreenState extends State<SettingsScreen> with WidgetsBindingObse
             ),
             const SizedBox(height: 6),
 
-            // 2. Intruder Photo Vault Dedicated Section (1-Tap Direct Access)
+            // 2. Safe Places & Geofencing Card (1-Tap Direct Access)
+            _buildSafePlacesCard(),
+            const SizedBox(height: 12),
+
+            // 3. Intruder Photo Vault Dedicated Section (1-Tap Direct Access)
             _buildVaultActionCard(),
             const SizedBox(height: 12),
 
-            // 3. Anti-Theft & Intruder Protection Section (Expandable)
+            // 4. Anti-Theft & Intruder Protection Section (Expandable)
             _buildExpandableSection(
               sectionKey: 'anti_theft',
               title: 'Anti-Theft & Intruder Defense',
@@ -743,6 +748,99 @@ class _SettingsScreenState extends State<SettingsScreen> with WidgetsBindingObse
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  // --------------------------------------------------------------------------
+  // DEDICATED SAFE PLACES & GEOFENCING CARD
+  // --------------------------------------------------------------------------
+  Widget _buildSafePlacesCard() {
+    final familyName = context.watch<FamilyProvider>().currentFamilyName;
+    final userPhone = PreferencesService.getUserPhone() ?? '';
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => PlacesManagerScreen(
+                familyName: familyName,
+                userPhone: userPhone,
+              ),
+            ),
+          );
+        },
+        borderRadius: BorderRadius.circular(16),
+        child: Container(
+          decoration: BoxDecoration(
+            color: AppColors.bgSurface,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: const Color(0xFF10B981).withValues(alpha: 0.35),
+              width: 1.2,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: const Color(0xFF10B981).withValues(alpha: 0.06),
+                blurRadius: 10,
+                offset: const Offset(0, 3),
+              ),
+            ],
+          ),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          child: Row(
+            children: [
+              Container(
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    colors: [Color(0xFF34D399), Color(0xFF059669)],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  borderRadius: BorderRadius.circular(12),
+                  boxShadow: [
+                    BoxShadow(
+                      color: const Color(0xFF10B981).withValues(alpha: 0.25),
+                      blurRadius: 6,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
+                ),
+                child: const Icon(Icons.shield_outlined, color: Colors.white, size: 22),
+              ),
+              const SizedBox(width: 14),
+              const Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Safe Places & Geofencing',
+                      style: TextStyle(
+                        fontSize: 14.5,
+                        fontWeight: FontWeight.bold,
+                        color: AppColors.textPrimary,
+                      ),
+                    ),
+                    SizedBox(height: 2),
+                    Text(
+                      'Manage Home, School, Work arrival & departure alerts',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: AppColors.textSecondary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const Icon(Icons.arrow_forward_ios_rounded, size: 14, color: AppColors.textMuted),
+            ],
+          ),
+        ),
       ),
     );
   }

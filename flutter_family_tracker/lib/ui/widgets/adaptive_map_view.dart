@@ -50,6 +50,7 @@ class AdaptiveMapView extends StatefulWidget {
   final List<AdaptivePolyline> polylines;
   final Set<gmaps.Marker>? googleMarkers;
   final Set<gmaps.Polyline>? googlePolylines;
+  final Set<gmaps.Circle>? googleCircles;
   final Function(gmaps.GoogleMapController)? onGoogleMapCreated;
 
   const AdaptiveMapView({
@@ -62,6 +63,7 @@ class AdaptiveMapView extends StatefulWidget {
     this.polylines = const [],
     this.googleMarkers,
     this.googlePolylines,
+    this.googleCircles,
     this.onGoogleMapCreated,
   });
 
@@ -282,6 +284,7 @@ class _AdaptiveMapViewState extends State<AdaptiveMapView> {
       ),
       markers: widget.googleMarkers ?? {},
       polylines: widget.googlePolylines ?? {},
+      circles: widget.googleCircles ?? {},
       onMapCreated: widget.onGoogleMapCreated,
       myLocationEnabled: true,
       myLocationButtonEnabled: false,

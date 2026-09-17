@@ -7,6 +7,8 @@ import '../models/location_details_model.dart';
 import '../models/registration_model.dart';
 import '../models/chat_message_model.dart';
 import '../models/app_update_model.dart';
+import '../models/geofence_place_model.dart';
+import '../models/place_event_model.dart';
 import '../utils/phone_utils.dart';
 import 'geocoding_service.dart';
 
@@ -1036,5 +1038,119 @@ class DatabaseService {
       debugPrint('[FamilyTracker] Error fetching user alertEmail: $e');
     }
     return null;
+  }
+
+  // ===========================================================================
+  // SMART PLACES & GEOFENCING SAFE ZONES
+  // ===========================================================================
+
+  /// Stream of safe places configured for a given family group
+  Stream<List<GeofencePlaceModel>> streamFamilyPlaces(String familyName) {
+    final cleanGroup = familyName.trim();
+    if (cleanGroup.isEmpty) return Stream.value([]);
+
+    return _db.ref('Places').child(cleanGroup).onValue.map((event) {
+      final List<GeofencePlaceModel> places = [];
+      final data = event.snapshot.value;
+      if (data is Map) {
+        data.forEach((key, val) {
+          if (val is Map) {
+            places.add(GeofencePlaceModel.fromJson(val, key.toString()));
+          }
+        });
+      }
+      places.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+      return places;
+    });
+  }
+
+  /// Fetch all places once for a family
+  Future<List<GeofencePlaceModel>> getFamilyPlaces(String familyName) async {
+    final cleanGroup = familyName.trim();
+    if (cleanGroup.isEmpty) return [];
+
+    try {
+      final snap = await _db.ref('Places').child(cleanGroup).get();
+      final List<GeofencePlaceModel> places = [];
+      final data = snap.value;
+      if (data is Map) {
+        data.forEach((key, val) {
+          if (val is Map) {
+            places.add(GeofencePlaceModel.fromJson(val, key.toString()));
+          }
+        });
+      }
+      return places;
+    } catch (e) {
+      debugPrint('[DatabaseService] Error fetching family places: $e');
+      return [];
+    }
+  }
+
+  /// Save or update a safe place
+  Future<bool> savePlace(GeofencePlaceModel place) async {
+    if (place.familyName.trim().isEmpty) return false;
+    try {
+      final ref = place.id.isNotEmpty
+          ? _db.ref('Places').child(place.familyName.trim()).child(place.id)
+          : _db.ref('Places').child(place.familyName.trim()).push();
+
+      if (place.id.isEmpty) {
+        place.id = ref.key ?? '';
+      }
+
+      await ref.set(place.toJson());
+      debugPrint('[DatabaseService] ✅ Place saved successfully: ${place.name} (${place.id})');
+      return true;
+    } catch (e) {
+      debugPrint('[DatabaseService] Error saving place: $e');
+      return false;
+    }
+  }
+
+  /// Delete a safe place
+  Future<bool> deletePlace(String familyName, String placeId) async {
+    if (familyName.trim().isEmpty || placeId.trim().isEmpty) return false;
+    try {
+      await _db.ref('Places').child(familyName.trim()).child(placeId.trim()).remove();
+      debugPrint('[DatabaseService] 🗑️ Place deleted: $placeId from $familyName');
+      return true;
+    } catch (e) {
+      debugPrint('[DatabaseService] Error deleting place: $e');
+      return false;
+    }
+  }
+
+  /// Log a place arrival/departure event to RTDB
+  Future<void> logPlaceEvent(PlaceEventModel event) async {
+    if (event.familyName.trim().isEmpty) return;
+    try {
+      final ref = _db.ref('PlaceEvents').child(event.familyName.trim()).push();
+      event.id = ref.key ?? '';
+      await ref.set(event.toJson());
+      debugPrint('[DatabaseService] 📍 Place event logged: ${event.memberName} ${event.eventType} ${event.placeName}');
+    } catch (e) {
+      debugPrint('[DatabaseService] Error logging place event: $e');
+    }
+  }
+
+  /// Stream recent place events for a family circle
+  Stream<List<PlaceEventModel>> streamRecentPlaceEvents(String familyName, {int limit = 30}) {
+    final cleanGroup = familyName.trim();
+    if (cleanGroup.isEmpty) return Stream.value([]);
+
+    return _db.ref('PlaceEvents').child(cleanGroup).limitToLast(limit).onValue.map((event) {
+      final List<PlaceEventModel> events = [];
+      final data = event.snapshot.value;
+      if (data is Map) {
+        data.forEach((key, val) {
+          if (val is Map) {
+            events.add(PlaceEventModel.fromJson(val, key.toString()));
+          }
+        });
+      }
+      events.sort((a, b) => b.timestamp.compareTo(a.timestamp));
+      return events;
+    });
   }
 }

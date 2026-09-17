@@ -67,9 +67,19 @@ class NotificationService {
             enableVibration: true,
           );
 
+          const geofenceChannel = AndroidNotificationChannel(
+            'family_geofence_channel',
+            'Safe Place & Geofence Alerts',
+            description: 'Arrival and departure notifications for family safe places',
+            importance: Importance.high,
+            playSound: true,
+            enableVibration: true,
+          );
+
           await androidImpl.createNotificationChannel(emergencyChannel);
           await androidImpl.createNotificationChannel(alertChannel);
           await androidImpl.createNotificationChannel(chatChannel);
+          await androidImpl.createNotificationChannel(geofenceChannel);
           await androidImpl.requestNotificationsPermission();
         }
       }
@@ -355,6 +365,62 @@ class NotificationService {
       );
     } catch (e) {
       debugPrint('[NotificationService] Show Backup Complete error: $e');
+    }
+  }
+
+  /// Show Safe Place Arrival or Departure notification
+  static Future<void> showPlaceAlert({
+    required String memberName,
+    required String placeName,
+    required bool isArrival,
+    String? familyName,
+  }) async {
+    try {
+      await initialize();
+
+      final emoji = isArrival ? '🏠' : '🚗';
+      final action = isArrival ? 'arrived at' : 'left';
+      final title = '$emoji $memberName $action $placeName';
+      final famText = (familyName != null && familyName.isNotEmpty) ? ' • $familyName' : '';
+      final body = '$memberName has safely $action $placeName$famText.';
+
+      final androidDetails = AndroidNotificationDetails(
+        'family_geofence_channel',
+        'Safe Place & Geofence Alerts',
+        channelDescription: 'Arrival and departure notifications for family safe places',
+        importance: Importance.high,
+        priority: Priority.high,
+        playSound: true,
+        enableVibration: true,
+        styleInformation: BigTextStyleInformation(
+          body,
+          contentTitle: title,
+          summaryText: 'Safe Place Alert',
+        ),
+      );
+
+      const darwinDetails = DarwinNotificationDetails(
+        presentAlert: true,
+        presentBadge: true,
+        presentSound: true,
+      );
+
+      final details = NotificationDetails(
+        android: androidDetails,
+        iOS: darwinDetails,
+      );
+
+      final notifId = (memberName.hashCode ^ placeName.hashCode ^ (isArrival ? 1 : 2)).abs() % 100000;
+
+      await _notificationsPlugin.show(
+        notifId,
+        title,
+        body,
+        details,
+      );
+      debugPrint('[NotificationService] 📍 Dispatched place alert: $title');
+    } catch (e) {
+      debugPrint('[NotificationService] Error showing place alert: $e');
     }
   }
 }

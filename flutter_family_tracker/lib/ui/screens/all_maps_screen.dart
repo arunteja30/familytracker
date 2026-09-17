@@ -9,15 +9,19 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../constants/app_colors.dart';
 import '../../models/family_member_model.dart';
 import '../../models/location_details_model.dart';
+import '../../models/geofence_place_model.dart';
 import '../../providers/family_provider.dart';
 import '../../services/database_service.dart';
 import '../../services/geocoding_service.dart';
+import '../../services/geofence_service.dart';
+import '../../services/preferences_service.dart';
 import '../../services/profile_image_service.dart';
 import '../../utils/marker_generator.dart';
 import '../widgets/adaptive_map_view.dart';
 import '../widgets/buzzing_dot.dart';
 import 'location_history_screen.dart';
 import 'family_chat_screen.dart';
+import 'places_manager_screen.dart';
 
 class AllMapsScreen extends StatefulWidget {
   final String familyName;
@@ -39,6 +43,10 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
   final Completer<GoogleMapController> _controller = Completer();
   final DatabaseService _dbService = DatabaseService();
   final List<StreamSubscription> _locationSubscriptions = [];
+  StreamSubscription? _placesSubscription;
+  List<GeofencePlaceModel> _familyPlaces = [];
+  final Set<Circle> _geofenceCircles = {};
+  final Set<Marker> _placeMarkers = {};
   MapType _currentMapType = MapType.normal;
   final Set<Marker> _markers = {};
   final Set<Polyline> _polylines = {};
@@ -70,6 +78,7 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
     }
     _loadPhotosAndBuildMarkers();
     _subscribeToLiveMovements();
+    _subscribeToPlaces();
   }
 
   @override
@@ -77,7 +86,70 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
     for (var sub in _locationSubscriptions) {
       sub.cancel();
     }
+    _placesSubscription?.cancel();
     super.dispose();
+  }
+
+  // Subscribe to real-time safe places for this family group
+  void _subscribeToPlaces() {
+    _placesSubscription = _dbService.streamFamilyPlaces(widget.familyName).listen((places) {
+      if (mounted) {
+        setState(() {
+          _familyPlaces = places;
+          _buildGeofenceOverlays();
+        });
+      }
+    });
+  }
+
+  void _buildGeofenceOverlays() {
+    final Set<Circle> circles = {};
+    final Set<Marker> placeMarkers = {};
+
+    for (final place in _familyPlaces) {
+      if (place.latitude == 0.0 && place.longitude == 0.0) continue;
+
+      final color = place.category.color;
+      final latLng = LatLng(place.latitude, place.longitude);
+
+      // 1. Safe Zone Circle Overlay
+      circles.add(
+        Circle(
+          circleId: CircleId('geofence_${place.id}'),
+          center: latLng,
+          radius: place.radiusMeters,
+          fillColor: color.withValues(alpha: 0.18),
+          strokeColor: color.withValues(alpha: 0.85),
+          strokeWidth: 2,
+        ),
+      );
+
+      // 2. Place Marker
+      placeMarkers.add(
+        Marker(
+          markerId: MarkerId('place_${place.id}'),
+          position: latLng,
+          icon: BitmapDescriptor.defaultMarkerWithHue(
+            place.category == PlaceCategory.home
+                ? BitmapDescriptor.hueGreen
+                : place.category == PlaceCategory.school
+                    ? BitmapDescriptor.hueAzure
+                    : place.category == PlaceCategory.work
+                        ? BitmapDescriptor.hueOrange
+                        : BitmapDescriptor.hueViolet,
+          ),
+          infoWindow: InfoWindow(
+            title: '${place.category.displayName}: ${place.name}',
+            snippet: 'Safe Place • Radius ${place.radiusMeters.round()}m',
+          ),
+        ),
+      );
+    }
+
+    _geofenceCircles.clear();
+    _geofenceCircles.addAll(circles);
+    _placeMarkers.clear();
+    _placeMarkers.addAll(placeMarkers);
   }
 
   // Subscribe to live location stream for all family members to track movements live
@@ -99,6 +171,15 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
 
           if (hasMoved) {
             _updateMemberMarker(member, newLoc, memberIndex);
+          }
+
+          // Real-time Geofence Safe Place Evaluation (Arrival / Departure)
+          if (_familyPlaces.isNotEmpty) {
+            GeofenceService().evaluateMemberLocation(
+              member: member,
+              location: newLoc,
+              places: _familyPlaces,
+            );
           }
         }
       });
@@ -398,6 +479,28 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
             ],
           ),
           IconButton(
+            tooltip: 'Safe Places & Geofencing',
+            icon: const Icon(Icons.shield_outlined),
+            onPressed: () {
+              final userPhone = PreferencesService.getUserPhone() ?? '';
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => PlacesManagerScreen(
+                    familyName: widget.familyName,
+                    userPhone: userPhone,
+                    initialLat: _selectedMember != null
+                        ? (_liveLocations[_selectedMember!.mobile]?.latitude ?? initialPos.latitude)
+                        : initialPos.latitude,
+                    initialLng: _selectedMember != null
+                        ? (_liveLocations[_selectedMember!.mobile]?.longitude ?? initialPos.longitude)
+                        : initialPos.longitude,
+                  ),
+                ),
+              );
+            },
+          ),
+          IconButton(
             tooltip: 'View All Members',
             icon: const Icon(Icons.fit_screen_rounded),
             onPressed: _fitAllBounds,
@@ -426,8 +529,9 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
                 },
               );
             }).where((p) => p.latitude != 0.0 && p.longitude != 0.0).toList(),
-            googleMarkers: _markers,
+            googleMarkers: {..._markers, ..._placeMarkers},
             googlePolylines: _polylines,
+            googleCircles: _geofenceCircles,
             polylines: _adaptivePolylines,
             onGoogleMapCreated: (GoogleMapController controller) {
               if (!_controller.isCompleted) {
