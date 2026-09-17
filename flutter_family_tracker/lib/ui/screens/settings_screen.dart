@@ -631,22 +631,6 @@ class _SettingsScreenState extends State<SettingsScreen> with WidgetsBindingObse
             ),
             const SizedBox(height: 12),
 
-            // 4. Device Data Backup Section (Expandable)
-            _buildExpandableSection(
-              sectionKey: 'data_backup',
-              title: 'Device Data Backup',
-              subtitle: 'Export Contacts, Call Logs & SMS to local storage',
-              icon: Icons.backup_rounded,
-              iconColor: const Color(0xFF0D9488),
-              iconBgColor: const Color(0xFFCCFBF1),
-              statusBadge: _buildStatusBadge(
-                label: _lastBackup != null ? 'Backed Up' : 'No Backup',
-                isActive: _lastBackup != null,
-              ),
-              child: _buildBackupBody(),
-            ),
-            const SizedBox(height: 12),
-
             // 5. Background & OEM Battery Section (Expandable)
             _buildExpandableSection(
               sectionKey: 'battery_autostart',
