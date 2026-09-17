@@ -4,7 +4,7 @@ import 'package:pinput/pinput.dart';
 import 'package:provider/provider.dart';
 import '../../constants/app_colors.dart';
 import '../../providers/auth_provider.dart';
-import 'family_dashboard_screen.dart';
+import 'main_navigation_screen.dart';
 
 class OtpVerificationScreen extends StatefulWidget {
   final String phoneNumber;
@@ -32,7 +32,7 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
       if (authProvider.currentUser != null && mounted) {
         Navigator.pushAndRemoveUntil(
           context,
-          MaterialPageRoute(builder: (_) => const FamilyDashboardScreen()),
+          MaterialPageRoute(builder: (_) => const MainNavigationScreen()),
           (route) => false,
         );
       }
@@ -68,7 +68,7 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
       if (success && mounted) {
         Navigator.pushAndRemoveUntil(
           context,
-          MaterialPageRoute(builder: (_) => const FamilyDashboardScreen()),
+          MaterialPageRoute(builder: (_) => const MainNavigationScreen()),
           (route) => false,
         );
       }

@@ -52,12 +52,9 @@ class _MemberCardState extends State<MemberCard> {
   Future<void> _loadProfileImage() async {
     if (kIsWeb) return;
     try {
-      final file =
-          await ProfileImageService.getProfileImageFile(widget.member.mobile);
+      final file = await ProfileImageService.getProfileImageFile(widget.member.mobile);
       if (mounted) {
-        setState(() {
-          _profileImageFile = file;
-        });
+        setState(() => _profileImageFile = file);
       }
     } catch (_) {}
   }
@@ -67,26 +64,36 @@ class _MemberCardState extends State<MemberCard> {
     showModalBottomSheet(
       context: context,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
       builder: (ctx) => SafeArea(
         child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 16),
+          padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 16),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
+              Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(color: Colors.grey.shade300, borderRadius: BorderRadius.circular(2)),
+              ),
+              const SizedBox(height: 16),
               Text(
-                'Profile Photo for ${widget.member.name}',
+                'Profile Photo: ${widget.member.name}',
                 style: const TextStyle(
                   fontSize: 16,
                   fontWeight: FontWeight.bold,
                   color: AppColors.textPrimary,
                 ),
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 16),
               ListTile(
-                leading: const Icon(Icons.camera_alt_rounded, color: AppColors.primary),
-                title: const Text('Take Photo from Camera'),
+                leading: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(color: AppColors.primary.withValues(alpha: 0.1), shape: BoxShape.circle),
+                  child: const Icon(Icons.camera_alt_rounded, color: AppColors.primary, size: 20),
+                ),
+                title: const Text('Take Photo from Camera', style: TextStyle(fontWeight: FontWeight.w600)),
                 onTap: () async {
                   Navigator.pop(ctx);
                   final file = await ProfileImageService.pickAndSaveProfileImage(
@@ -99,8 +106,12 @@ class _MemberCardState extends State<MemberCard> {
                 },
               ),
               ListTile(
-                leading: const Icon(Icons.photo_library_rounded, color: AppColors.primary),
-                title: const Text('Choose from Gallery'),
+                leading: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(color: AppColors.primary.withValues(alpha: 0.1), shape: BoxShape.circle),
+                  child: const Icon(Icons.photo_library_rounded, color: AppColors.primary, size: 20),
+                ),
+                title: const Text('Choose from Gallery', style: TextStyle(fontWeight: FontWeight.w600)),
                 onTap: () async {
                   Navigator.pop(ctx);
                   final file = await ProfileImageService.pickAndSaveProfileImage(
@@ -114,8 +125,12 @@ class _MemberCardState extends State<MemberCard> {
               ),
               if (_profileImageFile != null)
                 ListTile(
-                  leading: const Icon(Icons.delete_outline_rounded, color: AppColors.danger),
-                  title: const Text('Remove Photo', style: TextStyle(color: AppColors.danger)),
+                  leading: Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(color: Colors.red.shade50, shape: BoxShape.circle),
+                    child: const Icon(Icons.delete_outline_rounded, color: AppColors.danger, size: 20),
+                  ),
+                  title: const Text('Remove Photo', style: TextStyle(color: AppColors.danger, fontWeight: FontWeight.w600)),
                   onTap: () async {
                     Navigator.pop(ctx);
                     await ProfileImageService.deleteProfileImage(widget.member.mobile);
@@ -139,320 +154,424 @@ class _MemberCardState extends State<MemberCard> {
     }
   }
 
+  void _showMemberActionSheet(BuildContext context, bool hasUnread) {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(color: Colors.grey.shade300, borderRadius: BorderRadius.circular(2)),
+              ),
+              const SizedBox(height: 14),
+              Row(
+                children: [
+                  CircleAvatar(
+                    radius: 20,
+                    backgroundColor: AppColors.primary.withValues(alpha: 0.15),
+                    backgroundImage: _profileImageFile != null && !kIsWeb ? FileImage(_profileImageFile!) : null,
+                    child: _profileImageFile == null || kIsWeb
+                        ? Text(
+                            widget.member.name.isNotEmpty ? widget.member.name[0].toUpperCase() : 'M',
+                            style: const TextStyle(color: AppColors.primary, fontWeight: FontWeight.bold),
+                          )
+                        : null,
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          widget.member.name,
+                          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
+                        ),
+                        Text(
+                          widget.member.mobile,
+                          style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              const Divider(height: 1),
+              const SizedBox(height: 8),
+
+              // Action 1: Call
+              ListTile(
+                leading: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(color: Colors.green.shade50, shape: BoxShape.circle),
+                  child: const Icon(Icons.phone_rounded, color: Color(0xFF16A34A), size: 20),
+                ),
+                title: const Text('Call Member', style: TextStyle(fontWeight: FontWeight.w600)),
+                subtitle: Text(widget.member.mobile, style: const TextStyle(fontSize: 12)),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _makeCall(widget.member.mobile);
+                },
+              ),
+
+              // Action 2: Direct Chat
+              ListTile(
+                leading: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(color: AppColors.primary.withValues(alpha: 0.1), shape: BoxShape.circle),
+                  child: const Icon(Icons.chat_bubble_outline_rounded, color: AppColors.primary, size: 20),
+                ),
+                title: Row(
+                  children: [
+                    const Text('Direct Chat', style: TextStyle(fontWeight: FontWeight.w600)),
+                    if (hasUnread) ...[
+                      const SizedBox(width: 8),
+                      const BuzzingDot(size: 7, color: Color(0xFFEF4444)),
+                    ],
+                  ],
+                ),
+                subtitle: const Text('Send direct message in circle', style: TextStyle(fontSize: 12)),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => FamilyChatScreen(targetMember: widget.member),
+                    ),
+                  );
+                },
+              ),
+
+              // Action 3: Live Track on Map
+              ListTile(
+                leading: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(color: Colors.blue.shade50, shape: BoxShape.circle),
+                  child: const Icon(Icons.my_location_rounded, color: Color(0xFF2563EB), size: 20),
+                ),
+                title: const Text('Live Track on Map', style: TextStyle(fontWeight: FontWeight.w600)),
+                subtitle: const Text('Focus real-time location on GPS map', style: TextStyle(fontSize: 12)),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  widget.onTrackOnMap();
+                },
+              ),
+
+              // Action 4: 24h Location History
+              ListTile(
+                leading: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(color: Colors.amber.shade50, shape: BoxShape.circle),
+                  child: const Icon(Icons.history_rounded, color: Color(0xFFD97706), size: 20),
+                ),
+                title: const Text('Location History (24h)', style: TextStyle(fontWeight: FontWeight.w600)),
+                subtitle: const Text('View movements, routes & stops timeline', style: TextStyle(fontSize: 12)),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  widget.onHistory();
+                },
+              ),
+
+              // Action 5: Change Profile Photo
+              ListTile(
+                leading: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(color: Colors.purple.shade50, shape: BoxShape.circle),
+                  child: const Icon(Icons.camera_alt_rounded, color: Color(0xFF7C3AED), size: 20),
+                ),
+                title: const Text('Change Profile Photo', style: TextStyle(fontWeight: FontWeight.w600)),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _showImagePickerModal();
+                },
+              ),
+
+              // Action 6: Remove Member
+              if (widget.onDelete != null)
+                ListTile(
+                  leading: Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(color: Colors.red.shade50, shape: BoxShape.circle),
+                    child: const Icon(Icons.delete_outline_rounded, color: Colors.red, size: 20),
+                  ),
+                  title: const Text('Remove from Family', style: TextStyle(color: Colors.red, fontWeight: FontWeight.w600)),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    widget.onDelete!();
+                  },
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final battery = widget.location?.batteryPercentage ?? 0;
-    final address = widget.location?.address ?? 'Location pending...';
+    final address = widget.location?.address ?? 'Location syncing...';
     final familyProvider = context.watch<FamilyProvider>();
     final hasUnread = familyProvider.hasUnreadForMember(widget.member.mobile);
 
+    Color batteryColor = AppColors.success;
+    if (battery <= 20 && battery > 0) {
+      batteryColor = AppColors.danger;
+    } else if (battery <= 40 && battery > 0) {
+      batteryColor = const Color(0xFFF59E0B);
+    }
+
     return Card(
-      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+      margin: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
       elevation: 2,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      shadowColor: Colors.black.withValues(alpha: 0.08),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
         onTap: widget.onTrackOnMap,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(18),
         child: Padding(
-          padding: const EdgeInsets.all(12),
+          padding: const EdgeInsets.all(14),
           child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Clickable Profile Image / Avatar
-                GestureDetector(
-                  onTap: _showImagePickerModal,
-                  child: Stack(
-                    children: [
-                      CircleAvatar(
-                        radius: 26,
-                        backgroundColor:
-                            AppColors.primaryLight.withOpacity(0.2),
-                        backgroundImage: _profileImageFile != null && !kIsWeb
-                            ? FileImage(_profileImageFile!)
-                            : null,
-                        child: _profileImageFile == null || kIsWeb
-                            ? Text(
-                                widget.member.name.isNotEmpty
-                                    ? widget.member.name[0].toUpperCase()
-                                    : 'M',
-                                style: const TextStyle(
-                                  color: AppColors.primary,
-                                  fontSize: 20,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              )
-                            : null,
-                      ),
-                      Positioned(
-                        right: 0,
-                        bottom: 0,
-                        child: Container(
-                          padding: const EdgeInsets.all(3),
-                          decoration: const BoxDecoration(
-                            color: AppColors.primary,
-                            shape: BoxShape.circle,
-                          ),
-                          child: const Icon(
-                            Icons.camera_alt_rounded,
-                            size: 10,
-                            color: Colors.white,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: 10),
-
-                // Details Area
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      // Name & Relationship Row
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              widget.member.name,
-                              style: const TextStyle(
-                                fontSize: 15,
-                                fontWeight: FontWeight.bold,
-                                color: AppColors.textPrimary,
-                              ),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                          if (widget.member.relationship.isNotEmpty) ...[
-                            const SizedBox(width: 6),
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 6,
-                                vertical: 2,
-                              ),
-                              decoration: BoxDecoration(
-                                color: AppColors.successBg,
-                                borderRadius: BorderRadius.circular(8),
-                                border: Border.all(
-                                  color: AppColors.success.withOpacity(0.3),
-                                ),
-                              ),
-                              child: Text(
-                                widget.member.relationship,
-                                style: const TextStyle(
-                                  color: AppColors.success,
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                            ),
-                          ],
-                          if (widget.onDelete != null) ...[
-                            const SizedBox(width: 4),
-                            InkWell(
-                              onTap: widget.onDelete,
-                              borderRadius: BorderRadius.circular(12),
-                              child: Padding(
-                                padding: const EdgeInsets.all(3),
-                                child: Icon(
-                                  Icons.delete_outline_rounded,
-                                  size: 18,
-                                  color: Colors.red.shade400,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ],
-                      ),
-                      const SizedBox(height: 2),
-
-                      // Phone Number
-                      Text(
-                        widget.member.mobile,
-                        style: const TextStyle(
-                          fontSize: 12,
-                          color: AppColors.textSecondary,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-
-                      // Location & Battery Info
-                      Row(
-                        children: [
-                          const Icon(
-                            Icons.location_on_rounded,
-                            size: 13,
-                            color: AppColors.primary,
-                          ),
-                          const SizedBox(width: 3),
-                          Expanded(
-                            child: Text(
-                              address,
-                              style: const TextStyle(
-                                fontSize: 11,
-                                color: AppColors.textPrimary,
-                              ),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                          if (battery > 0) ...[
-                            const SizedBox(width: 6),
-                            Icon(
-                              battery > 20
-                                  ? Icons.battery_full_rounded
-                                  : Icons.battery_alert_rounded,
-                              size: 13,
-                              color: battery > 20
-                                  ? AppColors.success
-                                  : AppColors.danger,
-                            ),
-                            const SizedBox(width: 2),
-                            Text(
-                              '$battery%',
-                              style: TextStyle(
-                                fontSize: 10,
-                                fontWeight: FontWeight.bold,
-                                color: battery > 20
-                                    ? AppColors.success
-                                    : AppColors.danger,
-                              ),
-                            ),
-                          ],
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 10),
-            const Divider(height: 1, color: AppColors.cardBorder),
-            const SizedBox(height: 8),
-
-            // Ultra-Mobile-Friendly 4-Button Grid / Row
-            Row(
-              children: [
-                // 1. Call Button
-                Expanded(
-                  child: OutlinedButton(
-                    onPressed: () => _makeCall(widget.member.mobile),
-                    style: OutlinedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
-                      minimumSize: const Size(0, 34),
-                      visualDensity: VisualDensity.compact,
-                      foregroundColor: AppColors.primary,
-                      side: const BorderSide(color: AppColors.primaryLight),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                    ),
-                    child: const Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      mainAxisSize: MainAxisSize.min,
+              // Top Row: Avatar + Name/Phone/Address + 3-Dots Menu
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Clickable Avatar with Photo Picker
+                  GestureDetector(
+                    onTap: _showImagePickerModal,
+                    child: Stack(
                       children: [
-                        Icon(Icons.call_rounded, size: 14),
-                        SizedBox(width: 4),
-                        Text(
-                          'Call',
-                          style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+                        Container(
+                          padding: const EdgeInsets.all(2),
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            border: Border.all(color: AppColors.primary.withValues(alpha: 0.3), width: 2),
+                          ),
+                          child: CircleAvatar(
+                            radius: 24,
+                            backgroundColor: AppColors.primary.withValues(alpha: 0.15),
+                            backgroundImage: _profileImageFile != null && !kIsWeb ? FileImage(_profileImageFile!) : null,
+                            child: _profileImageFile == null || kIsWeb
+                                ? Text(
+                                    widget.member.name.isNotEmpty ? widget.member.name[0].toUpperCase() : 'M',
+                                    style: const TextStyle(
+                                      color: AppColors.primary,
+                                      fontSize: 19,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  )
+                                : null,
+                          ),
+                        ),
+                        Positioned(
+                          right: 0,
+                          bottom: 0,
+                          child: Container(
+                            padding: const EdgeInsets.all(3),
+                            decoration: const BoxDecoration(
+                              color: AppColors.primary,
+                              shape: BoxShape.circle,
+                            ),
+                            child: const Icon(Icons.camera_alt_rounded, size: 9, color: Colors.white),
+                          ),
                         ),
                       ],
                     ),
                   ),
-                ),
-                const SizedBox(width: 6),
+                  const SizedBox(width: 12),
 
-                // 2. Chat Button (Direct 1-on-1)
-                Expanded(
-                  child: OutlinedButton(
-                    onPressed: () {
+                  // Member Info
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                widget.member.name,
+                                style: const TextStyle(
+                                  fontSize: 15.5,
+                                  fontWeight: FontWeight.bold,
+                                  color: AppColors.textPrimary,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            if (widget.member.relationship.isNotEmpty) ...[
+                              const SizedBox(width: 6),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: AppColors.primary.withValues(alpha: 0.08),
+                                  borderRadius: BorderRadius.circular(6),
+                                  border: Border.all(color: AppColors.primary.withValues(alpha: 0.2)),
+                                ),
+                                child: Text(
+                                  widget.member.relationship,
+                                  style: const TextStyle(
+                                    color: AppColors.primary,
+                                    fontSize: 10.5,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          widget.member.mobile,
+                          style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
+                        ),
+                        const SizedBox(height: 4),
+                        Row(
+                          children: [
+                            const Icon(Icons.location_on_rounded, size: 13, color: AppColors.primary),
+                            const SizedBox(width: 4),
+                            Expanded(
+                              child: Text(
+                                address,
+                                style: const TextStyle(fontSize: 11.5, color: AppColors.textPrimary),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  // 3-Dots More Options Menu Button
+                  IconButton(
+                    icon: const Icon(Icons.more_vert_rounded, color: AppColors.textSecondary, size: 22),
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(),
+                    tooltip: 'More actions',
+                    onPressed: () => _showMemberActionSheet(context, hasUnread),
+                  ),
+                ],
+              ),
+
+              const SizedBox(height: 10),
+
+              // Status & Quick Action Row
+              Row(
+                children: [
+                  // Battery Pill
+                  if (battery > 0)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: batteryColor.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(6),
+                        border: Border.all(color: batteryColor.withValues(alpha: 0.3)),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            battery > 20 ? Icons.battery_std_rounded : Icons.battery_alert_rounded,
+                            size: 12,
+                            color: batteryColor,
+                          ),
+                          const SizedBox(width: 3),
+                          Text(
+                            '$battery%',
+                            style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.bold, color: batteryColor),
+                          ),
+                        ],
+                      ),
+                    ),
+
+                  const Spacer(),
+
+                  // Quick Track Chip
+                  InkWell(
+                    onTap: widget.onTrackOnMap,
+                    borderRadius: BorderRadius.circular(8),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                      decoration: BoxDecoration(
+                        color: AppColors.primary.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: const Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.map_rounded, size: 13, color: AppColors.primary),
+                          SizedBox(width: 4),
+                          Text(
+                            'Track',
+                            style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppColors.primary),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+
+                  const SizedBox(width: 6),
+
+                  // Quick Chat Chip
+                  InkWell(
+                    onTap: () {
                       Navigator.push(
                         context,
                         MaterialPageRoute(
-                          builder: (_) => FamilyChatScreen(
-                            targetMember: widget.member,
-                          ),
+                          builder: (_) => FamilyChatScreen(targetMember: widget.member),
                         ),
                       );
                     },
-                    style: OutlinedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
-                      minimumSize: const Size(0, 34),
-                      visualDensity: VisualDensity.compact,
-                      foregroundColor: AppColors.primary,
-                      side: const BorderSide(color: AppColors.primaryLight),
-                      shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade100,
                         borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.grey.shade300),
                       ),
-                    ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Stack(
-                          clipBehavior: Clip.none,
-                          children: [
-                            const Icon(Icons.chat_bubble_outline_rounded, size: 14),
-                            if (hasUnread)
-                              const Positioned(
-                                top: -3,
-                                right: -3,
-                                child: BuzzingDot(
-                                  size: 6.5,
-                                  color: Color(0xFFEF4444),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Stack(
+                            clipBehavior: Clip.none,
+                            children: [
+                              const Icon(Icons.chat_bubble_outline_rounded, size: 13, color: AppColors.textPrimary),
+                              if (hasUnread)
+                                const Positioned(
+                                  right: -2,
+                                  top: -2,
+                                  child: BuzzingDot(size: 5, color: Color(0xFFEF4444)),
                                 ),
-                              ),
-                          ],
-                        ),
-                        const SizedBox(width: 4),
-                        const Text(
-                          'Chat',
-                          style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 6),
-
-                // 3. History Button
-                Expanded(
-                  child: OutlinedButton(
-                    onPressed: widget.onHistory,
-                    style: OutlinedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
-                      minimumSize: const Size(0, 34),
-                      visualDensity: VisualDensity.compact,
-                      foregroundColor: AppColors.accent,
-                      side: const BorderSide(color: AppColors.accent),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8),
+                            ],
+                          ),
+                          const SizedBox(width: 4),
+                          const Text(
+                            'Chat',
+                            style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
+                          ),
+                        ],
                       ),
                     ),
-                    child: const Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.history_rounded, size: 14),
-                        SizedBox(width: 4),
-                        Text(
-                          'History',
-                          style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
-                        ),
-                      ],
-                    ),
                   ),
-                ),
-              ],
-            ),
-          ],
+                ],
+              ),
+            ],
+          ),
         ),
-      ),
       ),
     );
   }

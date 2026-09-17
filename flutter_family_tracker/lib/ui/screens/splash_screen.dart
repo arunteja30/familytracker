@@ -4,7 +4,7 @@ import '../../services/app_update_service.dart';
 import '../../services/geocoding_service.dart';
 import '../../services/preferences_service.dart';
 import 'phone_login_screen.dart';
-import 'family_dashboard_screen.dart';
+import 'main_navigation_screen.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -44,7 +44,7 @@ class _SplashScreenState extends State<SplashScreen> {
     if (isLoggedIn && phone != null && phone.isNotEmpty) {
       Navigator.pushReplacement(
         context,
-        MaterialPageRoute(builder: (_) => const FamilyDashboardScreen()),
+        MaterialPageRoute(builder: (_) => const MainNavigationScreen()),
       );
     } else {
       Navigator.pushReplacement(

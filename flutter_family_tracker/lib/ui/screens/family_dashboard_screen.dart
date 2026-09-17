@@ -24,7 +24,12 @@ import '../../models/alert_item_model.dart';
 import '../widgets/buzzing_dot.dart';
 
 class FamilyDashboardScreen extends StatefulWidget {
-  const FamilyDashboardScreen({super.key});
+  final Function(int)? onNavigateToTab;
+
+  const FamilyDashboardScreen({
+    super.key,
+    this.onNavigateToTab,
+  });
 
   @override
   State<FamilyDashboardScreen> createState() => _FamilyDashboardScreenState();
@@ -258,115 +263,43 @@ class _FamilyDashboardScreenState extends State<FamilyDashboardScreen> with Widg
           GradientHeader(
             title: familyProvider.displayFamilyName,
             subtitle: 'Logged in: $_userPhone',
-            trailing: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                IconButton(
-                  tooltip: 'Family Circle Chat',
-                  icon: Stack(
-                    clipBehavior: Clip.none,
-                    children: [
-                      const Icon(Icons.chat_bubble_outline_rounded,
-                          color: Colors.white, size: 24),
-                      if (familyProvider.hasUnreadChat)
-                        const Positioned(
-                          right: -2,
-                          top: -2,
-                          child: BuzzingDot(
-                            size: 9,
-                            color: Color(0xFFEF4444),
-                          ),
-                        ),
+            trailing: Material(
+              color: Colors.transparent,
+              child: InkWell(
+                onTap: () => _confirmTriggerSos(context, familyProvider),
+                borderRadius: BorderRadius.circular(20),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                  decoration: BoxDecoration(
+                    color: Colors.red.shade600,
+                    borderRadius: BorderRadius.circular(20),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.red.withValues(alpha: 0.4),
+                        blurRadius: 8,
+                        spreadRadius: 1,
+                        offset: const Offset(0, 2),
+                      ),
                     ],
                   ),
-                  onPressed: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => FamilyChatScreen(
-                          familyName: familyProvider.currentFamilyName,
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.sos_rounded, color: Colors.white, size: 20),
+                      SizedBox(width: 4),
+                      Text(
+                        'SOS',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w900,
+                          letterSpacing: 0.8,
                         ),
                       ),
-                    );
-                  },
-                ),
-                StreamBuilder<List<AlertItemModel>>(
-                  stream: DatabaseService().streamFamilyAlerts(familyProvider.currentFamilyName),
-                  builder: (context, snap) {
-                    final count = snap.data?.length ?? 0;
-                    return IconButton(
-                      tooltip: 'Safety & Geofence Alerts',
-                      icon: Stack(
-                        clipBehavior: Clip.none,
-                        children: [
-                          const Icon(Icons.notifications_none_rounded, color: Colors.white, size: 24),
-                          if (count > 0)
-                            Positioned(
-                              right: -4,
-                              top: -4,
-                              child: Container(
-                                padding: const EdgeInsets.all(3),
-                                decoration: const BoxDecoration(
-                                  color: Color(0xFFEF4444),
-                                  shape: BoxShape.circle,
-                                ),
-                                constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
-                                child: Text(
-                                  count > 9 ? '9+' : '$count',
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 9,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                  textAlign: TextAlign.center,
-                                ),
-                              ),
-                            ),
-                        ],
-                      ),
-                      onPressed: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => AlertsScreen(
-                              familyName: familyProvider.currentFamilyName,
-                              userPhone: _userPhone,
-                            ),
-                          ),
-                        );
-                      },
-                    );
-                  },
-                ),
-                IconButton(
-                  tooltip: 'Emergency SOS Broadcast',
-                  icon: Container(
-                    padding: const EdgeInsets.all(6),
-                    decoration: BoxDecoration(
-                      color: Colors.red.shade600,
-                      shape: BoxShape.circle,
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.red.withValues(alpha: 0.5),
-                          blurRadius: 8,
-                          spreadRadius: 2,
-                        ),
-                      ],
-                    ),
-                    child: const Icon(Icons.sos_rounded, color: Colors.white, size: 20),
+                    ],
                   ),
-                  onPressed: () => _confirmTriggerSos(context, familyProvider),
                 ),
-                IconButton(
-                  icon: const Icon(Icons.settings_rounded, color: Colors.white),
-                  onPressed: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(builder: (_) => const SettingsScreen()),
-                    );
-                  },
-                ),
-              ],
+              ),
             ),
             bottom: InkWell(
               onTap: () => _showGroupSwitcherDialog(
@@ -494,16 +427,20 @@ class _FamilyDashboardScreenState extends State<FamilyDashboardScreen> with Widg
                       const SizedBox(height: 8),
                       InkWell(
                         onTap: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) => AllMapsScreen(
-                                familyName: familyProvider.currentFamilyName,
-                                members: familyProvider.familyMembers,
-                                locations: familyProvider.memberLocations,
+                          if (widget.onNavigateToTab != null) {
+                            widget.onNavigateToTab!(1);
+                          } else {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => AllMapsScreen(
+                                  familyName: familyProvider.currentFamilyName,
+                                  members: familyProvider.familyMembers,
+                                  locations: familyProvider.memberLocations,
+                                ),
                               ),
-                            ),
-                          );
+                            );
+                          }
                         },
                         child: Container(
                           padding: const EdgeInsets.symmetric(
@@ -776,51 +713,53 @@ class _FamilyDashboardScreenState extends State<FamilyDashboardScreen> with Widg
       ),
 
       // Bottom Bar & FAB
-      bottomNavigationBar: Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: AppColors.bgSurface,
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.06),
-              blurRadius: 10,
-              offset: const Offset(0, -4),
-            ),
-          ],
-        ),
-        child: SafeArea(
-          child: SizedBox(
-            height: 50,
-            child: ElevatedButton.icon(
-              onPressed: members.isEmpty
-                  ? null
-                  : () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => AllMapsScreen(
-                            familyName: familyProvider.currentFamilyName,
-                            members: members,
-                            locations: locations,
-                          ),
-                        ),
-                      );
-                    },
-              icon: const Icon(Icons.map_rounded),
-              label: const Text('View Everyone on Map'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.primary,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(14),
+      bottomNavigationBar: widget.onNavigateToTab != null
+          ? null
+          : Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: AppColors.bgSurface,
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.06),
+                    blurRadius: 10,
+                    offset: const Offset(0, -4),
+                  ),
+                ],
+              ),
+              child: SafeArea(
+                child: SizedBox(
+                  height: 50,
+                  child: ElevatedButton.icon(
+                    onPressed: members.isEmpty
+                        ? null
+                        : () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => AllMapsScreen(
+                                  familyName: familyProvider.currentFamilyName,
+                                  members: members,
+                                  locations: locations,
+                                ),
+                              ),
+                            );
+                          },
+                    icon: const Icon(Icons.map_rounded),
+                    label: const Text('View Everyone on Map'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.primary,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                    ),
+                  ),
                 ),
               ),
             ),
-          ),
-        ),
-      ),
 
       floatingActionButton: Padding(
-        padding: const EdgeInsets.only(bottom: 60),
+        padding: EdgeInsets.only(bottom: widget.onNavigateToTab != null ? 12 : 60),
         child: FloatingActionButton(
           backgroundColor: AppColors.primary,
           foregroundColor: AppColors.textWhite,
