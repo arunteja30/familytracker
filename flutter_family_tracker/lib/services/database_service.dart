@@ -9,6 +9,7 @@ import '../models/chat_message_model.dart';
 import '../models/app_update_model.dart';
 import '../models/geofence_place_model.dart';
 import '../models/place_event_model.dart';
+import '../models/alert_item_model.dart';
 import '../utils/phone_utils.dart';
 import 'geocoding_service.dart';
 
@@ -1152,5 +1153,107 @@ class DatabaseService {
       events.sort((a, b) => b.timestamp.compareTo(a.timestamp));
       return events;
     });
+  }
+
+  // ===========================================================================
+  // CENTRALIZED ALERTS FEED & 24-HOUR AUTO-PURGE
+  // ===========================================================================
+
+  /// Log any safety alert (SOS, Intruder, Place Geofence, Battery) to RTDB
+  Future<void> logAlert(AlertItemModel alert) async {
+    if (alert.familyName.trim().isEmpty) return;
+    try {
+      final ref = _db.ref('Alerts').child(alert.familyName.trim()).push();
+      final alertToSave = AlertItemModel(
+        id: ref.key ?? '',
+        familyName: alert.familyName,
+        type: alert.type,
+        title: alert.title,
+        body: alert.body,
+        memberName: alert.memberName,
+        memberMobile: alert.memberMobile,
+        timestamp: alert.timestamp,
+        latitude: alert.latitude,
+        longitude: alert.longitude,
+        placeName: alert.placeName,
+        extraInfo: alert.extraInfo,
+      );
+      await ref.set(alertToSave.toJson());
+      debugPrint('[DatabaseService] 🔔 Alert logged: [${alert.type.name}] ${alert.title}');
+    } catch (e) {
+      debugPrint('[DatabaseService] Error logging alert: $e');
+    }
+  }
+
+  /// Stream active alerts for a family with 24-hour self-delete & server cleanup
+  Stream<List<AlertItemModel>> streamFamilyAlerts(String familyName) {
+    final cleanGroup = familyName.trim();
+    if (cleanGroup.isEmpty) return Stream.value([]);
+
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final cutoff24h = now - AlertItemModel.ttlMilliseconds;
+
+    return _db.ref('Alerts').child(cleanGroup).onValue.map((event) {
+      final List<AlertItemModel> validAlerts = [];
+      final List<String> expiredKeys = [];
+      final data = event.snapshot.value;
+
+      if (data is Map) {
+        data.forEach((key, val) {
+          if (val is Map) {
+            final item = AlertItemModel.fromJson(val, key.toString());
+            if (item.timestamp < cutoff24h) {
+              expiredKeys.add(key.toString());
+            } else {
+              validAlerts.add(item);
+            }
+          }
+        });
+      }
+
+      // Automatically purge expired alerts older than 24 hours from Firebase RTDB
+      if (expiredKeys.isNotEmpty) {
+        _purgeExpiredAlerts(cleanGroup, expiredKeys);
+      }
+
+      validAlerts.sort((a, b) => b.timestamp.compareTo(a.timestamp));
+      return validAlerts;
+    });
+  }
+
+  void _purgeExpiredAlerts(String familyName, List<String> expiredKeys) {
+    Future.microtask(() async {
+      for (final key in expiredKeys) {
+        try {
+          await _db.ref('Alerts').child(familyName).child(key).remove();
+        } catch (_) {}
+      }
+      debugPrint('[DatabaseService] 🧹 Purged ${expiredKeys.length} expired (24h+) alerts from $familyName');
+    });
+  }
+
+  /// Manually clear all alerts for a family
+  Future<bool> clearAllAlerts(String familyName) async {
+    if (familyName.trim().isEmpty) return false;
+    try {
+      await _db.ref('Alerts').child(familyName.trim()).remove();
+      debugPrint('[DatabaseService] 🗑️ Cleared all alerts for $familyName');
+      return true;
+    } catch (e) {
+      debugPrint('[DatabaseService] Error clearing alerts: $e');
+      return false;
+    }
+  }
+
+  /// Delete a single alert
+  Future<bool> deleteAlert(String familyName, String alertId) async {
+    if (familyName.trim().isEmpty || alertId.trim().isEmpty) return false;
+    try {
+      await _db.ref('Alerts').child(familyName.trim()).child(alertId.trim()).remove();
+      return true;
+    } catch (e) {
+      debugPrint('[DatabaseService] Error deleting alert: $e');
+      return false;
+    }
   }
 }

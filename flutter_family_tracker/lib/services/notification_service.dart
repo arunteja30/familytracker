@@ -1,5 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import '../models/alert_item_model.dart';
+import 'database_service.dart';
 
 /// Zero-Cost Client-Side Notification Service
 ///
@@ -147,6 +149,22 @@ class NotificationService {
         details,
       );
       debugPrint('[NotificationService] 🚨 Heads-up SOS notification displayed for $senderName');
+
+      // Log to centralized 24h safety alerts feed
+      if (familyName != null && familyName.isNotEmpty) {
+        DatabaseService().logAlert(
+          AlertItemModel(
+            id: '',
+            familyName: familyName,
+            type: AlertType.sos,
+            title: '🚨 SOS EMERGENCY: $senderName',
+            body: '$senderName ($senderPhone) triggered distress SOS. Location: $locText',
+            memberName: senderName,
+            memberMobile: senderPhone,
+            extraInfo: address,
+          ),
+        );
+      }
     } catch (e) {
       debugPrint('[NotificationService] Show SOS alert error: $e');
     }
@@ -220,6 +238,8 @@ class NotificationService {
   static Future<void> showLowBatteryAlert({
     required String memberName,
     required int batteryLevel,
+    String? familyName,
+    String? memberMobile,
   }) async {
     try {
       await initialize();
@@ -236,10 +256,9 @@ class NotificationService {
       const darwinDetails = DarwinNotificationDetails(
         presentAlert: true,
         presentBadge: true,
-        presentSound: true,
       );
 
-      const details = NotificationDetails(
+      final details = NotificationDetails(
         android: androidDetails,
         iOS: darwinDetails,
       );
@@ -250,6 +269,21 @@ class NotificationService {
         '$memberName\'s phone is at $batteryLevel%. Remind them to charge soon.',
         details,
       );
+
+      if (familyName != null && familyName.isNotEmpty) {
+        DatabaseService().logAlert(
+          AlertItemModel(
+            id: '',
+            familyName: familyName,
+            type: AlertType.batteryLow,
+            title: '⚡ Low Battery: $memberName ($batteryLevel%)',
+            body: '$memberName\'s phone battery has dropped to $batteryLevel%. Remind them to charge soon.',
+            memberName: memberName,
+            memberMobile: memberMobile ?? '',
+            extraInfo: '$batteryLevel%',
+          ),
+        );
+      }
     } catch (e) {
       debugPrint('[NotificationService] Show Low Battery error: $e');
     }
@@ -419,8 +453,78 @@ class NotificationService {
         details,
       );
       debugPrint('[NotificationService] 📍 Dispatched place alert: $title');
+
+      if (familyName != null && familyName.isNotEmpty) {
+        DatabaseService().logAlert(
+          AlertItemModel(
+            id: '',
+            familyName: familyName,
+            type: isArrival ? AlertType.placeArrival : AlertType.placeDeparture,
+            title: title,
+            body: body,
+            memberName: memberName,
+            placeName: placeName,
+          ),
+        );
+      }
     } catch (e) {
       debugPrint('[NotificationService] Error showing place alert: $e');
+    }
+  }
+
+  /// Show Intruder Selfie / Unauthorized Access Alert
+  static Future<void> showIntruderAlert({
+    required String memberName,
+    required String detailsText,
+    String? familyName,
+    String? photoUrl,
+  }) async {
+    try {
+      await initialize();
+      final title = '📸 Intruder Alert: $memberName';
+      final body = detailsText.isNotEmpty ? detailsText : 'Wrong lockscreen PIN attempt detected. Intruder selfie captured.';
+
+      const androidDetails = AndroidNotificationDetails(
+        'family_status_channel',
+        'Family Safety & Battery Updates',
+        channelDescription: 'Intruder and safety status notifications',
+        importance: Importance.high,
+        priority: Priority.high,
+        playSound: true,
+      );
+
+      const darwinDetails = DarwinNotificationDetails(
+        presentAlert: true,
+        presentBadge: true,
+      );
+
+      final details = NotificationDetails(
+        android: androidDetails,
+        iOS: darwinDetails,
+      );
+
+      await _notificationsPlugin.show(
+        888,
+        title,
+        body,
+        details,
+      );
+
+      if (familyName != null && familyName.isNotEmpty) {
+        DatabaseService().logAlert(
+          AlertItemModel(
+            id: '',
+            familyName: familyName,
+            type: AlertType.intruder,
+            title: title,
+            body: body,
+            memberName: memberName,
+            extraInfo: photoUrl,
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('[NotificationService] Show Intruder Alert error: $e');
     }
   }
 }
