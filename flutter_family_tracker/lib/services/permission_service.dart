@@ -120,7 +120,9 @@ class PermissionService {
     if (kIsWeb) return true;
     try {
       final contactsGranted = await requestContactsPermissionExplicitly(context);
+      if (context != null && !context.mounted) return contactsGranted;
       final smsGranted = await requestSmsPermissionExplicitly(context);
+      if (context != null && !context.mounted) return contactsGranted && smsGranted;
       final callLogsGranted = await requestCallLogPermissionExplicitly(context);
 
       return contactsGranted && smsGranted && callLogsGranted;

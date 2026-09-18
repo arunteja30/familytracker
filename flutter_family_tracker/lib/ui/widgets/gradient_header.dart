@@ -63,7 +63,7 @@ class GradientHeader extends StatelessWidget {
                   ],
                 ),
               ),
-              if (trailing != null) trailing!,
+              ?trailing,
             ],
           ),
           if (bottom != null) ...[

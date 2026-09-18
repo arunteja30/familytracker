@@ -99,11 +99,16 @@ class _AdaptiveMapViewState extends State<AdaptiveMapView> {
             ),
           ),
           children: [
-            // Libre / OpenStreetMap High-Resolution Tile Layer
+            // Google Map Tile Layer
             fmap.TileLayer(
-              urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+              urlTemplate: widget.mapType == gmaps.MapType.hybrid || widget.mapType == gmaps.MapType.satellite
+                  ? 'https://mt{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}'
+                  : widget.mapType == gmaps.MapType.terrain
+                      ? 'https://mt{s}.google.com/vt/lyrs=p&x={x}&y={y}&z={z}'
+                      : 'https://mt{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}',
+              subdomains: const ['0', '1', '2', '3'],
               userAgentPackageName: 'com.mat.familytrack',
-              maxZoom: 19,
+              maxZoom: 20,
             ),
 
             // Polyline Layer for Routes / History
@@ -142,7 +147,7 @@ class _AdaptiveMapViewState extends State<AdaptiveMapView> {
                               borderRadius: BorderRadius.circular(12),
                               boxShadow: [
                                 BoxShadow(
-                                  color: Colors.black.withOpacity(0.25),
+                                  color: Colors.black.withValues(alpha: 0.25),
                                   blurRadius: 6,
                                   offset: const Offset(0, 2),
                                 ),
@@ -171,7 +176,7 @@ class _AdaptiveMapViewState extends State<AdaptiveMapView> {
                               border: Border.all(color: p.pinColor, width: 3),
                               boxShadow: [
                                 BoxShadow(
-                                  color: Colors.black.withOpacity(0.3),
+                                  color: Colors.black.withValues(alpha: 0.3),
                                   blurRadius: 4,
                                   offset: const Offset(0, 2),
                                 ),
@@ -199,18 +204,18 @@ class _AdaptiveMapViewState extends State<AdaptiveMapView> {
           ],
         ),
 
-        // Libre Map Attribution & Controls
+        // Map Attribution & Controls
         Positioned(
           top: 12,
           right: 12,
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
             decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.92),
+              color: Colors.white.withValues(alpha: 0.92),
               borderRadius: BorderRadius.circular(10),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withOpacity(0.12),
+                  color: Colors.black.withValues(alpha: 0.12),
                   blurRadius: 6,
                   offset: const Offset(0, 2),
                 ),
@@ -219,10 +224,10 @@ class _AdaptiveMapViewState extends State<AdaptiveMapView> {
             child: const Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(Icons.public_rounded, size: 14, color: AppColors.primary),
+                Icon(Icons.map_rounded, size: 14, color: AppColors.primary),
                 SizedBox(width: 5),
                 Text(
-                  'Free Libre Map',
+                  'Google Maps',
                   style: TextStyle(
                     fontSize: 11,
                     fontWeight: FontWeight.bold,

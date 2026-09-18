@@ -65,12 +65,17 @@ class _PlacePickerScreenState extends State<PlacePickerScreen> {
   Future<void> _locateUser({bool animateCamera = true}) async {
     setState(() => _isLoadingGps = true);
     try {
-      final pos = await Geolocator.getLastKnownPosition() ??
-          await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
+      Position? pos;
+      if (!kIsWeb) {
+        try {
+          pos = await Geolocator.getLastKnownPosition();
+        } catch (_) {}
+      }
+      pos ??= await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
 
       if (mounted) {
         setState(() {
-          _currentLat = pos.latitude;
+          _currentLat = pos!.latitude;
           _currentLng = pos.longitude;
           _isLoadingGps = false;
         });
@@ -445,9 +450,12 @@ class _PlacePickerScreenState extends State<PlacePickerScreen> {
       ),
       children: [
         fmap.TileLayer(
-          urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+          urlTemplate: _mapType == gmaps.MapType.hybrid || _mapType == gmaps.MapType.satellite
+              ? 'https://mt{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}'
+              : 'https://mt{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}',
+          subdomains: const ['0', '1', '2', '3'],
           userAgentPackageName: 'com.mat.familytrack',
-          maxZoom: 19,
+          maxZoom: 20,
         ),
         fmap.CircleLayer(
           circles: [

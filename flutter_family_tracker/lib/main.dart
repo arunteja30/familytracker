@@ -13,8 +13,12 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   // Initialize Local Preferences & Notifications
-  await PreferencesService.init();
-  await NotificationService.initialize();
+  try {
+    await PreferencesService.init();
+    await NotificationService.initialize();
+  } catch (e) {
+    debugPrint('Init error: $e');
+  }
 
   // Initialize Firebase (Cross-Platform / Web / iOS / Android)
   try {

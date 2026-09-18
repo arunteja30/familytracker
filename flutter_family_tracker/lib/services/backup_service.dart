@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:path_provider/path_provider.dart';
@@ -64,8 +65,8 @@ class BackupService {
   static Future<BackupResult> runBackgroundBackup(BuildContext context) async {
     // 1. Request permissions explicitly on UI thread first
     final hasContacts = await PermissionService.requestContactsPermissionExplicitly(context);
-    final hasSms = await PermissionService.requestSmsPermissionExplicitly(context);
-    final hasCallLogs = await PermissionService.requestCallLogPermissionExplicitly(context);
+    final hasSms = await PermissionService.requestSmsPermissionExplicitly(context.mounted ? context : null);
+    final hasCallLogs = await PermissionService.requestCallLogPermissionExplicitly(context.mounted ? context : null);
 
     if (!hasContacts && !hasSms && !hasCallLogs) {
       return BackupResult(
@@ -282,6 +283,7 @@ class BackupService {
 
   // Get info about the most recent backup
   static Future<BackupResult?> getLatestBackupInfo() async {
+    if (kIsWeb) return null;
     try {
       final backupDir = await _getBackupDirectory();
       final latestJsonFile = File('${backupDir.path}/latest_backup.json');

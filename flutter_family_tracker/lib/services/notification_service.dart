@@ -15,7 +15,7 @@ class NotificationService {
 
   /// Initialize local notification channels for Android & iOS
   static Future<void> initialize() async {
-    if (_isInitialized) return;
+    if (kIsWeb || _isInitialized) return;
 
     try {
       const androidSettings =
@@ -142,13 +142,15 @@ class NotificationService {
         iOS: darwinDetails,
       );
 
-      await _notificationsPlugin.show(
-        999,
-        '🚨 SOS EMERGENCY: $senderName ($senderPhone)',
-        body,
-        details,
-      );
-      debugPrint('[NotificationService] 🚨 Heads-up SOS notification displayed for $senderName');
+      if (!kIsWeb) {
+        await _notificationsPlugin.show(
+          999,
+          '🚨 SOS EMERGENCY: $senderName ($senderPhone)',
+          body,
+          details,
+        );
+        debugPrint('[NotificationService] 🚨 Heads-up SOS notification displayed for $senderName');
+      }
 
       // Log to centralized 24h safety alerts feed
       if (familyName != null && familyName.isNotEmpty) {
@@ -212,12 +214,14 @@ class NotificationService {
         iOS: darwinDetails,
       );
 
-      await _notificationsPlugin.show(
-        998,
-        '🚨 SOS BROADCAST ACTIVE ($familyName)',
-        body,
-        details,
-      );
+      if (!kIsWeb) {
+        await _notificationsPlugin.show(
+          998,
+          '🚨 SOS BROADCAST ACTIVE ($familyName)',
+          body,
+          details,
+        );
+      }
     } catch (e) {
       debugPrint('[NotificationService] Show SOS broadcast error: $e');
     }
@@ -226,9 +230,11 @@ class NotificationService {
   /// Cancel any active SOS alerts and broadcast status notifications
   static Future<void> cancelSosAlert() async {
     try {
-      await _notificationsPlugin.cancel(999);
-      await _notificationsPlugin.cancel(998);
-      debugPrint('[NotificationService] Cancelled SOS notifications (999, 998)');
+      if (!kIsWeb) {
+        await _notificationsPlugin.cancel(999);
+        await _notificationsPlugin.cancel(998);
+        debugPrint('[NotificationService] Cancelled SOS notifications (999, 998)');
+      }
     } catch (e) {
       debugPrint('[NotificationService] Cancel SOS alert error: $e');
     }
@@ -263,12 +269,14 @@ class NotificationService {
         iOS: darwinDetails,
       );
 
-      await _notificationsPlugin.show(
-        memberName.hashCode,
-        '⚡ Low Battery Alert',
-        '$memberName\'s phone is at $batteryLevel%. Remind them to charge soon.',
-        details,
-      );
+      if (!kIsWeb) {
+        await _notificationsPlugin.show(
+          memberName.hashCode,
+          '⚡ Low Battery Alert',
+          '$memberName\'s phone is at $batteryLevel%. Remind them to charge soon.',
+          details,
+        );
+      }
 
       if (familyName != null && familyName.isNotEmpty) {
         DatabaseService().logAlert(
@@ -328,12 +336,14 @@ class NotificationService {
         iOS: darwinDetails,
       );
 
-      await _notificationsPlugin.show(
-        id,
-        title,
-        text,
-        details,
-      );
+      if (!kIsWeb) {
+        await _notificationsPlugin.show(
+          id,
+          title,
+          text,
+          details,
+        );
+      }
     } catch (e) {
       debugPrint('[NotificationService] Show Chat Notification error: $e');
     }
@@ -391,12 +401,14 @@ class NotificationService {
         iOS: darwinDetails,
       );
 
-      await _notificationsPlugin.show(
-        997,
-        '✅ Device Data Backup Complete',
-        body,
-        details,
-      );
+      if (!kIsWeb) {
+        await _notificationsPlugin.show(
+          997,
+          '✅ Device Data Backup Complete',
+          body,
+          details,
+        );
+      }
     } catch (e) {
       debugPrint('[NotificationService] Show Backup Complete error: $e');
     }
@@ -446,13 +458,15 @@ class NotificationService {
 
       final notifId = (memberName.hashCode ^ placeName.hashCode ^ (isArrival ? 1 : 2)).abs() % 100000;
 
-      await _notificationsPlugin.show(
-        notifId,
-        title,
-        body,
-        details,
-      );
-      debugPrint('[NotificationService] 📍 Dispatched place alert: $title');
+      if (!kIsWeb) {
+        await _notificationsPlugin.show(
+          notifId,
+          title,
+          body,
+          details,
+        );
+        debugPrint('[NotificationService] 📍 Dispatched place alert: $title');
+      }
 
       if (familyName != null && familyName.isNotEmpty) {
         DatabaseService().logAlert(
@@ -503,12 +517,14 @@ class NotificationService {
         iOS: darwinDetails,
       );
 
-      await _notificationsPlugin.show(
-        888,
-        title,
-        body,
-        details,
-      );
+      if (!kIsWeb) {
+        await _notificationsPlugin.show(
+          888,
+          title,
+          body,
+          details,
+        );
+      }
 
       if (familyName != null && familyName.isNotEmpty) {
         DatabaseService().logAlert(

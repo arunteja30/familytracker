@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import '../models/family_member_model.dart';
@@ -465,8 +466,8 @@ class FamilyProvider extends ChangeNotifier {
         }
       }
 
-      // 3. Check Geolocator lastKnown
-      if (lat == 0.0 && lng == 0.0) {
+      // 3. Check Geolocator lastKnown (on mobile)
+      if (!kIsWeb && lat == 0.0 && lng == 0.0) {
         try {
           final lastPos = await Geolocator.getLastKnownPosition();
           if (lastPos != null && (lastPos.latitude != 0.0 || lastPos.longitude != 0.0)) {

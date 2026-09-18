@@ -1,4 +1,3 @@
-import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import '../../constants/app_colors.dart';
@@ -12,12 +11,17 @@ class OemAutoStartModal extends StatefulWidget {
   const OemAutoStartModal({
     super.key,
     this.oemInfo,
-    this.isManualTrigger = false,
+    this.isManualTrigger = true,
   });
 
-  /// Show the OEM Auto-Start & Battery optimization modal manually (e.g. from Settings)
-  static Future<void> show(BuildContext context, {bool isManualTrigger = false}) async {
-    final oemInfo = await NativeService.getDeviceOemInfo();
+  /// Show the modal bottom sheet
+  static Future<void> show(
+    BuildContext context, {
+    Map<String, dynamic>? oemInfo,
+    bool isManualTrigger = true,
+  }) async {
+    if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) return;
+    final resolvedOemInfo = oemInfo ?? await NativeService.getDeviceOemInfo();
     if (!context.mounted) return;
 
     await showModalBottomSheet(
@@ -25,7 +29,7 @@ class OemAutoStartModal extends StatefulWidget {
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (_) => OemAutoStartModal(
-        oemInfo: oemInfo,
+        oemInfo: resolvedOemInfo,
         isManualTrigger: isManualTrigger,
       ),
     );
@@ -33,7 +37,7 @@ class OemAutoStartModal extends StatefulWidget {
 
   /// Automatically show on Dashboard on first launch if device is an aggressive OEM
   static Future<void> showIfNeeded(BuildContext context) async {
-    if (kIsWeb || !Platform.isAndroid) return;
+    if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) return;
 
     final alreadyShown = PreferencesService.isAutostartGuidanceShown();
     if (alreadyShown) return;

@@ -471,67 +471,110 @@ class _LocationHistoryScreenState extends State<LocationHistoryScreen> {
             ),
           ),
 
-          // Map Preview
-          Expanded(
-            flex: 3,
-            child: _isLoading
-                ? const Center(child: CircularProgressIndicator())
-                : AdaptiveMapView(
-                    initialLat: initialPos.latitude,
-                    initialLng: initialPos.longitude,
-                    initialZoom: 14,
-                    points: _displayedPoints.asMap().entries.map((entry) {
-                      final i = entry.key;
-                      final p = entry.value;
-                      final isLatest = i == 0;
-                      final isStart = i == _displayedPoints.length - 1;
-                      return AdaptiveMapPoint(
-                        id: 'point_$i',
-                        latitude: p.latitude,
-                        longitude: p.longitude,
-                        title: isLatest
-                            ? '🔴 Latest (${p.timeStamp > 0 ? DateFormat('hh:mm a').format(DateTime.fromMillisecondsSinceEpoch(p.timeStamp)) : ''})'
-                            : (isStart
-                                ? '🟢 Start (${p.timeStamp > 0 ? DateFormat('hh:mm a').format(DateTime.fromMillisecondsSinceEpoch(p.timeStamp)) : ''})'
-                                : 'Update #${_displayedPoints.length - i}'),
-                        snippet: p.address,
-                        pinColor: isLatest
-                            ? AppColors.danger
-                            : (isStart ? AppColors.success : AppColors.primary),
-                      );
-                    }).toList(),
-                    polylines: [
-                      AdaptivePolyline(
-                        id: 'history_route',
-                        points: _displayedPoints
-                            .where((p) => p.latitude != 0.0 && p.longitude != 0.0)
-                            .map((p) => ll.LatLng(p.latitude, p.longitude))
-                            .toList(),
-                        color: AppColors.primary,
-                        strokeWidth: 4,
+          // Body: Loading, Empty State, or Map + Timeline
+          if (_isLoading)
+            const Expanded(
+              child: Center(child: CircularProgressIndicator()),
+            )
+          else if (_rawHistoryPoints.isEmpty)
+            Expanded(
+              child: _buildNoHistoryEmptyState(formattedDate),
+            )
+          else ...[
+            // 1. Map Preview (Only loaded when history exists)
+            Expanded(
+              flex: 3,
+              child: _displayedPoints.isEmpty
+                  ? Container(
+                      color: AppColors.bgSurface,
+                      child: Center(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Icons.access_time_rounded,
+                              size: 40,
+                              color: AppColors.textMuted.withValues(alpha: 0.6),
+                            ),
+                            const SizedBox(height: 8),
+                            const Text(
+                              'No points in selected time filter',
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.bold,
+                                color: AppColors.textSecondary,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            TextButton(
+                              onPressed: () {
+                                setState(() {
+                                  _selectedTimeFilter = HistoryTimeFilter.all;
+                                  _applyTimeFilterAndRebuild();
+                                });
+                              },
+                              child: const Text('Show All Updates'),
+                            ),
+                          ],
+                        ),
                       ),
-                    ],
-                    googleMarkers: _markers,
-                    googlePolylines: _polylines,
-                    onGoogleMapCreated: (ctrl) {
-                      _mapController = ctrl;
-                      if (_polylines.isNotEmpty) {
-                        final coords = _polylines.first.points;
-                        _fitMapToBounds(coords);
-                      }
-                    },
-                  ),
-          ),
+                    )
+                  : AdaptiveMapView(
+                      initialLat: initialPos.latitude,
+                      initialLng: initialPos.longitude,
+                      initialZoom: 14,
+                      points: _displayedPoints.asMap().entries.map((entry) {
+                        final i = entry.key;
+                        final p = entry.value;
+                        final isLatest = i == 0;
+                        final isStart = i == _displayedPoints.length - 1;
+                        return AdaptiveMapPoint(
+                          id: 'point_$i',
+                          latitude: p.latitude,
+                          longitude: p.longitude,
+                          title: isLatest
+                              ? '🔴 Latest (${p.timeStamp > 0 ? DateFormat('hh:mm a').format(DateTime.fromMillisecondsSinceEpoch(p.timeStamp)) : ''})'
+                              : (isStart
+                                  ? '🟢 Start (${p.timeStamp > 0 ? DateFormat('hh:mm a').format(DateTime.fromMillisecondsSinceEpoch(p.timeStamp)) : ''})'
+                                  : 'Update #${_displayedPoints.length - i}'),
+                          snippet: p.address,
+                          pinColor: isLatest
+                              ? AppColors.danger
+                              : (isStart ? AppColors.success : AppColors.primary),
+                        );
+                      }).toList(),
+                      polylines: [
+                        AdaptivePolyline(
+                          id: 'history_route',
+                          points: _displayedPoints
+                              .where((p) => p.latitude != 0.0 && p.longitude != 0.0)
+                              .map((p) => ll.LatLng(p.latitude, p.longitude))
+                              .toList(),
+                          color: AppColors.primary,
+                          strokeWidth: 4,
+                        ),
+                      ],
+                      googleMarkers: _markers,
+                      googlePolylines: _polylines,
+                      onGoogleMapCreated: (ctrl) {
+                        _mapController = ctrl;
+                        if (_polylines.isNotEmpty) {
+                          final coords = _polylines.first.points;
+                          _fitMapToBounds(coords);
+                        }
+                      },
+                    ),
+            ),
 
-          // Timeline Section with Time Filter Chips & Latest Updates on Top
-          Expanded(
-            flex: 3,
-            child: Container(
-              color: AppColors.bgApp,
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
+            // 2. Timeline Section with Time Filter Chips & Latest Updates on Top
+            Expanded(
+              flex: 3,
+              child: Container(
+                color: AppColors.bgApp,
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
                   // 1. Header with Total Points & Time Span
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -818,9 +861,10 @@ class _LocationHistoryScreenState extends State<LocationHistoryScreen> {
             ),
           ),
         ],
-      ),
-    );
-  }
+      ],
+    ),
+  );
+}
 
   Widget _buildFilterChip(String label, HistoryTimeFilter filter) {
     final isSelected = _selectedTimeFilter == filter;
@@ -860,6 +904,93 @@ class _LocationHistoryScreenState extends State<LocationHistoryScreen> {
             fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
             color: isSelected ? Colors.white : AppColors.textSecondary,
           ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildNoHistoryEmptyState(String formattedDate) {
+    final isToday = DateFormat('yyyy-MM-dd').format(_selectedDate) ==
+        DateFormat('yyyy-MM-dd').format(DateTime.now());
+
+    return Center(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(28),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              width: 88,
+              height: 88,
+              decoration: BoxDecoration(
+                color: AppColors.primary.withValues(alpha: 0.1),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(
+                Icons.route_outlined,
+                size: 46,
+                color: AppColors.primary,
+              ),
+            ),
+            const SizedBox(height: 20),
+            const Text(
+              'No Location History Found',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: AppColors.textPrimary,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'No GPS location updates were recorded for ${widget.member.name} on $formattedDate.',
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                fontSize: 13,
+                color: AppColors.textSecondary,
+                height: 1.4,
+              ),
+            ),
+            const SizedBox(height: 24),
+            Wrap(
+              spacing: 12,
+              runSpacing: 10,
+              alignment: WrapAlignment.center,
+              children: [
+                OutlinedButton.icon(
+                  onPressed: _selectDate,
+                  icon: const Icon(Icons.calendar_month_rounded, size: 18),
+                  label: const Text('Pick Date'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: AppColors.primary,
+                    side: const BorderSide(color: AppColors.primary),
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  ),
+                ),
+                if (!isToday)
+                  ElevatedButton.icon(
+                    onPressed: () {
+                      setState(() => _selectedDate = DateTime.now());
+                      _fetchHistory();
+                    },
+                    icon: const Icon(Icons.today_rounded, size: 18),
+                    label: const Text("Today's History"),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.primary,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    ),
+                  ),
+                IconButton.filledTonal(
+                  onPressed: _fetchHistory,
+                  icon: const Icon(Icons.refresh_rounded, size: 20),
+                  tooltip: 'Refresh',
+                ),
+              ],
+            ),
+          ],
         ),
       ),
     );

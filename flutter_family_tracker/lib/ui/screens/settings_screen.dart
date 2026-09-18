@@ -1,6 +1,5 @@
-import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import '../../constants/app_colors.dart';
 import '../../constants/app_constants.dart';
@@ -99,9 +98,10 @@ class _SettingsScreenState extends State<SettingsScreen> with WidgetsBindingObse
   }
 
   Future<void> _loadAntiTheftConfig() async {
+    final isAndroid = !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
     final userPhone = PreferencesService.getUserPhone() ?? '';
-    final config = await NativeService.getAntiTheftConfig();
-    final isAdmin = await NativeService.isDeviceAdminActive();
+    final config = isAndroid ? await NativeService.getAntiTheftConfig() : null;
+    final isAdmin = isAndroid ? await NativeService.isDeviceAdminActive() : false;
 
     // 1. Fetch user's alertEmail from RTDB profile
     String? rtdbUserAlertEmail;
@@ -113,11 +113,11 @@ class _SettingsScreenState extends State<SettingsScreen> with WidgetsBindingObse
     final rtdbServerConfig = await DatabaseService().getEmailConfig();
 
     // 3. Fetch Offline SMS configuration from native layer
-    final smsEnabled = await NativeService.isOfflineSmsEnabled();
-    final savedSmsPhone = await NativeService.getOfflineSmsPhone();
+    final smsEnabled = isAndroid ? await NativeService.isOfflineSmsEnabled() : false;
+    final savedSmsPhone = isAndroid ? await NativeService.getOfflineSmsPhone() : '';
 
     // 4. Fetch latest backup info
-    final backupInfo = await BackupService.getLatestBackupInfo();
+    final backupInfo = !kIsWeb ? await BackupService.getLatestBackupInfo() : null;
 
     if (mounted) {
       setState(() {
@@ -161,6 +161,7 @@ class _SettingsScreenState extends State<SettingsScreen> with WidgetsBindingObse
   }
 
   Future<void> _handleCreateBackup() async {
+    setState(() => _isCreatingBackup = true);
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
         backgroundColor: Color(0xFF0D9488),
@@ -186,6 +187,10 @@ class _SettingsScreenState extends State<SettingsScreen> with WidgetsBindingObse
 
     final result = await BackupService.runBackgroundBackup(context);
     if (mounted) {
+      setState(() {
+        _isCreatingBackup = false;
+        _lastBackup = result;
+      });
       if (result.success) {
         showDialog(
           context: context,
@@ -284,11 +289,11 @@ class _SettingsScreenState extends State<SettingsScreen> with WidgetsBindingObse
                       ),
                       const SizedBox(height: 4),
                       if (result.contactsFilePath != null)
-                        Text('• ${result.contactsFilePath!.split(Platform.pathSeparator).last}', style: const TextStyle(fontSize: 10.5, color: AppColors.textSecondary)),
+                        Text('• ${result.contactsFilePath!.split(RegExp(r'[/\\]')).last}', style: const TextStyle(fontSize: 10.5, color: AppColors.textSecondary)),
                       if (result.callLogsFilePath != null)
-                        Text('• ${result.callLogsFilePath!.split(Platform.pathSeparator).last}', style: const TextStyle(fontSize: 10.5, color: AppColors.textSecondary)),
+                        Text('• ${result.callLogsFilePath!.split(RegExp(r'[/\\]')).last}', style: const TextStyle(fontSize: 10.5, color: AppColors.textSecondary)),
                       if (result.smsFilePath != null)
-                        Text('• ${result.smsFilePath!.split(Platform.pathSeparator).last}', style: const TextStyle(fontSize: 10.5, color: AppColors.textSecondary)),
+                        Text('• ${result.smsFilePath!.split(RegExp(r'[/\\]')).last}', style: const TextStyle(fontSize: 10.5, color: AppColors.textSecondary)),
                     ],
                   ),
                 ),
@@ -539,13 +544,11 @@ class _SettingsScreenState extends State<SettingsScreen> with WidgetsBindingObse
       ),
     );
 
-    if (confirmed == true && mounted && context.mounted) {
+    if (confirmed == true && mounted) {
+      final nav = Navigator.of(context);
       final authProvider = Provider.of<AppAuthProvider>(context, listen: false);
       await authProvider.signOut();
-
-      if (!context.mounted) return;
-      Navigator.pushAndRemoveUntil(
-        context,
+      nav.pushAndRemoveUntil(
         MaterialPageRoute(builder: (_) => const PhoneLoginScreen()),
         (route) => false,
       );
@@ -554,6 +557,7 @@ class _SettingsScreenState extends State<SettingsScreen> with WidgetsBindingObse
 
   @override
   Widget build(BuildContext context) {
+    final isAndroid = !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
     final phone = PreferencesService.getUserPhone() ?? '';
     final familyName = PreferencesService.getUserFamilyName() ?? 'MyFamily';
 
@@ -609,51 +613,71 @@ class _SettingsScreenState extends State<SettingsScreen> with WidgetsBindingObse
             _buildVaultActionCard(),
             const SizedBox(height: 12),
 
-            // 5. Anti-Theft & Intruder Protection Section (Expandable)
-            _buildExpandableSection(
-              sectionKey: 'anti_theft',
-              title: 'Anti-Theft & Intruder Defense',
-              subtitle: 'Wrong PIN alarm, secret camera capture & email alert',
-              icon: Icons.security_rounded,
-              iconColor: const Color(0xFF6366F1),
-              iconBgColor: const Color(0xFFEEF2FF),
-              statusBadge: _buildStatusBadge(
-                label: _isDeviceAdminActive ? 'Active' : 'Admin Off',
-                isActive: _isDeviceAdminActive,
+            // 5. Anti-Theft & Intruder Protection Section (Android only)
+            if (isAndroid) ...[
+              _buildExpandableSection(
+                sectionKey: 'anti_theft',
+                title: 'Anti-Theft & Intruder Defense',
+                subtitle: 'Wrong PIN alarm, secret camera capture & email alert',
+                icon: Icons.security_rounded,
+                iconColor: const Color(0xFF6366F1),
+                iconBgColor: const Color(0xFFEEF2FF),
+                statusBadge: _buildStatusBadge(
+                  label: _isDeviceAdminActive ? 'Active' : 'Admin Off',
+                  isActive: _isDeviceAdminActive,
+                ),
+                child: _buildAntiTheftBody(),
               ),
-              child: _buildAntiTheftBody(),
-            ),
-            const SizedBox(height: 12),
+              const SizedBox(height: 12),
+            ],
 
-            // 3. Offline SMS Location Tracking Section (Expandable)
-            _buildExpandableSection(
-              sectionKey: 'offline_sms',
-              title: 'Offline SMS Location Tracking',
-              subtitle: '15-minute background SMS without internet',
-              icon: Icons.sms_rounded,
-              iconColor: const Color(0xFF0EA5E9),
-              iconBgColor: const Color(0xFFE0F2FE),
-              statusBadge: _buildStatusBadge(
-                label: _offlineSmsEnabled ? 'Enabled' : 'Disabled',
-                isActive: _offlineSmsEnabled,
+            // 6. Offline SMS Location Tracking Section (Android only)
+            if (isAndroid) ...[
+              _buildExpandableSection(
+                sectionKey: 'offline_sms',
+                title: 'Offline SMS Location Tracking',
+                subtitle: '15-minute background SMS without internet',
+                icon: Icons.sms_rounded,
+                iconColor: const Color(0xFF0EA5E9),
+                iconBgColor: const Color(0xFFE0F2FE),
+                statusBadge: _buildStatusBadge(
+                  label: _offlineSmsEnabled ? 'Enabled' : 'Disabled',
+                  isActive: _offlineSmsEnabled,
+                ),
+                child: _buildOfflineSmsBody(),
               ),
-              child: _buildOfflineSmsBody(),
-            ),
-            const SizedBox(height: 12),
+              const SizedBox(height: 12),
+            ],
 
-            // 5. Background & OEM Battery Section (Expandable)
-            _buildExpandableSection(
-              sectionKey: 'battery_autostart',
-              title: 'Auto-Start & Battery Optimization',
-              subtitle: 'Prevent system killing FamilyTracker in background',
-              icon: Icons.battery_saver_rounded,
-              iconColor: const Color(0xFFF59E0B),
-              iconBgColor: const Color(0xFFFEF3C7),
-              child: _buildBatteryBody(),
-            ),
-            const SizedBox(height: 12),
+            // 7. Background & OEM Battery Section (Android only)
+            if (isAndroid) ...[
+              _buildExpandableSection(
+                sectionKey: 'battery_autostart',
+                title: 'Auto-Start & Battery Optimization',
+                subtitle: 'Prevent system killing FamilyTracker in background',
+                icon: Icons.battery_saver_rounded,
+                iconColor: const Color(0xFFF59E0B),
+                iconBgColor: const Color(0xFFFEF3C7),
+                child: _buildBatteryBody(),
+              ),
+              const SizedBox(height: 12),
+            ],
 
-            // 5. App Version & Updates Section (Expandable)
+            // 8. Data Backup & Export Section
+            if (!kIsWeb) ...[
+              _buildExpandableSection(
+                sectionKey: 'data_backup',
+                title: 'Data Backup & Export',
+                subtitle: 'Export contacts, location history & alerts to JSON',
+                icon: Icons.backup_rounded,
+                iconColor: const Color(0xFF0D9488),
+                iconBgColor: const Color(0xFFCCFBF1),
+                child: _buildBackupBody(),
+              ),
+              const SizedBox(height: 12),
+            ],
+
+            // 9. App Version & Updates Section (Expandable)
             _buildExpandableSection(
               sectionKey: 'app_update',
               title: 'App Version & System Info',
@@ -665,7 +689,7 @@ class _SettingsScreenState extends State<SettingsScreen> with WidgetsBindingObse
             ),
             const SizedBox(height: 24),
 
-            // 6. Sign Out Button
+            // 10. Sign Out Button
             _buildSignOutButton(),
             const SizedBox(height: 28),
           ],
@@ -1635,6 +1659,58 @@ class _SettingsScreenState extends State<SettingsScreen> with WidgetsBindingObse
               ),
             ),
           ],
+        ),
+      ],
+    );
+  }
+
+  // --------------------------------------------------------------------------
+  // SECTION 3.5: BACKUP & EXPORT BODY
+  // --------------------------------------------------------------------------
+  Widget _buildBackupBody() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Backup your device contacts, location breadcrumbs, and security alerts locally. Files are saved in JSON format for easy transfer.',
+          style: TextStyle(fontSize: 12, color: AppColors.textSecondary, height: 1.4),
+        ),
+        if (_lastBackup != null && _lastBackup!.success) ...[
+          const SizedBox(height: 8),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            decoration: BoxDecoration(
+              color: const Color(0xFFCCFBF1),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.check_circle_rounded, size: 14, color: Color(0xFF0D9488)),
+                const SizedBox(width: 6),
+                Text(
+                  'Last backup: ${_lastBackup!.contactsCount} contacts, ${_lastBackup!.formattedSize}',
+                  style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600, color: Color(0xFF0D9488)),
+                ),
+              ],
+            ),
+          ),
+        ],
+        const SizedBox(height: 12),
+        SizedBox(
+          width: double.infinity,
+          child: ElevatedButton.icon(
+            onPressed: _isCreatingBackup ? null : _handleCreateBackup,
+            icon: _isCreatingBackup
+                ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                : const Icon(Icons.download_rounded, size: 16),
+            label: Text(_isCreatingBackup ? 'Generating Backup...' : 'Create Local Backup Now'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF0D9488),
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(vertical: 12),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            ),
+          ),
         ),
       ],
     );

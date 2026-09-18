@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:geolocator/geolocator.dart';
@@ -17,11 +18,6 @@ import '../widgets/oem_autostart_modal.dart';
 import 'all_maps_screen.dart';
 import 'member_map_screen.dart';
 import 'location_history_screen.dart';
-import 'family_chat_screen.dart';
-import 'alerts_screen.dart';
-import 'settings_screen.dart';
-import '../../models/alert_item_model.dart';
-import '../widgets/buzzing_dot.dart';
 
 class FamilyDashboardScreen extends StatefulWidget {
   final Function(int)? onNavigateToTab;
@@ -48,13 +44,15 @@ class _FamilyDashboardScreenState extends State<FamilyDashboardScreen> with Widg
     WidgetsBinding.instance.addObserver(this);
     _checkGpsStatus();
     _checkAdminStatus();
-    _serviceStatusSub = Geolocator.getServiceStatusStream().listen((ServiceStatus status) {
-      if (mounted) {
-        setState(() {
-          _isGpsEnabled = (status == ServiceStatus.enabled);
-        });
-      }
-    });
+    if (!kIsWeb) {
+      _serviceStatusSub = Geolocator.getServiceStatusStream().listen((ServiceStatus status) {
+        if (mounted) {
+          setState(() {
+            _isGpsEnabled = (status == ServiceStatus.enabled);
+          });
+        }
+      });
+    }
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _loadData();
       _appUpdateSub = AppUpdateService.listenToAppUpdates(context);
@@ -70,12 +68,18 @@ class _FamilyDashboardScreenState extends State<FamilyDashboardScreen> with Widg
   }
 
   Future<void> _checkAdminStatus() async {
-    try {
-      final active = await NativeService.isDeviceAdminActive();
+    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
+      try {
+        final active = await NativeService.isDeviceAdminActive();
+        if (mounted) {
+          setState(() => _isDeviceAdminActive = active);
+        }
+      } catch (_) {}
+    } else {
       if (mounted) {
-        setState(() => _isDeviceAdminActive = active);
+        setState(() => _isDeviceAdminActive = true);
       }
-    } catch (_) {}
+    }
   }
 
   @override
@@ -310,9 +314,9 @@ class _FamilyDashboardScreenState extends State<FamilyDashboardScreen> with Widg
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
                 decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.2),
+                  color: Colors.white.withValues(alpha: 0.2),
                   borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.white.withOpacity(0.3)),
+                  border: Border.all(color: Colors.white.withValues(alpha: 0.3)),
                 ),
                 child: const Row(
                   mainAxisSize: MainAxisSize.min,
@@ -358,7 +362,7 @@ class _FamilyDashboardScreenState extends State<FamilyDashboardScreen> with Widg
                   borderRadius: BorderRadius.circular(14),
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.red.withOpacity(0.4),
+                      color: Colors.red.withValues(alpha: 0.4),
                       blurRadius: 10,
                       offset: const Offset(0, 4),
                     ),
@@ -392,7 +396,7 @@ class _FamilyDashboardScreenState extends State<FamilyDashboardScreen> with Widg
                                 maxLines: 2,
                                 overflow: TextOverflow.ellipsis,
                                 style: TextStyle(
-                                  color: Colors.white.withOpacity(0.92),
+                                  color: Colors.white.withValues(alpha: 0.92),
                                   fontSize: 11,
                                 ),
                               ),
@@ -446,10 +450,10 @@ class _FamilyDashboardScreenState extends State<FamilyDashboardScreen> with Widg
                           padding: const EdgeInsets.symmetric(
                               horizontal: 10, vertical: 6),
                           decoration: BoxDecoration(
-                            color: Colors.black.withOpacity(0.2),
+                            color: Colors.black.withValues(alpha: 0.2),
                             borderRadius: BorderRadius.circular(8),
                             border: Border.all(
-                                color: Colors.white.withOpacity(0.3)),
+                                color: Colors.white.withValues(alpha: 0.3)),
                           ),
                           child: const Row(
                             mainAxisSize: MainAxisSize.min,
@@ -537,8 +541,8 @@ class _FamilyDashboardScreenState extends State<FamilyDashboardScreen> with Widg
               ),
             ),
 
-          // 🛡️ Anti-Theft Device Admin Prompt Banner
-          if (!_isDeviceAdminActive)
+          // 🛡️ Anti-Theft Device Admin Prompt Banner (Android only)
+          if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android && !_isDeviceAdminActive)
             Container(
               width: double.infinity,
               margin: const EdgeInsets.fromLTRB(16, 8, 16, 4),
@@ -638,7 +642,7 @@ class _FamilyDashboardScreenState extends State<FamilyDashboardScreen> with Widg
                             Icon(
                               Icons.people_outline_rounded,
                               size: 64,
-                              color: AppColors.textMuted.withOpacity(0.5),
+                              color: AppColors.textMuted.withValues(alpha: 0.5),
                             ),
                             const SizedBox(height: 16),
                             const Text(
@@ -721,7 +725,7 @@ class _FamilyDashboardScreenState extends State<FamilyDashboardScreen> with Widg
                 color: AppColors.bgSurface,
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withOpacity(0.06),
+                    color: Colors.black.withValues(alpha: 0.06),
                     blurRadius: 10,
                     offset: const Offset(0, -4),
                   ),

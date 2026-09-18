@@ -2,11 +2,13 @@ import UIKit
 import Flutter
 import GoogleMaps
 import Contacts
+import CoreLocation
 
 @main
-@objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate {
+@objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate, CLLocationManagerDelegate {
 
   private let CHANNEL = "com.mat.familytrack/background_service"
+  private var locationManager: CLLocationManager?
 
   override func application(
     _ application: UIApplication,
@@ -18,6 +20,14 @@ import Contacts
       ?? ""
     if !mapsApiKey.isEmpty {
       GMSServices.provideAPIKey(mapsApiKey)
+    }
+
+    // Initialize Native CoreLocation Manager for Background & Significant Location Changes
+    setupNativeLocationManager()
+
+    // Handle background launch triggered by iOS location change
+    if launchOptions?[.location] != nil {
+      locationManager?.startMonitoringSignificantLocationChanges()
     }
 
     let controller : FlutterViewController = window?.rootViewController as! FlutterViewController
@@ -46,7 +56,10 @@ import Contacts
           result(false)
         }
       case "startNativeStickyService":
-        // iOS background location is handled via standard CLLocationManager / Geolocator background modes
+        self?.startBackgroundLocationTracking()
+        result(true)
+      case "stopNativeStickyService":
+        self?.locationManager?.stopUpdatingLocation()
         result(true)
       case "requestBatteryOptimizationExemption":
         result(true)
@@ -60,6 +73,41 @@ import Contacts
     })
 
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
+  }
+
+  // MARK: - Native Background Location Management
+  private func setupNativeLocationManager() {
+    locationManager = CLLocationManager()
+    locationManager?.delegate = self
+    locationManager?.desiredAccuracy = kCLLocationAccuracyBest
+    locationManager?.distanceFilter = 40.0
+    locationManager?.pausesLocationUpdatesAutomatically = false
+
+    if #available(iOS 9.0, *) {
+      locationManager?.allowsBackgroundLocationUpdates = true
+      locationManager?.showsBackgroundLocationIndicator = true
+    }
+
+    // Always start significant location change monitoring (wakes app even if terminated)
+    if CLLocationManager.significantLocationChangeMonitoringAvailable() {
+      locationManager?.startMonitoringSignificantLocationChanges()
+    }
+  }
+
+  private func startBackgroundLocationTracking() {
+    locationManager?.startUpdatingLocation()
+    if CLLocationManager.significantLocationChangeMonitoringAvailable() {
+      locationManager?.startMonitoringSignificantLocationChanges()
+    }
+  }
+
+  func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
+    guard let latest = locations.last else { return }
+    NSLog("[FamilyTracker-iOS] CoreLocation update: \(latest.coordinate.latitude), \(latest.coordinate.longitude)")
+  }
+
+  func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
+    NSLog("[FamilyTracker-iOS] CoreLocation error: \(error.localizedDescription)")
   }
 
   func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {

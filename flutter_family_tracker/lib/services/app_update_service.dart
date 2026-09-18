@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import '../models/app_update_model.dart';
 import '../ui/widgets/app_update_dialog.dart';
@@ -14,6 +15,7 @@ class AppUpdateService {
   /// - Returns `true` if update is MANDATORY (so caller halts navigation until updated).
   /// - Returns `false` if no update or optional.
   static Future<bool> checkAndPromptUpdate(BuildContext context) async {
+    if (kIsWeb) return false;
     try {
       final update = await _dbService.getAppUpdate();
       if (update != null && update.shouldShowUpdate()) {
@@ -32,6 +34,7 @@ class AppUpdateService {
 
   /// Listen to RTDB 'UpdateData' real-time changes while the app is active
   static StreamSubscription<AppUpdateModel?> listenToAppUpdates(BuildContext context) {
+    if (kIsWeb) return const Stream<AppUpdateModel?>.empty().listen((_) {});
     return _dbService.streamAppUpdate().listen((update) {
       if (update != null && update.shouldShowUpdate()) {
         if (context.mounted && !_isUpdateDialogOpen) {

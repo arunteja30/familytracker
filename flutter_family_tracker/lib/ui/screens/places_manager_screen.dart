@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:intl/intl.dart';
@@ -27,7 +28,8 @@ class PlacesManagerScreen extends StatefulWidget {
   State<PlacesManagerScreen> createState() => _PlacesManagerScreenState();
 }
 
-class _PlacesManagerScreenState extends State<PlacesManagerScreen> with SingleTickerProviderStateMixin {
+class _PlacesManagerScreenState extends State<PlacesManagerScreen>
+    with SingleTickerProviderStateMixin {
   final DatabaseService _dbService = DatabaseService();
   late TabController _tabController;
   Position? _currentPosition;
@@ -60,14 +62,20 @@ class _PlacesManagerScreenState extends State<PlacesManagerScreen> with SingleTi
 
   Future<void> _fetchCurrentLocation() async {
     try {
-      final pos = await Geolocator.getLastKnownPosition() ?? await Geolocator.getCurrentPosition(
+      Position? pos;
+      if (!kIsWeb) {
+        try {
+          pos = await Geolocator.getLastKnownPosition();
+        } catch (_) {}
+      }
+      pos ??= await Geolocator.getCurrentPosition(
         desiredAccuracy: LocationAccuracy.medium,
       );
       if (mounted) {
         setState(() => _currentPosition = pos);
       }
     } catch (e) {
-      debugPrint('[PlacesManager] Location fetch error: $e');
+      debugPrint('[PlacesManager] Location fetch notice: $e');
     }
   }
 

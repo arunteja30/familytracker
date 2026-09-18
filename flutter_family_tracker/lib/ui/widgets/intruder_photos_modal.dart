@@ -568,7 +568,7 @@ class _FullScreenPhotoViewerState extends State<_FullScreenPhotoViewer> {
                           );
                           if (confirm == true) {
                             widget.onDelete(path);
-                            if (mounted) Navigator.pop(context);
+                            if (mounted && context.mounted) Navigator.pop(context);
                           }
                         },
                         icon: const Icon(Icons.delete_outline_rounded, color: AppColors.danger),

@@ -119,7 +119,7 @@ class _AddMemberDialogState extends State<AddMemberDialog> {
 
             // Relationship Dropdown
             DropdownButtonFormField<String>(
-              value: _selectedRelation,
+              initialValue: _selectedRelation,
               decoration: const InputDecoration(
                 labelText: 'Relationship',
                 prefixIcon: Icon(Icons.group_rounded),

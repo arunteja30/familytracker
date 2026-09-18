@@ -52,13 +52,15 @@ class LocationService {
       if (hasPermission) {
         Position? position;
 
-        // Try fast cached location first (0ms response)
-        try {
-          final lastKnown = await Geolocator.getLastKnownPosition();
-          if (lastKnown != null && (lastKnown.latitude != 0.0 || lastKnown.longitude != 0.0)) {
-            position = lastKnown;
-          }
-        } catch (_) {}
+        // Try fast cached location first on mobile (0ms response)
+        if (!kIsWeb) {
+          try {
+            final lastKnown = await Geolocator.getLastKnownPosition();
+            if (lastKnown != null && (lastKnown.latitude != 0.0 || lastKnown.longitude != 0.0)) {
+              position = lastKnown;
+            }
+          } catch (_) {}
+        }
 
         // Try fresh location with short timeout
         try {
@@ -193,35 +195,37 @@ class LocationService {
       }
     });
 
-    _serviceStatusSubscription?.cancel();
-    _serviceStatusSubscription =
-        Geolocator.getServiceStatusStream().listen((status) async {
-      if (status == ServiceStatus.disabled) {
-        debugPrint(
-            '[FamilyTracker] GPS disabled event detected, fetching IP location fallback...');
-        try {
-          final ipLocation = await IpLocationService.getCoarseIpLocation();
-          if (ipLocation != null) {
-            final batteryLevel = await _battery.batteryLevel;
-            final now = DateTime.now();
-            final dateStr = DateFormat('yyyy-MM-dd').format(now);
+    if (!kIsWeb) {
+      _serviceStatusSubscription?.cancel();
+      _serviceStatusSubscription =
+          Geolocator.getServiceStatusStream().listen((status) async {
+        if (status == ServiceStatus.disabled) {
+          debugPrint(
+              '[FamilyTracker] GPS disabled event detected, fetching IP location fallback...');
+          try {
+            final ipLocation = await IpLocationService.getCoarseIpLocation();
+            if (ipLocation != null) {
+              final batteryLevel = await _battery.batteryLevel;
+              final now = DateTime.now();
+              final dateStr = DateFormat('yyyy-MM-dd').format(now);
 
-            final location = LocationDetailsModel(
-              latitude: ipLocation['lat'] as double,
-              longitude: ipLocation['lon'] as double,
-              timeStamp: now.millisecondsSinceEpoch,
-              date: dateStr,
-              batteryPercentage: batteryLevel,
-              address: ipLocation['address'] as String,
-              gpsStatus: 'IP (Approx)',
-            );
-            await _dbService.saveLocation(mobile, location);
+              final location = LocationDetailsModel(
+                latitude: ipLocation['lat'] as double,
+                longitude: ipLocation['lon'] as double,
+                timeStamp: now.millisecondsSinceEpoch,
+                date: dateStr,
+                batteryPercentage: batteryLevel,
+                address: ipLocation['address'] as String,
+                gpsStatus: 'IP (Approx)',
+              );
+              await _dbService.saveLocation(mobile, location);
+            }
+          } catch (e) {
+            debugPrint('[FamilyTracker] IP location push error: $e');
           }
-        } catch (e) {
-          debugPrint('[FamilyTracker] IP location push error: $e');
         }
-      }
-    });
+      });
+    }
 
     debugPrint(
         '[FamilyTracker] Continuous background tracking started for: $mobile');
