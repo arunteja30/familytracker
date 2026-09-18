@@ -65,6 +65,12 @@ class GeofenceService {
         continue;
       }
 
+      // If place has an active schedule and current time is outside the active window, update state silently without notifications
+      if (!place.isCurrentlyActiveInSchedule()) {
+        _memberPlaceStates[stateKey] = isCurrentlyInside;
+        continue;
+      }
+
       final effectiveFamily = member.familyName.isNotEmpty ? member.familyName : place.familyName;
       final effectiveName = member.name.isNotEmpty ? member.name : PhoneUtils.formatDisplay(member.mobile);
 

@@ -233,7 +233,7 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
       icon: customIcon,
       infoWindow: InfoWindow(
         title: member.name,
-        snippet: '🕒 $lastUpdated\n📍 $displayAddr\n⚡ Battery: ${loc.batteryPercentage}%',
+        snippet: '🕒 $lastUpdated\n📍 $displayAddr\n⚡ Battery: ${loc.batteryPercentage}%${loc.isMoving ? " • 🚗 ${loc.formattedSpeed}" : ""}',
       ),
       onTap: () {
         _focusMember(member);
@@ -726,21 +726,55 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
                                         overflow: TextOverflow.ellipsis,
                                       ),
                                     ),
-                                    if (_selectedMember!.relationship.isNotEmpty) ...[
+                                    if (Provider.of<FamilyProvider>(context, listen: false).isMemberAdmin(_selectedMember!)) ...[
                                       const SizedBox(width: 6),
                                       Container(
                                         padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                                         decoration: BoxDecoration(
-                                          color: AppColors.primaryLight.withValues(alpha: 0.15),
+                                          color: const Color(0xFFFEF3C7),
                                           borderRadius: BorderRadius.circular(6),
+                                          border: Border.all(color: const Color(0xFFF59E0B).withValues(alpha: 0.5)),
                                         ),
-                                        child: Text(
-                                          _selectedMember!.relationship,
-                                          style: const TextStyle(
-                                            fontSize: 10,
-                                            fontWeight: FontWeight.w600,
-                                            color: AppColors.primary,
-                                          ),
+                                        child: const Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            Icon(Icons.admin_panel_settings_rounded, size: 11, color: Color(0xFFB45309)),
+                                            SizedBox(width: 3),
+                                            Text(
+                                              'Admin',
+                                              style: TextStyle(
+                                                fontSize: 10,
+                                                fontWeight: FontWeight.bold,
+                                                color: Color(0xFFB45309),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ],
+                                    if (selectedLoc != null && selectedLoc.isMoving) ...[
+                                      const SizedBox(width: 6),
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                        decoration: BoxDecoration(
+                                          color: const Color(0xFF0D9488).withValues(alpha: 0.15),
+                                          borderRadius: BorderRadius.circular(6),
+                                          border: Border.all(color: const Color(0xFF0D9488).withValues(alpha: 0.4)),
+                                        ),
+                                        child: Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            const Icon(Icons.directions_car_filled_rounded, size: 10, color: Color(0xFF0D9488)),
+                                            const SizedBox(width: 3),
+                                            Text(
+                                              selectedLoc.formattedSpeed,
+                                              style: const TextStyle(
+                                                fontSize: 10,
+                                                fontWeight: FontWeight.bold,
+                                                color: Color(0xFF0D9488),
+                                              ),
+                                            ),
+                                          ],
                                         ),
                                       ),
                                     ],

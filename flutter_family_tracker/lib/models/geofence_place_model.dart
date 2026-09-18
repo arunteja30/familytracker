@@ -69,6 +69,14 @@ class GeofencePlaceModel {
   String createdBy;
   int createdAt;
 
+  // Active Schedule / Time Window Controls
+  bool isScheduleActive;
+  int startHour;
+  int startMinute;
+  int endHour;
+  int endMinute;
+  List<int> activeDays; // 1 = Mon, 2 = Tue, ..., 7 = Sun
+
   GeofencePlaceModel({
     required this.id,
     required this.familyName,
@@ -83,7 +91,14 @@ class GeofencePlaceModel {
     this.targetMemberName = 'Everyone',
     this.createdBy = '',
     int? createdAt,
-  }) : createdAt = createdAt ?? DateTime.now().millisecondsSinceEpoch;
+    this.isScheduleActive = false,
+    this.startHour = 8,
+    this.startMinute = 0,
+    this.endHour = 18,
+    this.endMinute = 0,
+    List<int>? activeDays,
+  })  : createdAt = createdAt ?? DateTime.now().millisecondsSinceEpoch,
+        activeDays = activeDays ?? const [1, 2, 3, 4, 5, 6, 7];
 
   bool get isForAllMembers => targetMemberMobile.isEmpty || targetMemberMobile == 'all';
 
@@ -93,11 +108,56 @@ class GeofencePlaceModel {
     return PhoneUtils.isSame(targetMemberMobile, mobile);
   }
 
+  /// Evaluates whether the place's active schedule is currently in effect
+  bool isCurrentlyActiveInSchedule([DateTime? customTime]) {
+    if (!isScheduleActive) return true;
+    final now = customTime ?? DateTime.now();
+
+    // Check weekday: 1 = Monday, 7 = Sunday
+    if (activeDays.isNotEmpty && !activeDays.contains(now.weekday)) {
+      return false;
+    }
+
+    final currentMinutes = now.hour * 60 + now.minute;
+    final startMinutes = startHour * 60 + startMinute;
+    final endMinutes = endHour * 60 + endMinute;
+
+    if (startMinutes <= endMinutes) {
+      return currentMinutes >= startMinutes && currentMinutes <= endMinutes;
+    } else {
+      // Overnight schedule window (e.g. 22:00 to 06:00)
+      return currentMinutes >= startMinutes || currentMinutes <= endMinutes;
+    }
+  }
+
+  /// Human-readable schedule summary (e.g. "Mon-Fri • 08:00 - 15:00")
+  String get formattedSchedule {
+    if (!isScheduleActive) return 'Active 24/7';
+    final sH = startHour.toString().padLeft(2, '0');
+    final sM = startMinute.toString().padLeft(2, '0');
+    final eH = endHour.toString().padLeft(2, '0');
+    final eM = endMinute.toString().padLeft(2, '0');
+    final daysStr = activeDays.length == 7
+        ? 'Daily'
+        : (activeDays.length == 5 && !activeDays.contains(6) && !activeDays.contains(7))
+            ? 'Mon-Fri'
+            : (activeDays.length == 2 && activeDays.contains(6) && activeDays.contains(7))
+                ? 'Weekends'
+                : '${activeDays.length} days/wk';
+    return '$daysStr • $sH:$sM - $eH:$eM';
+  }
+
   factory GeofencePlaceModel.fromJson(Map<dynamic, dynamic> json, [String? fallbackId]) {
     double parseDouble(dynamic val, double fallback) {
       if (val == null) return fallback;
       if (val is num) return val.toDouble();
       return double.tryParse(val.toString()) ?? fallback;
+    }
+
+    int parseInt(dynamic val, int fallback) {
+      if (val == null) return fallback;
+      if (val is num) return val.toInt();
+      return int.tryParse(val.toString()) ?? fallback;
     }
 
     PlaceCategory parseCategory(dynamic val) {
@@ -106,6 +166,13 @@ class GeofencePlaceModel {
         if (cat.name == str) return cat;
       }
       return PlaceCategory.custom;
+    }
+
+    List<int> parseDays(dynamic val) {
+      if (val is List) {
+        return val.map((e) => int.tryParse(e.toString()) ?? 1).toList();
+      }
+      return [1, 2, 3, 4, 5, 6, 7];
     }
 
     return GeofencePlaceModel(
@@ -125,6 +192,12 @@ class GeofencePlaceModel {
       createdAt: json['createdAt'] is num
           ? (json['createdAt'] as num).toInt()
           : (int.tryParse(json['createdAt']?.toString() ?? '') ?? DateTime.now().millisecondsSinceEpoch),
+      isScheduleActive: json['isScheduleActive'] == true,
+      startHour: parseInt(json['startHour'], 8),
+      startMinute: parseInt(json['startMinute'], 0),
+      endHour: parseInt(json['endHour'], 18),
+      endMinute: parseInt(json['endMinute'], 0),
+      activeDays: parseDays(json['activeDays']),
     );
   }
 
@@ -143,6 +216,12 @@ class GeofencePlaceModel {
       'targetMemberName': targetMemberName,
       'createdBy': createdBy,
       'createdAt': createdAt,
+      'isScheduleActive': isScheduleActive,
+      'startHour': startHour,
+      'startMinute': startMinute,
+      'endHour': endHour,
+      'endMinute': endMinute,
+      'activeDays': activeDays,
     };
   }
 }

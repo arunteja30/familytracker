@@ -344,19 +344,25 @@ class _PlacesManagerScreenState extends State<PlacesManagerScreen>
             const Divider(height: 1),
             const SizedBox(height: 10),
 
-            // Alert Toggles Indicators
-            Row(
+            // Alert Toggles Indicators & Schedule
+            Wrap(
+              spacing: 8,
+              runSpacing: 6,
               children: [
                 _buildAlertBadge(
                   label: 'Arrival Alert',
                   icon: Icons.login_rounded,
                   isActive: place.notifyOnEntry,
                 ),
-                const SizedBox(width: 10),
                 _buildAlertBadge(
                   label: 'Departure Alert',
                   icon: Icons.logout_rounded,
                   isActive: place.notifyOnExit,
+                ),
+                _buildAlertBadge(
+                  label: place.formattedSchedule,
+                  icon: Icons.schedule_rounded,
+                  isActive: place.isScheduleActive,
                 ),
               ],
             ),
@@ -514,6 +520,13 @@ class _PlacesManagerScreenState extends State<PlacesManagerScreen>
     String targetMobile = existingPlace?.targetMemberMobile ?? '';
     String targetName = existingPlace?.targetMemberName ?? 'Everyone';
 
+    bool isScheduleActive = existingPlace?.isScheduleActive ?? false;
+    int startHour = existingPlace?.startHour ?? 8;
+    int startMinute = existingPlace?.startMinute ?? 0;
+    int endHour = existingPlace?.endHour ?? 18;
+    int endMinute = existingPlace?.endMinute ?? 0;
+    List<int> activeDays = List<int>.from(existingPlace?.activeDays ?? [1, 2, 3, 4, 5, 6, 7]);
+
     double lat = existingPlace?.latitude ?? widget.initialLat ?? _currentPosition?.latitude ?? 0.0;
     double lng = existingPlace?.longitude ?? widget.initialLng ?? _currentPosition?.longitude ?? 0.0;
 
@@ -650,7 +663,7 @@ class _PlacesManagerScreenState extends State<PlacesManagerScreen>
                                   const SizedBox(width: 10),
                                   Expanded(
                                     child: Text(
-                                      '${m.name} ${m.relationship.isNotEmpty ? "(${m.relationship})" : ""}',
+                                      '${m.name} ${m.isAdmin ? "(Admin)" : ""}'.trim(),
                                       style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
                                       overflow: TextOverflow.ellipsis,
                                     ),
@@ -856,6 +869,144 @@ class _PlacesManagerScreenState extends State<PlacesManagerScreen>
                     activeThumbColor: selectedCategory.color,
                     onChanged: (val) => setModalState(() => notifyExit = val),
                   ),
+                  const SizedBox(height: 10),
+
+                  // Schedule Configuration Toggle & Pickers
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: AppColors.bgApp,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: isScheduleActive ? selectedCategory.color.withValues(alpha: 0.4) : AppColors.cardBorder),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        SwitchListTile(
+                          contentPadding: EdgeInsets.zero,
+                          title: const Text('Active Schedule / Time Window', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+                          subtitle: Text(
+                            isScheduleActive
+                                ? 'Alerts only trigger during active days and hours'
+                                : 'Alerts active 24/7 whenever crossed',
+                            style: const TextStyle(fontSize: 11),
+                          ),
+                          value: isScheduleActive,
+                          activeThumbColor: selectedCategory.color,
+                          onChanged: (val) => setModalState(() => isScheduleActive = val),
+                        ),
+
+                        if (isScheduleActive) ...[
+                          const SizedBox(height: 6),
+                          const Text('Active Days:', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
+                          const SizedBox(height: 6),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              {'label': 'M', 'day': 1},
+                              {'label': 'T', 'day': 2},
+                              {'label': 'W', 'day': 3},
+                              {'label': 'T', 'day': 4},
+                              {'label': 'F', 'day': 5},
+                              {'label': 'S', 'day': 6},
+                              {'label': 'S', 'day': 7},
+                            ].map((item) {
+                              final day = item['day'] as int;
+                              final label = item['label'] as String;
+                              final isSelected = activeDays.contains(day);
+                              return InkWell(
+                                onTap: () {
+                                  setModalState(() {
+                                    if (isSelected) {
+                                      if (activeDays.length > 1) activeDays.remove(day);
+                                    } else {
+                                      activeDays.add(day);
+                                      activeDays.sort();
+                                    }
+                                  });
+                                },
+                                borderRadius: BorderRadius.circular(8),
+                                child: Container(
+                                  width: 34,
+                                  height: 34,
+                                  alignment: Alignment.center,
+                                  decoration: BoxDecoration(
+                                    color: isSelected ? selectedCategory.color : Colors.white,
+                                    borderRadius: BorderRadius.circular(8),
+                                    border: Border.all(color: isSelected ? selectedCategory.color : Colors.grey.shade300),
+                                  ),
+                                  child: Text(
+                                    label,
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.bold,
+                                      color: isSelected ? Colors.white : AppColors.textSecondary,
+                                    ),
+                                  ),
+                                ),
+                              );
+                            }).toList(),
+                          ),
+                          const SizedBox(height: 10),
+
+                          // Time Window Pickers (Start & End)
+                          Row(
+                            children: [
+                              Expanded(
+                                child: OutlinedButton.icon(
+                                  onPressed: () async {
+                                    final picked = await showTimePicker(
+                                      context: modalCtx,
+                                      initialTime: TimeOfDay(hour: startHour, minute: startMinute),
+                                    );
+                                    if (picked != null) {
+                                      setModalState(() {
+                                        startHour = picked.hour;
+                                        startMinute = picked.minute;
+                                      });
+                                    }
+                                  },
+                                  icon: const Icon(Icons.access_time_rounded, size: 15),
+                                  label: Text('From: ${startHour.toString().padLeft(2, '0')}:${startMinute.toString().padLeft(2, '0')}', style: const TextStyle(fontSize: 12)),
+                                  style: OutlinedButton.styleFrom(
+                                    foregroundColor: AppColors.textPrimary,
+                                    backgroundColor: Colors.white,
+                                    padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 6),
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: OutlinedButton.icon(
+                                  onPressed: () async {
+                                    final picked = await showTimePicker(
+                                      context: modalCtx,
+                                      initialTime: TimeOfDay(hour: endHour, minute: endMinute),
+                                    );
+                                    if (picked != null) {
+                                      setModalState(() {
+                                        endHour = picked.hour;
+                                        endMinute = picked.minute;
+                                      });
+                                    }
+                                  },
+                                  icon: const Icon(Icons.access_time_filled_rounded, size: 15),
+                                  label: Text('To: ${endHour.toString().padLeft(2, '0')}:${endMinute.toString().padLeft(2, '0')}', style: const TextStyle(fontSize: 12)),
+                                  style: OutlinedButton.styleFrom(
+                                    foregroundColor: AppColors.textPrimary,
+                                    backgroundColor: Colors.white,
+                                    padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 6),
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
                   const SizedBox(height: 16),
 
                   // Save Button
@@ -891,6 +1042,12 @@ class _PlacesManagerScreenState extends State<PlacesManagerScreen>
                           targetMemberMobile: targetMobile,
                           targetMemberName: targetName,
                           createdBy: widget.userPhone,
+                          isScheduleActive: isScheduleActive,
+                          startHour: startHour,
+                          startMinute: startMinute,
+                          endHour: endHour,
+                          endMinute: endMinute,
+                          activeDays: activeDays,
                         );
 
                         final success = await _dbService.savePlace(placeToSave);

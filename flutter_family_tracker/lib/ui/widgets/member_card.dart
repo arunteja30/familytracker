@@ -410,22 +410,29 @@ class _MemberCardState extends State<MemberCard> {
                                 overflow: TextOverflow.ellipsis,
                               ),
                             ),
-                            if (widget.member.relationship.isNotEmpty) ...[
+                            if (Provider.of<FamilyProvider>(context, listen: false).isMemberAdmin(widget.member)) ...[
                               const SizedBox(width: 6),
                               Container(
                                 padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
                                 decoration: BoxDecoration(
-                                  color: AppColors.primary.withValues(alpha: 0.08),
+                                  color: const Color(0xFFFEF3C7),
                                   borderRadius: BorderRadius.circular(6),
-                                  border: Border.all(color: AppColors.primary.withValues(alpha: 0.2)),
+                                  border: Border.all(color: const Color(0xFFF59E0B).withValues(alpha: 0.5)),
                                 ),
-                                child: Text(
-                                  widget.member.relationship,
-                                  style: const TextStyle(
-                                    color: AppColors.primary,
-                                    fontSize: 10.5,
-                                    fontWeight: FontWeight.bold,
-                                  ),
+                                child: const Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(Icons.admin_panel_settings_rounded, size: 12, color: Color(0xFFB45309)),
+                                    SizedBox(width: 3),
+                                    Text(
+                                      'Admin',
+                                      style: TextStyle(
+                                        color: Color(0xFFB45309),
+                                        fontSize: 10.5,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ),
                             ],

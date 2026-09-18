@@ -7,6 +7,8 @@ class LocationDetailsModel {
   String address;
   String message;
   String gpsStatus;
+  double speedKmh;
+  double heading;
 
   LocationDetailsModel({
     this.latitude = 0.0,
@@ -17,7 +19,12 @@ class LocationDetailsModel {
     this.address = '',
     this.message = '',
     this.gpsStatus = '',
+    this.speedKmh = 0.0,
+    this.heading = 0.0,
   });
+
+  bool get isMoving => speedKmh >= 5.0;
+  String get formattedSpeed => '${speedKmh.round()} km/h';
 
   factory LocationDetailsModel.fromJson(Map<dynamic, dynamic> json) {
     double parseDouble(dynamic val) {
@@ -42,6 +49,8 @@ class LocationDetailsModel {
       address: json['address']?.toString() ?? '',
       message: json['message']?.toString() ?? '',
       gpsStatus: json['gpsStatus']?.toString() ?? '',
+      speedKmh: parseDouble(json['speedKmh'] ?? json['speed']),
+      heading: parseDouble(json['heading'] ?? json['bearing']),
     );
   }
 
@@ -55,6 +64,8 @@ class LocationDetailsModel {
       'address': address,
       'message': message,
       'gpsStatus': gpsStatus,
+      'speedKmh': speedKmh,
+      'heading': heading,
     };
   }
 }

@@ -242,7 +242,7 @@ class _FamilyDashboardScreenState extends State<FamilyDashboardScreen> with Widg
                 );
               }
             },
-            icon: const Icon(Icons.sos_rounded, color: Colors.white),
+            icon: const Icon(Icons.emergency_rounded, color: Colors.white),
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.red.shade700,
               foregroundColor: Colors.white,
@@ -289,13 +289,13 @@ class _FamilyDashboardScreenState extends State<FamilyDashboardScreen> with Widg
                   child: const Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(Icons.sos_rounded, color: Colors.white, size: 20),
-                      SizedBox(width: 4),
+                      Icon(Icons.emergency_rounded, color: Colors.white, size: 18),
+                      SizedBox(width: 5),
                       Text(
                         'SOS',
                         style: TextStyle(
                           color: Colors.white,
-                          fontSize: 12,
+                          fontSize: 12.5,
                           fontWeight: FontWeight.w900,
                           letterSpacing: 0.8,
                         ),

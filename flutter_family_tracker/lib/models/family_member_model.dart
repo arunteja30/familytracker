@@ -27,6 +27,14 @@ class FamilyMemberModel {
     this.isRegistered = false,
   });
 
+  bool get isAdmin {
+    final rel = relationship.trim().toLowerCase();
+    return rel == 'admin' ||
+        rel == 'creator' ||
+        rel == 'owner' ||
+        rel == 'head';
+  }
+
   factory FamilyMemberModel.fromJson(Map<dynamic, dynamic> json) {
     return FamilyMemberModel(
       name: json['name']?.toString() ??

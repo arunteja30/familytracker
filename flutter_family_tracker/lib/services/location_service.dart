@@ -86,6 +86,9 @@ class LocationService {
             address = 'Lat: ${position.latitude.toStringAsFixed(4)}, Lng: ${position.longitude.toStringAsFixed(4)}';
           }
 
+          final speedKmh = position.speed > 0 ? (position.speed * 3.6) : 0.0;
+          final heading = position.heading;
+
           return LocationDetailsModel(
             latitude: position.latitude,
             longitude: position.longitude,
@@ -94,6 +97,8 @@ class LocationService {
             batteryPercentage: batteryLevel,
             address: address,
             gpsStatus: 'Active',
+            speedKmh: speedKmh,
+            heading: heading,
           );
         }
       }
@@ -177,6 +182,9 @@ class LocationService {
         final now = DateTime.now();
         final dateStr = DateFormat('yyyy-MM-dd').format(now);
 
+        final speedKmh = position.speed > 0 ? (position.speed * 3.6) : 0.0;
+        final heading = position.heading;
+
         final location = LocationDetailsModel(
           latitude: position.latitude,
           longitude: position.longitude,
@@ -185,11 +193,13 @@ class LocationService {
           batteryPercentage: batteryLevel,
           address: address,
           gpsStatus: 'Active',
+          speedKmh: speedKmh,
+          heading: heading,
         );
 
         await _dbService.saveLocation(mobile, location);
         debugPrint(
-            '[FamilyTracker] Background location pushed: (${position.latitude}, ${position.longitude}) - $address');
+            '[FamilyTracker] Background location pushed: (${position.latitude}, ${position.longitude}) speed: ${speedKmh.toStringAsFixed(1)}km/h - $address');
       } catch (e) {
         debugPrint('[FamilyTracker] Background tracking error: $e');
       }

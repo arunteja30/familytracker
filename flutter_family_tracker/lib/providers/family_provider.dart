@@ -132,6 +132,38 @@ class FamilyProvider extends ChangeNotifier {
     return false;
   }
 
+  /// Checks if any specific member is an Admin of the current group
+  bool isMemberAdmin(FamilyMemberModel member) {
+    if (member.isAdmin) return true;
+
+    // 1. If group name suffix is member's phone number
+    if (_currentFamilyName.contains('_')) {
+      final parts = _currentFamilyName.split('_');
+      if (parts.length >= 2) {
+        final phonePart = parts.sublist(1).join('_');
+        if (DatabaseService.matchPhones(phonePart, member.mobile)) {
+          return true;
+        }
+      }
+    }
+
+    // 2. If member's adminName matches their own mobile or name
+    if (member.adminName != null && member.adminName!.trim().isNotEmpty) {
+      if (DatabaseService.matchPhones(member.adminName!, member.mobile) ||
+          member.adminName!.trim().toLowerCase() == member.name.trim().toLowerCase()) {
+        return true;
+      }
+    }
+
+    // 3. If member is the first/creator member in the group
+    if (_familyMembers.isNotEmpty &&
+        DatabaseService.matchPhones(_familyMembers.first.mobile, member.mobile)) {
+      return true;
+    }
+
+    return false;
+  }
+
   Timer? _notifyDebounceTimer;
 
   void _safeNotifyListeners({bool immediate = false}) {
