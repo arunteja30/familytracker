@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../utils/phone_utils.dart';
 
 enum PlaceCategory {
   home,
@@ -89,12 +90,7 @@ class GeofencePlaceModel {
   bool appliesToMember(String mobile) {
     if (isForAllMembers) return true;
     if (mobile.isEmpty) return false;
-    final cleanTarget = targetMemberMobile.replaceAll(RegExp(r'\D'), '');
-    final cleanMobile = mobile.replaceAll(RegExp(r'\D'), '');
-    if (cleanTarget == cleanMobile) return true;
-    final s1 = cleanTarget.length >= 10 ? cleanTarget.substring(cleanTarget.length - 10) : cleanTarget;
-    final s2 = cleanMobile.length >= 10 ? cleanMobile.substring(cleanMobile.length - 10) : cleanMobile;
-    return s1 == s2;
+    return PhoneUtils.isSame(targetMemberMobile, mobile);
   }
 
   factory GeofencePlaceModel.fromJson(Map<dynamic, dynamic> json, [String? fallbackId]) {

@@ -4,6 +4,7 @@ import '../models/family_member_model.dart';
 import '../models/geofence_place_model.dart';
 import '../models/location_details_model.dart';
 import '../models/place_event_model.dart';
+import '../utils/phone_utils.dart';
 import 'database_service.dart';
 import 'notification_service.dart';
 
@@ -18,7 +19,7 @@ class GeofenceService {
 
   final DatabaseService _dbService = DatabaseService();
 
-  // In-memory state tracking: key is "$memberMobile-$placeId" -> bool isInside
+  // In-memory state tracking: key is "${normalizedMobile}_${placeId}" -> bool isInside
   static final Map<String, bool> _memberPlaceStates = {};
 
   // Last event timestamp to prevent duplicate rapid triggers within 60s
@@ -41,6 +42,7 @@ class GeofenceService {
     if (memberPlaces.isEmpty) return;
 
     final now = DateTime.now().millisecondsSinceEpoch;
+    final normalizedMobile = PhoneUtils.normalize(member.mobile);
 
     for (final place in memberPlaces) {
       if (place.latitude == 0.0 && place.longitude == 0.0) continue;
@@ -52,13 +54,22 @@ class GeofenceService {
         place.longitude,
       );
 
-      final stateKey = '${member.mobile.trim()}_${place.id.trim()}';
+      final stateKey = '${normalizedMobile}_${place.id.trim()}';
       final previousState = _memberPlaceStates[stateKey];
       final isCurrentlyInside = distance <= place.radiusMeters;
       final isCurrentlyOutside = distance > (place.radiusMeters + _hysteresisBufferMeters);
 
+      // Baseline initialization on first check for this member-place pair
+      if (previousState == null) {
+        _memberPlaceStates[stateKey] = isCurrentlyInside;
+        continue;
+      }
+
+      final effectiveFamily = member.familyName.isNotEmpty ? member.familyName : place.familyName;
+      final effectiveName = member.name.isNotEmpty ? member.name : PhoneUtils.formatDisplay(member.mobile);
+
       // Check for Arrival (Outside -> Inside)
-      if (isCurrentlyInside && (previousState == null || previousState == false)) {
+      if (isCurrentlyInside && previousState == false) {
         _memberPlaceStates[stateKey] = true;
 
         final lastEvent = _lastEventTimestamps['${stateKey}_entered'] ?? 0;
@@ -66,24 +77,24 @@ class GeofenceService {
           _lastEventTimestamps['${stateKey}_entered'] = now;
 
           if (place.notifyOnEntry) {
-            debugPrint('[GeofenceService] 🏠 ARRIVAL: ${member.name} entered ${place.name} (dist: ${distance.toStringAsFixed(1)}m)');
+            debugPrint('[GeofenceService] 🏠 ARRIVAL: $effectiveName entered ${place.name} (dist: ${distance.toStringAsFixed(1)}m)');
 
             // 1. Dispatch local heads-up notification
             await NotificationService.showPlaceAlert(
-              memberName: member.name,
+              memberName: effectiveName,
               placeName: place.name,
               isArrival: true,
-              familyName: member.familyName,
+              familyName: effectiveFamily,
             );
 
             // 2. Log event to Firebase RTDB for live timeline
             await _dbService.logPlaceEvent(
               PlaceEventModel(
                 id: '',
-                familyName: member.familyName,
+                familyName: effectiveFamily,
                 placeId: place.id,
                 placeName: place.name,
-                memberName: member.name,
+                memberName: effectiveName,
                 memberMobile: member.mobile,
                 eventType: 'entered',
                 timestamp: now,
@@ -101,24 +112,24 @@ class GeofenceService {
           _lastEventTimestamps['${stateKey}_left'] = now;
 
           if (place.notifyOnExit) {
-            debugPrint('[GeofenceService] 🚗 DEPARTURE: ${member.name} left ${place.name} (dist: ${distance.toStringAsFixed(1)}m)');
+            debugPrint('[GeofenceService] 🚗 DEPARTURE: $effectiveName left ${place.name} (dist: ${distance.toStringAsFixed(1)}m)');
 
             // 1. Dispatch local heads-up notification
             await NotificationService.showPlaceAlert(
-              memberName: member.name,
+              memberName: effectiveName,
               placeName: place.name,
               isArrival: false,
-              familyName: member.familyName,
+              familyName: effectiveFamily,
             );
 
             // 2. Log event to Firebase RTDB for live timeline
             await _dbService.logPlaceEvent(
               PlaceEventModel(
                 id: '',
-                familyName: member.familyName,
+                familyName: effectiveFamily,
                 placeId: place.id,
                 placeName: place.name,
-                memberName: member.name,
+                memberName: effectiveName,
                 memberMobile: member.mobile,
                 eventType: 'left',
                 timestamp: now,
@@ -137,8 +148,9 @@ class GeofenceService {
   }) {
     final List<GeofencePlaceModel> inside = [];
     final memberPlaces = places.where((p) => p.appliesToMember(memberMobile)).toList();
+    final normalizedMobile = PhoneUtils.normalize(memberMobile);
     for (final p in memberPlaces) {
-      final key = '${memberMobile.trim()}_${p.id.trim()}';
+      final key = '${normalizedMobile}_${p.id.trim()}';
       if (_memberPlaceStates[key] == true) {
         inside.add(p);
       }

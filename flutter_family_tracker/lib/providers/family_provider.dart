@@ -5,6 +5,7 @@ import 'package:geolocator/geolocator.dart';
 import '../models/family_member_model.dart';
 import '../models/location_details_model.dart';
 import '../models/chat_message_model.dart';
+import '../models/geofence_place_model.dart';
 import '../services/database_service.dart';
 import '../services/preferences_service.dart';
 import '../services/location_service.dart';
@@ -12,6 +13,7 @@ import '../services/native_service.dart';
 import '../services/contacts_service.dart';
 import '../services/geocoding_service.dart';
 import '../services/notification_service.dart';
+import '../services/geofence_service.dart';
 import '../utils/phone_utils.dart';
 
 class FamilyProvider extends ChangeNotifier {
@@ -22,6 +24,7 @@ class FamilyProvider extends ChangeNotifier {
   List<String> _userFamilyGroups = [];
   List<FamilyMemberModel> _familyMembers = [];
   final Map<String, LocationDetailsModel> _memberLocations = {};
+  List<GeofencePlaceModel> _familyPlaces = [];
   final Set<String> _notifiedLowBatteryMembers = {};
   Map<String, dynamic>? _activeEmergencyAlert;
   List<ChatMessageModel> _chatMessages = [];
@@ -36,6 +39,7 @@ class FamilyProvider extends ChangeNotifier {
   StreamSubscription? _membersSubscription;
   StreamSubscription? _emergencySubscription;
   StreamSubscription? _chatSubscription;
+  StreamSubscription? _placesSubscription;
   final Map<String, StreamSubscription> _locationSubscriptions = {};
 
   static String formatFamilyDisplayName(String? name) {
@@ -50,6 +54,7 @@ class FamilyProvider extends ChangeNotifier {
   String get displayFamilyName => formatFamilyDisplayName(_currentFamilyName);
   List<String> get userFamilyGroups => _userFamilyGroups;
   List<FamilyMemberModel> get familyMembers => _familyMembers;
+  List<GeofencePlaceModel> get familyPlaces => _familyPlaces;
   Map<String, LocationDetailsModel> get memberLocations => _memberLocations;
   Map<String, dynamic>? get activeEmergencyAlert => _activeEmergencyAlert;
   List<ChatMessageModel> get chatMessages => _chatMessages;
@@ -222,6 +227,7 @@ class FamilyProvider extends ChangeNotifier {
       _subscribeToMembers(_currentFamilyName);
       _subscribeToEmergencyAlerts(_currentFamilyName);
       _subscribeToChat(_currentFamilyName);
+      _subscribeToPlaces(_currentFamilyName);
 
       // 6. Start continuous background location tracking
       try {
@@ -351,6 +357,34 @@ class FamilyProvider extends ChangeNotifier {
     });
   }
 
+  // Subscribe to Realtime Safe Places & Geofences
+  void _subscribeToPlaces(String familyName) {
+    _placesSubscription?.cancel();
+    if (familyName.isEmpty) return;
+
+    _placesSubscription =
+        _dbService.streamFamilyPlaces(familyName).listen((places) {
+      _familyPlaces = places;
+
+      // Evaluate all existing member locations whenever safe places are added, edited, or loaded
+      if (_familyPlaces.isNotEmpty && _familyMembers.isNotEmpty) {
+        for (final member in _familyMembers) {
+          final loc = _memberLocations[member.mobile];
+          if (loc != null && (loc.latitude != 0.0 || loc.longitude != 0.0)) {
+            GeofenceService().evaluateMemberLocation(
+              member: member,
+              location: loc,
+              places: _familyPlaces,
+            );
+          }
+        }
+      }
+      _safeNotifyListeners();
+    }, onError: (err) {
+      debugPrint('[FamilyTracker] Places stream error: $err');
+    });
+  }
+
   // Subscribe to Realtime Locations of all Members
   void _subscribeToLocations(List<FamilyMemberModel> members) {
     for (var sub in _locationSubscriptions.values) {
@@ -366,7 +400,17 @@ class FamilyProvider extends ChangeNotifier {
           if (location != null) {
             _memberLocations[member.mobile] = location;
 
-            // Low Battery Notification trigger
+            // 1. Real-time Geofence Safe Place Evaluation (Arrival / Departure)
+            if (_familyPlaces.isNotEmpty &&
+                (location.latitude != 0.0 || location.longitude != 0.0)) {
+              GeofenceService().evaluateMemberLocation(
+                member: member,
+                location: location,
+                places: _familyPlaces,
+              );
+            }
+
+            // 2. Low Battery Notification trigger
             if (location.batteryPercentage <= 15 && location.batteryPercentage > 0) {
               final myPhone = PreferencesService.getUserPhone() ?? '';
               if (!PhoneUtils.isSame(member.mobile, myPhone) &&
@@ -375,6 +419,8 @@ class FamilyProvider extends ChangeNotifier {
                 NotificationService.showLowBatteryAlert(
                   memberName: member.name.isNotEmpty ? member.name : member.mobile,
                   batteryLevel: location.batteryPercentage,
+                  familyName: displayFamilyName,
+                  memberMobile: member.mobile,
                 );
               }
             } else if (location.batteryPercentage > 20) {
@@ -615,6 +661,7 @@ class FamilyProvider extends ChangeNotifier {
       _subscribeToMembers(newFamilyName);
       _subscribeToEmergencyAlerts(newFamilyName);
       _subscribeToChat(newFamilyName);
+      _subscribeToPlaces(newFamilyName);
       _subscribeToLocations(members);
     } catch (e) {
       debugPrint('[FamilyTracker] Switch group error: $e');
@@ -736,6 +783,7 @@ class FamilyProvider extends ChangeNotifier {
       _subscribeToLocations(members);
       _subscribeToEmergencyAlerts(_currentFamilyName);
       _subscribeToChat(_currentFamilyName);
+      _subscribeToPlaces(_currentFamilyName);
     } catch (e) {
       debugPrint('[FamilyTracker] Refresh error: $e');
     } finally {
@@ -751,6 +799,7 @@ class FamilyProvider extends ChangeNotifier {
     _membersSubscription?.cancel();
     _emergencySubscription?.cancel();
     _chatSubscription?.cancel();
+    _placesSubscription?.cancel();
     for (var sub in _locationSubscriptions.values) {
       sub.cancel();
     }
