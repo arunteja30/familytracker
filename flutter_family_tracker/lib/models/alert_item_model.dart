@@ -6,12 +6,14 @@ enum AlertType {
   placeArrival,
   placeDeparture,
   batteryLow,
+  checkIn,
   general;
 
   static AlertType fromString(String? val) {
     final s = val?.toLowerCase().trim() ?? '';
     if (s.contains('sos') || s.contains('emergency')) return AlertType.sos;
     if (s.contains('intruder') || s.contains('selfie')) return AlertType.intruder;
+    if (s.contains('checkin') || s.contains('check_in') || s.contains('safe')) return AlertType.checkIn;
     if (s.contains('arrival') || s.contains('entered') || s.contains('place_arrival')) return AlertType.placeArrival;
     if (s.contains('departure') || s.contains('left') || s.contains('place_departure')) return AlertType.placeDeparture;
     if (s.contains('battery')) return AlertType.batteryLow;
@@ -24,6 +26,8 @@ enum AlertType {
         return 'SOS Emergency';
       case AlertType.intruder:
         return 'Intruder Alert';
+      case AlertType.checkIn:
+        return "I'm Safe Check-In";
       case AlertType.placeArrival:
         return 'Place Arrival';
       case AlertType.placeDeparture:
@@ -41,6 +45,8 @@ enum AlertType {
         return Icons.emergency_rounded;
       case AlertType.intruder:
         return Icons.security_rounded;
+      case AlertType.checkIn:
+        return Icons.verified_user_rounded;
       case AlertType.placeArrival:
         return Icons.login_rounded;
       case AlertType.placeDeparture:
@@ -58,8 +64,10 @@ enum AlertType {
         return const Color(0xFFDC2626); // Crimson Red
       case AlertType.intruder:
         return const Color(0xFF7C3AED); // Deep Purple
+      case AlertType.checkIn:
+        return const Color(0xFF059669); // Emerald Green
       case AlertType.placeArrival:
-        return const Color(0xFF10B981); // Emerald Green
+        return const Color(0xFF10B981); // Teal/Emerald Green
       case AlertType.placeDeparture:
         return const Color(0xFF3B82F6); // Blue
       case AlertType.batteryLow:

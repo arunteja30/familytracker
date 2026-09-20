@@ -63,6 +63,7 @@ class _AlertsScreenState extends State<AlertsScreen> {
           final filteredAlerts = _filterAlerts(allAlerts);
 
           final sosCount = allAlerts.where((a) => a.type == AlertType.sos).length;
+          final checkInCount = allAlerts.where((a) => a.type == AlertType.checkIn).length;
           final placesCount = allAlerts.where((a) => a.type == AlertType.placeArrival || a.type == AlertType.placeDeparture).length;
           final intruderCount = allAlerts.where((a) => a.type == AlertType.intruder).length;
           final batteryCount = allAlerts.where((a) => a.type == AlertType.batteryLow).length;
@@ -76,6 +77,7 @@ class _AlertsScreenState extends State<AlertsScreen> {
               _buildFilterChips(
                 totalCount: allAlerts.length,
                 sosCount: sosCount,
+                checkInCount: checkInCount,
                 placesCount: placesCount,
                 intruderCount: intruderCount,
                 batteryCount: batteryCount,
@@ -105,6 +107,8 @@ class _AlertsScreenState extends State<AlertsScreen> {
     switch (_selectedFilter) {
       case 'sos':
         return alerts.where((a) => a.type == AlertType.sos).toList();
+      case 'checkin':
+        return alerts.where((a) => a.type == AlertType.checkIn).toList();
       case 'places':
         return alerts.where((a) => a.type == AlertType.placeArrival || a.type == AlertType.placeDeparture).toList();
       case 'intruder':
@@ -142,6 +146,7 @@ class _AlertsScreenState extends State<AlertsScreen> {
   Widget _buildFilterChips({
     required int totalCount,
     required int sosCount,
+    required int checkInCount,
     required int placesCount,
     required int intruderCount,
     required int batteryCount,
@@ -149,6 +154,7 @@ class _AlertsScreenState extends State<AlertsScreen> {
     final chips = [
       {'key': 'all', 'label': 'All ($totalCount)', 'icon': Icons.all_inbox_rounded},
       {'key': 'sos', 'label': '🚨 SOS ($sosCount)', 'icon': Icons.emergency_rounded},
+      {'key': 'checkin', 'label': '✅ Check-In ($checkInCount)', 'icon': Icons.verified_user_rounded},
       {'key': 'places', 'label': '🏠 Places ($placesCount)', 'icon': Icons.place_rounded},
       {'key': 'intruder', 'label': '📸 Intruder ($intruderCount)', 'icon': Icons.security_rounded},
       {'key': 'battery', 'label': '🔋 Battery ($batteryCount)', 'icon': Icons.battery_alert_rounded},

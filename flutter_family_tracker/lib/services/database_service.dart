@@ -654,6 +654,87 @@ class DatabaseService {
     });
   }
 
+  /// Broadcast a peace-of-mind Check-In ("I'm Safe") event to the family circle
+  Future<void> broadcastCheckIn({
+    required String familyName,
+    required String senderName,
+    required String senderPhone,
+    double? latitude,
+    double? longitude,
+    String? address,
+    String? customNote,
+  }) async {
+    if (familyName.trim().isEmpty) return;
+    try {
+      final now = DateTime.now().millisecondsSinceEpoch;
+      final effectiveName = senderName.trim().isNotEmpty ? senderName.trim() : 'Family Member';
+      final note = customNote != null && customNote.trim().isNotEmpty ? ': "$customNote"' : '';
+
+      final alert = AlertItemModel(
+        id: '',
+        familyName: familyName.trim(),
+        type: AlertType.checkIn,
+        title: '✅ $effectiveName Checked In Safely',
+        body: '$effectiveName ($senderPhone) marked themselves safe$note.',
+        memberName: effectiveName,
+        memberMobile: senderPhone,
+        timestamp: now,
+        latitude: latitude,
+        longitude: longitude,
+        extraInfo: address ?? '',
+      );
+
+      await logAlert(alert);
+      debugPrint('[DatabaseService] ✅ Check-In logged for $effectiveName');
+    } catch (e) {
+      debugPrint('[DatabaseService] Failed to broadcast Check-In: $e');
+    }
+  }
+
+  // Deduplication cache for low battery warnings (memberMobile -> lastAlertTimestamp)
+  static final Map<String, int> _lastBatteryAlertTimestamps = {};
+
+  /// Broadcast a low battery peer warning (throttled to once per 4 hours per device)
+  Future<void> broadcastLowBatteryAlert({
+    required String familyName,
+    required String memberName,
+    required String memberMobile,
+    required int batteryLevel,
+    double? latitude,
+    double? longitude,
+    String? address,
+  }) async {
+    if (familyName.trim().isEmpty || batteryLevel > 15 || batteryLevel <= 0) return;
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final lastAlert = _lastBatteryAlertTimestamps[memberMobile] ?? 0;
+    // 4 hours cooldown
+    if (now - lastAlert < 4 * 60 * 60 * 1000) return;
+
+    try {
+      _lastBatteryAlertTimestamps[memberMobile] = now;
+      final effectiveName = memberName.trim().isNotEmpty ? memberName.trim() : 'Family Member';
+
+      final alert = AlertItemModel(
+        id: '',
+        familyName: familyName.trim(),
+        type: AlertType.batteryLow,
+        title: '⚡ Low Battery Warning: $effectiveName',
+        body: '$effectiveName\'s device is at $batteryLevel% battery and may go offline soon.',
+        memberName: effectiveName,
+        memberMobile: memberMobile,
+        timestamp: now,
+        latitude: latitude,
+        longitude: longitude,
+        extraInfo: address ?? '',
+      );
+
+      await logAlert(alert);
+      debugPrint('[DatabaseService] ⚡ Low battery alert broadcasted for $effectiveName ($batteryLevel%)');
+    } catch (e) {
+      debugPrint('[DatabaseService] Failed to broadcast low battery alert: $e');
+    }
+  }
+
   // Delete Family Member
   Future<void> deleteFamilyMember(String memberId, String mobile) async {
     try {

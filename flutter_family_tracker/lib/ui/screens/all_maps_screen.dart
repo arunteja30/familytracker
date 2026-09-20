@@ -17,6 +17,7 @@ import '../../services/geofence_service.dart';
 import '../../services/preferences_service.dart';
 import '../../services/profile_image_service.dart';
 import '../../utils/marker_generator.dart';
+import '../../utils/proximity_utils.dart';
 import '../widgets/adaptive_map_view.dart';
 import '../widgets/buzzing_dot.dart';
 import 'location_history_screen.dart';
@@ -59,6 +60,7 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
   final Set<String> _checkedPhotos = {};
   bool _isCardExpanded = false;
   bool _showBottomCard = true;
+  bool _showPlacesLayer = true;
 
   final List<Color> _markerColors = [
     const Color(0xFF4F46E5), // Indigo
@@ -452,6 +454,21 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
                 : 'Fetching street address...'))
         : 'Select a member';
 
+    final userPhone = PreferencesService.getUserPhone() ?? '';
+    final isSelf = _selectedMember != null && DatabaseService.matchPhones(_selectedMember!.mobile, userPhone);
+    LocationDetailsModel? currentUserLoc;
+    if (!isSelf && userPhone.isNotEmpty) {
+      currentUserLoc = _liveLocations[userPhone] ?? widget.locations[userPhone];
+    }
+    final relativeDistance = (!isSelf && currentUserLoc != null && selectedLoc != null)
+        ? ProximityUtils.getRelativeDistance(
+            userLat: currentUserLoc.latitude,
+            userLng: currentUserLoc.longitude,
+            targetLat: selectedLoc.latitude,
+            targetLng: selectedLoc.longitude,
+          )
+        : '';
+
     return Scaffold(
       appBar: AppBar(
         title: Text('${FamilyProvider.formatFamilyDisplayName(widget.familyName)} Live Map'),
@@ -477,6 +494,14 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
                 child: Text('Hybrid Map'),
               ),
             ],
+          ),
+          IconButton(
+            tooltip: _showPlacesLayer ? 'Hide Safe Zones' : 'Show Safe Zones',
+            icon: Icon(
+              _showPlacesLayer ? Icons.shield_rounded : Icons.shield_outlined,
+              color: _showPlacesLayer ? const Color(0xFF10B981) : null,
+            ),
+            onPressed: () => setState(() => _showPlacesLayer = !_showPlacesLayer),
           ),
           IconButton(
             tooltip: 'Safe Places & Geofencing',
@@ -529,9 +554,9 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
                 },
               );
             }).where((p) => p.latitude != 0.0 && p.longitude != 0.0).toList(),
-            googleMarkers: {..._markers, ..._placeMarkers},
+            googleMarkers: _showPlacesLayer ? {..._markers, ..._placeMarkers} : _markers,
             googlePolylines: _polylines,
-            googleCircles: _geofenceCircles,
+            googleCircles: _showPlacesLayer ? _geofenceCircles : {},
             polylines: _adaptivePolylines,
             onGoogleMapCreated: (GoogleMapController controller) {
               if (!_controller.isCompleted) {
@@ -772,6 +797,32 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
                                                 fontSize: 10,
                                                 fontWeight: FontWeight.bold,
                                                 color: Color(0xFF0D9488),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ],
+                                    if (relativeDistance.isNotEmpty) ...[
+                                      const SizedBox(width: 6),
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                        decoration: BoxDecoration(
+                                          color: AppColors.primary.withValues(alpha: 0.12),
+                                          borderRadius: BorderRadius.circular(6),
+                                          border: Border.all(color: AppColors.primary.withValues(alpha: 0.3)),
+                                        ),
+                                        child: Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            const Icon(Icons.near_me_rounded, size: 10, color: AppColors.primary),
+                                            const SizedBox(width: 3),
+                                            Text(
+                                              relativeDistance,
+                                              style: const TextStyle(
+                                                fontSize: 10,
+                                                fontWeight: FontWeight.bold,
+                                                color: AppColors.primary,
                                               ),
                                             ),
                                           ],

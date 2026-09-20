@@ -254,6 +254,196 @@ class _FamilyDashboardScreenState extends State<FamilyDashboardScreen> with Widg
     );
   }
 
+  void _showCheckInDialog(BuildContext context, FamilyProvider familyProvider) {
+    final userName = familyProvider.resolveCurrentUserName();
+    final messageController = TextEditingController(text: "I'm Safe & sound");
+    final presetNotes = [
+      "I'm Safe & sound",
+      "Arrived safely",
+      "On my way home",
+      "At office / school",
+    ];
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setModalState) => Padding(
+          padding: EdgeInsets.only(
+            left: 20,
+            right: 20,
+            top: 20,
+            bottom: MediaQuery.of(ctx).viewInsets.bottom + 24,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 44,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade300,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF10B981).withValues(alpha: 0.15),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      Icons.verified_user_rounded,
+                      color: Color(0xFF10B981),
+                      size: 24,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          "Quick 'I'm Safe' Check-In",
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                            color: AppColors.textPrimary,
+                          ),
+                        ),
+                        Text(
+                          'Notify all family in ${familyProvider.displayFamilyName}',
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: AppColors.textSecondary,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                'Quick status options:',
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.textPrimary,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: presetNotes.map((preset) {
+                  final isSelected = messageController.text == preset;
+                  return ChoiceChip(
+                    label: Text(
+                      preset,
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: isSelected ? Colors.white : AppColors.textPrimary,
+                      ),
+                    ),
+                    selected: isSelected,
+                    selectedColor: const Color(0xFF10B981),
+                    backgroundColor: AppColors.bgSurfaceElevated,
+                    onSelected: (selected) {
+                      if (selected) {
+                        setModalState(() {
+                          messageController.text = preset;
+                        });
+                      }
+                    },
+                  );
+                }).toList(),
+              ),
+              const SizedBox(height: 14),
+              TextField(
+                controller: messageController,
+                decoration: InputDecoration(
+                  labelText: 'Custom Note (Optional)',
+                  hintText: 'e.g. Reached Grandma\'s house',
+                  prefixIcon: const Icon(Icons.edit_note_rounded),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  filled: true,
+                  fillColor: AppColors.bgSurfaceElevated,
+                ),
+              ),
+              const SizedBox(height: 20),
+              SizedBox(
+                width: double.infinity,
+                height: 48,
+                child: ElevatedButton.icon(
+                  onPressed: () async {
+                    final note = messageController.text.trim();
+                    final messenger = ScaffoldMessenger.of(context);
+                    final myPhone = PreferencesService.getUserPhone() ?? '';
+                    final myLoc = familyProvider.memberLocations[myPhone];
+                    final currentFamily = familyProvider.currentFamilyName;
+
+                    Navigator.pop(ctx);
+                    messenger.showSnackBar(
+                      const SnackBar(
+                        backgroundColor: Color(0xFF10B981),
+                        content: Text("📡 Broadcasting 'I'm Safe' check-in with GPS location..."),
+                      ),
+                    );
+
+                    await DatabaseService().broadcastCheckIn(
+                      familyName: currentFamily,
+                      senderName: userName,
+                      senderPhone: myPhone,
+                      latitude: myLoc?.latitude,
+                      longitude: myLoc?.longitude,
+                      address: myLoc?.address,
+                      customNote: note.isNotEmpty ? note : "I'm Safe",
+                    );
+
+                    if (mounted) {
+                      messenger.hideCurrentSnackBar();
+                      messenger.showSnackBar(
+                        const SnackBar(
+                          backgroundColor: Color(0xFF059669),
+                          content: Text("✅ 'I'm Safe' check-in sent to family circle!"),
+                        ),
+                      );
+                    }
+                  },
+                  icon: const Icon(Icons.send_rounded, color: Colors.white, size: 18),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF10B981),
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                  ),
+                  label: const Text(
+                    'BROADCAST CHECK-IN',
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final familyProvider = context.watch<FamilyProvider>();
@@ -267,43 +457,87 @@ class _FamilyDashboardScreenState extends State<FamilyDashboardScreen> with Widg
           GradientHeader(
             title: familyProvider.displayFamilyName,
             subtitle: 'Logged in: $_userPhone',
-            trailing: Material(
-              color: Colors.transparent,
-              child: InkWell(
-                onTap: () => _confirmTriggerSos(context, familyProvider),
-                borderRadius: BorderRadius.circular(20),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-                  decoration: BoxDecoration(
-                    color: Colors.red.shade600,
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    onTap: () => _showCheckInDialog(context, familyProvider),
                     borderRadius: BorderRadius.circular(20),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.red.withValues(alpha: 0.4),
-                        blurRadius: 8,
-                        spreadRadius: 1,
-                        offset: const Offset(0, 2),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6.5),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF10B981),
+                        borderRadius: BorderRadius.circular(20),
+                        boxShadow: [
+                          BoxShadow(
+                            color: const Color(0xFF10B981).withValues(alpha: 0.35),
+                            blurRadius: 6,
+                            spreadRadius: 1,
+                            offset: const Offset(0, 2),
+                          ),
+                        ],
                       ),
-                    ],
-                  ),
-                  child: const Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(Icons.emergency_rounded, color: Colors.white, size: 18),
-                      SizedBox(width: 5),
-                      Text(
-                        'SOS',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 12.5,
-                          fontWeight: FontWeight.w900,
-                          letterSpacing: 0.8,
-                        ),
+                      child: const Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.verified_rounded, color: Colors.white, size: 15),
+                          SizedBox(width: 4),
+                          Text(
+                            "I'm Safe",
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 11.5,
+                              fontWeight: FontWeight.w800,
+                              letterSpacing: 0.3,
+                            ),
+                          ),
+                        ],
                       ),
-                    ],
+                    ),
                   ),
                 ),
-              ),
+                const SizedBox(width: 8),
+                Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    onTap: () => _confirmTriggerSos(context, familyProvider),
+                    borderRadius: BorderRadius.circular(20),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 6.5),
+                      decoration: BoxDecoration(
+                        color: Colors.red.shade600,
+                        borderRadius: BorderRadius.circular(20),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.red.withValues(alpha: 0.4),
+                            blurRadius: 8,
+                            spreadRadius: 1,
+                            offset: const Offset(0, 2),
+                          ),
+                        ],
+                      ),
+                      child: const Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.emergency_rounded, color: Colors.white, size: 16),
+                          SizedBox(width: 4),
+                          Text(
+                            'SOS',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w900,
+                              letterSpacing: 0.8,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ],
             ),
             bottom: InkWell(
               onTap: () => _showGroupSwitcherDialog(

@@ -420,6 +420,7 @@ class NotificationService {
     required String placeName,
     required bool isArrival,
     String? familyName,
+    bool logToFirebase = true,
   }) async {
     try {
       await initialize();
@@ -434,10 +435,11 @@ class NotificationService {
         'family_geofence_channel',
         'Safe Place & Geofence Alerts',
         channelDescription: 'Arrival and departure notifications for family safe places',
-        importance: Importance.high,
+        importance: Importance.max,
         priority: Priority.high,
         playSound: true,
         enableVibration: true,
+        category: AndroidNotificationCategory.status,
         styleInformation: BigTextStyleInformation(
           body,
           contentTitle: title,
@@ -468,7 +470,7 @@ class NotificationService {
         debugPrint('[NotificationService] 📍 Dispatched place alert: $title');
       }
 
-      if (familyName != null && familyName.isNotEmpty) {
+      if (logToFirebase && familyName != null && familyName.isNotEmpty) {
         DatabaseService().logAlert(
           AlertItemModel(
             id: '',
@@ -541,6 +543,53 @@ class NotificationService {
       }
     } catch (e) {
       debugPrint('[NotificationService] Show Intruder Alert error: $e');
+    }
+  }
+
+  /// Show Check-In ("I'm Safe") notification
+  static Future<void> showCheckInAlert({
+    required String senderName,
+    required String senderPhone,
+    String? address,
+    String? customNote,
+  }) async {
+    try {
+      await initialize();
+      final title = '✅ $senderName Checked In Safely';
+      final note = customNote != null && customNote.isNotEmpty ? '\nNote: "$customNote"' : '';
+      final locText = address != null && address.isNotEmpty ? '\n📍 Near: $address' : '';
+      final body = '$senderName marked themselves safe.$note$locText';
+
+      const androidDetails = AndroidNotificationDetails(
+        'family_status_channel',
+        'Family Safety & Battery Updates',
+        channelDescription: 'Peace-of-mind check-in and safety notifications',
+        importance: Importance.high,
+        priority: Priority.high,
+        playSound: true,
+      );
+
+      const darwinDetails = DarwinNotificationDetails(
+        presentAlert: true,
+        presentBadge: true,
+        presentSound: true,
+      );
+
+      final details = NotificationDetails(
+        android: androidDetails,
+        iOS: darwinDetails,
+      );
+
+      if (!kIsWeb) {
+        await _notificationsPlugin.show(
+          777,
+          title,
+          body,
+          details,
+        );
+      }
+    } catch (e) {
+      debugPrint('[NotificationService] Show Check-In Alert error: $e');
     }
   }
 }

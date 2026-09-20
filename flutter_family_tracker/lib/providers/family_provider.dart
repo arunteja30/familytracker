@@ -6,6 +6,7 @@ import '../models/family_member_model.dart';
 import '../models/location_details_model.dart';
 import '../models/chat_message_model.dart';
 import '../models/geofence_place_model.dart';
+import '../models/alert_item_model.dart';
 import '../services/database_service.dart';
 import '../services/preferences_service.dart';
 import '../services/location_service.dart';
@@ -25,6 +26,7 @@ class FamilyProvider extends ChangeNotifier {
   List<FamilyMemberModel> _familyMembers = [];
   final Map<String, LocationDetailsModel> _memberLocations = {};
   List<GeofencePlaceModel> _familyPlaces = [];
+  List<AlertItemModel> _familyAlerts = [];
   final Set<String> _notifiedLowBatteryMembers = {};
   Map<String, dynamic>? _activeEmergencyAlert;
   List<ChatMessageModel> _chatMessages = [];
@@ -33,6 +35,8 @@ class FamilyProvider extends ChangeNotifier {
   bool _isChatScreenActive = false;
   final Set<String> _processedChatMessageIds = {};
   bool _hasInitialChatLoaded = false;
+  final Set<String> _processedAlertIds = {};
+  bool _hasInitialAlertsLoaded = false;
   bool _isLoading = false;
   String? _errorMessage;
 
@@ -40,6 +44,7 @@ class FamilyProvider extends ChangeNotifier {
   StreamSubscription? _emergencySubscription;
   StreamSubscription? _chatSubscription;
   StreamSubscription? _placesSubscription;
+  StreamSubscription? _alertsSubscription;
   final Map<String, StreamSubscription> _locationSubscriptions = {};
 
   static String formatFamilyDisplayName(String? name) {
@@ -55,6 +60,7 @@ class FamilyProvider extends ChangeNotifier {
   List<String> get userFamilyGroups => _userFamilyGroups;
   List<FamilyMemberModel> get familyMembers => _familyMembers;
   List<GeofencePlaceModel> get familyPlaces => _familyPlaces;
+  List<AlertItemModel> get familyAlerts => _familyAlerts;
   Map<String, LocationDetailsModel> get memberLocations => _memberLocations;
   Map<String, dynamic>? get activeEmergencyAlert => _activeEmergencyAlert;
   List<ChatMessageModel> get chatMessages => _chatMessages;
@@ -260,6 +266,7 @@ class FamilyProvider extends ChangeNotifier {
       _subscribeToEmergencyAlerts(_currentFamilyName);
       _subscribeToChat(_currentFamilyName);
       _subscribeToPlaces(_currentFamilyName);
+      _subscribeToAlerts(_currentFamilyName);
 
       // 6. Start continuous background location tracking
       try {
@@ -417,6 +424,94 @@ class FamilyProvider extends ChangeNotifier {
     });
   }
 
+  // Subscribe to Realtime Safety Alerts (Safe Places Arrival/Departure, Check-Ins, Low Battery, Intruder)
+  void _subscribeToAlerts(String familyName) {
+    _alertsSubscription?.cancel();
+    if (familyName.isEmpty) return;
+
+    _alertsSubscription =
+        _dbService.streamFamilyAlerts(familyName).listen((alerts) {
+      final myPhone = PreferencesService.getUserPhone() ?? '';
+      final now = DateTime.now().millisecondsSinceEpoch;
+
+      if (alerts.isNotEmpty) {
+        if (_hasInitialAlertsLoaded) {
+          for (final alert in alerts) {
+            if (!_processedAlertIds.contains(alert.id)) {
+              _processedAlertIds.add(alert.id);
+
+              // Only dispatch notifications for events that occurred recently (within last 3 minutes)
+              final isRecent = (now - alert.timestamp) < 3 * 60 * 1000;
+              final isFromPeer = alert.memberMobile.isEmpty ||
+                  !PhoneUtils.isSame(alert.memberMobile, myPhone);
+
+              if (isRecent && isFromPeer) {
+                switch (alert.type) {
+                  case AlertType.placeArrival:
+                    NotificationService.showPlaceAlert(
+                      memberName: alert.memberName,
+                      placeName: alert.placeName ?? 'Safe Zone',
+                      isArrival: true,
+                      familyName: displayFamilyName,
+                      logToFirebase: false,
+                    );
+                    break;
+                  case AlertType.placeDeparture:
+                    NotificationService.showPlaceAlert(
+                      memberName: alert.memberName,
+                      placeName: alert.placeName ?? 'Safe Zone',
+                      isArrival: false,
+                      familyName: displayFamilyName,
+                      logToFirebase: false,
+                    );
+                    break;
+                  case AlertType.checkIn:
+                    NotificationService.showCheckInAlert(
+                      senderName: alert.memberName,
+                      senderPhone: alert.memberMobile,
+                      address: alert.extraInfo,
+                      customNote: alert.body,
+                    );
+                    break;
+                  case AlertType.batteryLow:
+                    NotificationService.showLowBatteryAlert(
+                      memberName: alert.memberName,
+                      batteryLevel: int.tryParse(alert.extraInfo?.replaceAll('%', '') ?? '15') ?? 15,
+                      familyName: displayFamilyName,
+                      memberMobile: alert.memberMobile,
+                    );
+                    break;
+                  case AlertType.intruder:
+                    NotificationService.showIntruderAlert(
+                      memberName: alert.memberName,
+                      detailsText: alert.body,
+                      familyName: displayFamilyName,
+                      photoUrl: alert.extraInfo,
+                    );
+                    break;
+                  case AlertType.sos:
+                  case AlertType.general:
+                    break;
+                }
+              }
+            }
+          }
+        } else {
+          // Initial snapshot: mark existing as processed so we don't spam historical alerts
+          for (final alert in alerts) {
+            _processedAlertIds.add(alert.id);
+          }
+          _hasInitialAlertsLoaded = true;
+        }
+      }
+
+      _familyAlerts = alerts;
+      _safeNotifyListeners();
+    }, onError: (err) {
+      debugPrint('[FamilyTracker] Alerts stream error: $err');
+    });
+  }
+
   // Subscribe to Realtime Locations of all Members
   void _subscribeToLocations(List<FamilyMemberModel> members) {
     for (var sub in _locationSubscriptions.values) {
@@ -442,11 +537,23 @@ class FamilyProvider extends ChangeNotifier {
               );
             }
 
-            // 2. Low Battery Notification trigger
+            // 2. Low Battery Alert Broadcast & Local Notification trigger
             if (location.batteryPercentage <= 15 && location.batteryPercentage > 0) {
               final myPhone = PreferencesService.getUserPhone() ?? '';
-              if (!PhoneUtils.isSame(member.mobile, myPhone) &&
-                  !_notifiedLowBatteryMembers.contains(member.mobile)) {
+              final isCurrentUser = PhoneUtils.isSame(member.mobile, myPhone);
+
+              if (isCurrentUser) {
+                // Broadcast low battery alert to RTDB for family circle
+                _dbService.broadcastLowBatteryAlert(
+                  familyName: currentFamilyName,
+                  memberName: member.name.isNotEmpty ? member.name : myPhone,
+                  memberMobile: member.mobile,
+                  batteryLevel: location.batteryPercentage,
+                  latitude: location.latitude,
+                  longitude: location.longitude,
+                  address: location.address,
+                );
+              } else if (!_notifiedLowBatteryMembers.contains(member.mobile)) {
                 _notifiedLowBatteryMembers.add(member.mobile);
                 NotificationService.showLowBatteryAlert(
                   memberName: member.name.isNotEmpty ? member.name : member.mobile,
@@ -685,6 +792,8 @@ class FamilyProvider extends ChangeNotifier {
     _unreadMemberPhones.clear();
     _processedChatMessageIds.clear();
     _hasInitialChatLoaded = false;
+    _processedAlertIds.clear();
+    _hasInitialAlertsLoaded = false;
     await PreferencesService.saveUserFamilyName(newFamilyName);
 
     try {
@@ -694,6 +803,7 @@ class FamilyProvider extends ChangeNotifier {
       _subscribeToEmergencyAlerts(newFamilyName);
       _subscribeToChat(newFamilyName);
       _subscribeToPlaces(newFamilyName);
+      _subscribeToAlerts(newFamilyName);
       _subscribeToLocations(members);
     } catch (e) {
       debugPrint('[FamilyTracker] Switch group error: $e');
@@ -773,6 +883,30 @@ class FamilyProvider extends ChangeNotifier {
     await _dbService.sendChatMessage(currentFamilyName, message);
   }
 
+  // Send Location Pin in Chat
+  Future<void> sendChatLocation({
+    required double latitude,
+    required double longitude,
+    required String address,
+  }) async {
+    final myPhone = PreferencesService.getUserPhone() ?? '';
+    final myName = resolveCurrentUserName();
+
+    final message = ChatMessageModel(
+      messageId: '',
+      senderPhone: PhoneUtils.normalize(myPhone),
+      senderName: myName,
+      text: address.isNotEmpty ? address : '📍 Shared Location',
+      timestamp: DateTime.now().millisecondsSinceEpoch,
+      type: 'LOCATION',
+      latitude: latitude,
+      longitude: longitude,
+      address: address,
+    );
+
+    await _dbService.sendChatMessage(currentFamilyName, message);
+  }
+
   // Edit a Chat Message
   Future<void> editChatMessage(String messageId, String newText) async {
     await _dbService.editChatMessage(currentFamilyName, messageId, newText);
@@ -816,6 +950,7 @@ class FamilyProvider extends ChangeNotifier {
       _subscribeToEmergencyAlerts(_currentFamilyName);
       _subscribeToChat(_currentFamilyName);
       _subscribeToPlaces(_currentFamilyName);
+      _subscribeToAlerts(_currentFamilyName);
     } catch (e) {
       debugPrint('[FamilyTracker] Refresh error: $e');
     } finally {
@@ -832,6 +967,7 @@ class FamilyProvider extends ChangeNotifier {
     _emergencySubscription?.cancel();
     _chatSubscription?.cancel();
     _placesSubscription?.cancel();
+    _alertsSubscription?.cancel();
     for (var sub in _locationSubscriptions.values) {
       sub.cancel();
     }

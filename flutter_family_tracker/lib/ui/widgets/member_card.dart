@@ -9,6 +9,9 @@ import '../../models/family_member_model.dart';
 import '../../models/location_details_model.dart';
 import '../../providers/family_provider.dart';
 import '../../services/profile_image_service.dart';
+import '../../services/preferences_service.dart';
+import '../../services/database_service.dart';
+import '../../utils/proximity_utils.dart';
 import '../screens/family_chat_screen.dart';
 import 'buzzing_dot.dart';
 
@@ -329,6 +332,26 @@ class _MemberCardState extends State<MemberCard> {
       batteryColor = const Color(0xFFF59E0B);
     }
 
+    final userPhone = PreferencesService.getUserPhone() ?? '';
+    final isSelf = DatabaseService.matchPhones(widget.member.mobile, userPhone);
+    LocationDetailsModel? currentUserLoc;
+    if (!isSelf && userPhone.isNotEmpty) {
+      for (final entry in familyProvider.memberLocations.entries) {
+        if (DatabaseService.matchPhones(entry.key, userPhone)) {
+          currentUserLoc = entry.value;
+          break;
+        }
+      }
+    }
+    final relativeDistance = (!isSelf && currentUserLoc != null && widget.location != null)
+        ? ProximityUtils.getRelativeDistance(
+            userLat: currentUserLoc.latitude,
+            userLng: currentUserLoc.longitude,
+            targetLat: widget.location!.latitude,
+            targetLng: widget.location!.longitude,
+          )
+        : '';
+
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
       elevation: 2,
@@ -361,8 +384,8 @@ class _MemberCardState extends State<MemberCard> {
                           child: CircleAvatar(
                             radius: 24,
                             backgroundColor: AppColors.primary.withValues(alpha: 0.15),
-                            backgroundImage: _profileImageFile != null && !kIsWeb ? FileImage(_profileImageFile!) : null,
-                            child: _profileImageFile == null || kIsWeb
+                            backgroundImage: _profileImageFile != null ? FileImage(_profileImageFile!) : null,
+                            child: _profileImageFile == null
                                 ? Text(
                                     widget.member.name.isNotEmpty ? widget.member.name[0].toUpperCase() : 'M',
                                     style: const TextStyle(
@@ -439,9 +462,31 @@ class _MemberCardState extends State<MemberCard> {
                           ],
                         ),
                         const SizedBox(height: 2),
-                        Text(
-                          widget.member.mobile,
-                          style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
+                        Row(
+                          children: [
+                            Text(
+                              widget.member.mobile,
+                              style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
+                            ),
+                            if (isSelf) ...[
+                              const SizedBox(width: 6),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                                decoration: BoxDecoration(
+                                  color: AppColors.primary.withValues(alpha: 0.08),
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                                child: const Text(
+                                  'You',
+                                  style: TextStyle(
+                                    fontSize: 9.5,
+                                    fontWeight: FontWeight.bold,
+                                    color: AppColors.primary,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ],
                         ),
                         const SizedBox(height: 4),
                         Row(
@@ -456,6 +501,32 @@ class _MemberCardState extends State<MemberCard> {
                                 overflow: TextOverflow.ellipsis,
                               ),
                             ),
+                            if (relativeDistance.isNotEmpty) ...[
+                              const SizedBox(width: 6),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF0284C7).withValues(alpha: 0.1),
+                                  borderRadius: BorderRadius.circular(6),
+                                  border: Border.all(color: const Color(0xFF0284C7).withValues(alpha: 0.3)),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    const Icon(Icons.near_me_rounded, size: 10, color: Color(0xFF0284C7)),
+                                    const SizedBox(width: 3),
+                                    Text(
+                                      relativeDistance,
+                                      style: const TextStyle(
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.bold,
+                                        color: Color(0xFF0284C7),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
                           ],
                         ),
                       ],

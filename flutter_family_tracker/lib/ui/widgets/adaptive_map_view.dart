@@ -123,6 +123,21 @@ class _AdaptiveMapViewState extends State<AdaptiveMapView> {
                 }).toList(),
               ),
 
+            // Geofence Circle Overlay Layer for Safe Places
+            if (widget.googleCircles != null && widget.googleCircles!.isNotEmpty)
+              fmap.CircleLayer(
+                circles: widget.googleCircles!.map((c) {
+                  return fmap.CircleMarker(
+                    point: ll.LatLng(c.center.latitude, c.center.longitude),
+                    radius: c.radius,
+                    useRadiusInMeter: true,
+                    color: c.fillColor,
+                    borderColor: c.strokeColor,
+                    borderStrokeWidth: c.strokeWidth.toDouble(),
+                  );
+                }).toList(),
+              ),
+
             // Custom Interactive Libre Markers Layer
             if (widget.points.isNotEmpty)
               fmap.MarkerLayer(
