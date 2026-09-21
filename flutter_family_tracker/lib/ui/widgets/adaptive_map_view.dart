@@ -14,6 +14,7 @@ class AdaptiveMapPoint {
   final Color pinColor;
   final VoidCallback? onTap;
   final String? localPhotoPath;
+  final bool isSelected;
 
   AdaptiveMapPoint({
     required this.id,
@@ -24,6 +25,7 @@ class AdaptiveMapPoint {
     this.pinColor = AppColors.primary,
     this.onTap,
     this.localPhotoPath,
+    this.isSelected = false,
   });
 }
 
@@ -52,6 +54,7 @@ class AdaptiveMapView extends StatefulWidget {
   final Set<gmaps.Polyline>? googlePolylines;
   final Set<gmaps.Circle>? googleCircles;
   final Function(gmaps.GoogleMapController)? onGoogleMapCreated;
+  final fmap.MapController? flutterMapController;
 
   const AdaptiveMapView({
     super.key,
@@ -65,6 +68,7 @@ class AdaptiveMapView extends StatefulWidget {
     this.googlePolylines,
     this.googleCircles,
     this.onGoogleMapCreated,
+    this.flutterMapController,
   });
 
   @override
@@ -72,7 +76,13 @@ class AdaptiveMapView extends StatefulWidget {
 }
 
 class _AdaptiveMapViewState extends State<AdaptiveMapView> {
-  final fmap.MapController _flutterMapController = fmap.MapController();
+  late final fmap.MapController _flutterMapController;
+
+  @override
+  void initState() {
+    super.initState();
+    _flutterMapController = widget.flutterMapController ?? fmap.MapController();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -138,76 +148,169 @@ class _AdaptiveMapViewState extends State<AdaptiveMapView> {
                 }).toList(),
               ),
 
-            // Custom Interactive Libre Markers Layer
+            // Custom Interactive Libre Markers Layer with 3D Pushpin Stick Markers
             if (widget.points.isNotEmpty)
               fmap.MarkerLayer(
                 markers: widget.points.map((p) {
+                  final isSelected = p.isSelected;
+                  final pinColor = isSelected ? const Color(0xFFF59E0B) : p.pinColor;
+                  final headSize = isSelected ? 32.0 : 26.0;
+                  final needleHeight = isSelected ? 22.0 : 18.0;
+                  final needleWidth = isSelected ? 3.5 : 2.8;
+
                   return fmap.Marker(
                     point: ll.LatLng(p.latitude, p.longitude),
-                    width: 120,
-                    height: 80,
+                    width: isSelected ? 150 : 130,
+                    height: isSelected ? 100 : 88,
+                    alignment: Alignment.bottomCenter,
                     child: GestureDetector(
+                      behavior: HitTestBehavior.opaque,
                       onTap: p.onTap,
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        crossAxisAlignment: CrossAxisAlignment.center,
                         children: [
-                          // Name Label Pill
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 8,
-                              vertical: 3,
-                            ),
-                            decoration: BoxDecoration(
-                              color: p.pinColor,
-                              borderRadius: BorderRadius.circular(12),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: Colors.black.withValues(alpha: 0.25),
-                                  blurRadius: 6,
-                                  offset: const Offset(0, 2),
-                                ),
-                              ],
-                            ),
-                            child: Text(
-                              p.title,
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 11,
-                                fontWeight: FontWeight.bold,
+                          // Name / Status Label Pill (Above the Pin)
+                          if (p.title.isNotEmpty)
+                            AnimatedContainer(
+                              duration: const Duration(milliseconds: 200),
+                              margin: const EdgeInsets.only(bottom: 2),
+                              padding: EdgeInsets.symmetric(
+                                horizontal: isSelected ? 8 : 6,
+                                vertical: isSelected ? 3 : 2,
                               ),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                          const SizedBox(height: 2),
-
-                          // Pin Avatar / Icon
-                          Container(
-                            width: 36,
-                            height: 36,
-                            decoration: BoxDecoration(
-                              color: Colors.white,
-                              shape: BoxShape.circle,
-                              border: Border.all(color: p.pinColor, width: 3),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: Colors.black.withValues(alpha: 0.3),
-                                  blurRadius: 4,
-                                  offset: const Offset(0, 2),
+                              decoration: BoxDecoration(
+                                color: isSelected
+                                    ? const Color(0xFF1E293B)
+                                    : const Color(0xFF0F172A).withValues(alpha: 0.88),
+                                borderRadius: BorderRadius.circular(10),
+                                border: Border.all(
+                                  color: isSelected
+                                      ? const Color(0xFFF59E0B)
+                                      : Colors.white.withValues(alpha: 0.35),
+                                  width: isSelected ? 1.5 : 0.8,
                                 ),
-                              ],
-                            ),
-                            child: Center(
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: isSelected
+                                        ? const Color(0xFFF59E0B).withValues(alpha: 0.5)
+                                        : Colors.black.withValues(alpha: 0.35),
+                                    blurRadius: isSelected ? 8 : 4,
+                                    offset: const Offset(0, 2),
+                                  ),
+                                ],
+                              ),
                               child: Text(
-                                p.title.isNotEmpty
-                                    ? p.title[0].toUpperCase()
-                                    : 'F',
+                                p.title,
                                 style: TextStyle(
-                                  color: p.pinColor,
-                                  fontSize: 16,
+                                  color: isSelected ? const Color(0xFFFCD34D) : Colors.white,
+                                  fontSize: isSelected ? 11 : 10,
                                   fontWeight: FontWeight.bold,
                                 ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
                               ),
+                            ),
+
+                          // 3D Pushpin (Spherical Head with Specular Highlight + Metallic Needle + Shadow)
+                          SizedBox(
+                            width: isSelected ? 48 : 40,
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              crossAxisAlignment: CrossAxisAlignment.center,
+                              children: [
+                                // 3D Spherical Head
+                                AnimatedContainer(
+                                  duration: const Duration(milliseconds: 200),
+                                  width: headSize,
+                                  height: headSize,
+                                  decoration: BoxDecoration(
+                                    shape: BoxShape.circle,
+                                    gradient: RadialGradient(
+                                      center: const Alignment(-0.35, -0.35),
+                                      radius: 0.85,
+                                      colors: [
+                                        Color.lerp(pinColor, Colors.white, 0.45)!,
+                                        pinColor,
+                                        Color.lerp(pinColor, Colors.black, 0.45)!,
+                                      ],
+                                      stops: const [0.0, 0.55, 1.0],
+                                    ),
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: isSelected
+                                            ? const Color(0xFFF59E0B).withValues(alpha: 0.6)
+                                            : Colors.black.withValues(alpha: 0.35),
+                                        blurRadius: isSelected ? 10 : 5,
+                                        offset: const Offset(0, 3),
+                                      ),
+                                      if (isSelected)
+                                        const BoxShadow(
+                                          color: Color(0xFFF59E0B),
+                                          blurRadius: 10,
+                                          spreadRadius: 1.5,
+                                        ),
+                                    ],
+                                  ),
+                                  child: Stack(
+                                    alignment: Alignment.center,
+                                    children: [
+                                      // Specular Highlight Spot (Exact match with reference image)
+                                      Positioned(
+                                        top: headSize * 0.16,
+                                        left: headSize * 0.18,
+                                        child: Container(
+                                          width: headSize * 0.30,
+                                          height: headSize * 0.30,
+                                          decoration: BoxDecoration(
+                                            shape: BoxShape.circle,
+                                            color: Colors.white.withValues(alpha: 0.72),
+                                          ),
+                                        ),
+                                      ),
+                                      // Inner icon (Start / End / Star)
+                                      if (p.title.startsWith('🟢'))
+                                        Icon(Icons.play_arrow_rounded, color: Colors.white, size: headSize * 0.52)
+                                      else if (p.title.startsWith('🏁'))
+                                        Icon(Icons.flag_rounded, color: Colors.white, size: headSize * 0.52)
+                                      else if (isSelected)
+                                        Icon(Icons.star_rounded, color: Colors.white, size: headSize * 0.52),
+                                    ],
+                                  ),
+                                ),
+
+                                // Pin Needle / Stick (Metallic Grey gradient pointing straight down)
+                                Container(
+                                  width: needleWidth,
+                                  height: needleHeight,
+                                  decoration: const BoxDecoration(
+                                    gradient: LinearGradient(
+                                      begin: Alignment.centerLeft,
+                                      end: Alignment.centerRight,
+                                      colors: [
+                                        Color(0xFF64748B),
+                                        Color(0xFF334155),
+                                        Color(0xFF1E293B),
+                                      ],
+                                    ),
+                                    borderRadius: BorderRadius.only(
+                                      bottomLeft: Radius.circular(1.5),
+                                      bottomRight: Radius.circular(1.5),
+                                    ),
+                                  ),
+                                ),
+
+                                // Ground Contact Shadow at Needle Tip
+                                Container(
+                                  width: 7,
+                                  height: 2,
+                                  decoration: const BoxDecoration(
+                                    color: Colors.black45,
+                                    borderRadius: BorderRadius.all(Radius.elliptical(7, 2)),
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
                         ],

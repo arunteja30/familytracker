@@ -13,6 +13,7 @@ import '../../providers/family_provider.dart';
 import '../../services/database_service.dart';
 import '../../services/geocoding_service.dart';
 import '../../services/profile_image_service.dart';
+import '../../services/routing_service.dart';
 import '../../utils/marker_generator.dart';
 import '../widgets/adaptive_map_view.dart';
 import '../widgets/buzzing_dot.dart';
@@ -47,8 +48,12 @@ class _MemberMapScreenState extends State<MemberMapScreen> {
   final List<LocationDetailsModel> _sessionUpdates = [];
   final Set<Polyline> _polylines = {};
   final List<AdaptivePolyline> _adaptivePolylines = [];
+  final Set<Marker> _markers = {};
+  final List<AdaptiveMapPoint> _adaptivePoints = [];
+  int _routingRequestId = 0;
   MapType _currentMapType = MapType.normal;
   bool _autoFollow = true;
+  bool _isInitialPositionLoaded = false;
 
   @override
   void initState() {
@@ -58,7 +63,9 @@ class _MemberMapScreenState extends State<MemberMapScreen> {
         (_currentLocation!.latitude != 0.0 || _currentLocation!.longitude != 0.0)) {
       _sessionUpdates.add(_currentLocation!);
       _liveTrailPoints.add(LatLng(_currentLocation!.latitude, _currentLocation!.longitude));
+      _isInitialPositionLoaded = true;
     }
+    _rebuildMapPointsAndMarkers();
     _loadProfileAndMarker();
     _subscribeToLiveLocation();
   }
@@ -77,7 +84,10 @@ class _MemberMapScreenState extends State<MemberMapScreen> {
     );
 
     if (mounted) {
-      setState(() => _customMarkerIcon = icon);
+      setState(() {
+        _customMarkerIcon = icon;
+        _rebuildMapPointsAndMarkers();
+      });
     }
 
     if (_currentLocation != null) {
@@ -95,46 +105,214 @@ class _MemberMapScreenState extends State<MemberMapScreen> {
         _liveTrailPoints.add(
             LatLng(_currentLocation!.latitude, _currentLocation!.longitude));
       }
+      _rebuildMapPointsAndMarkers();
       _updatePolylineSet();
     });
   }
 
-  void _updatePolylineSet() {
+  Future<void> _updatePolylineSet() async {
+    final reqId = ++_routingRequestId;
+
     if (_liveTrailPoints.length < 2) {
-      _polylines.clear();
-      _adaptivePolylines.clear();
+      if (mounted) {
+        setState(() {
+          _polylines.clear();
+          _adaptivePolylines.clear();
+        });
+      }
       return;
     }
 
-    _polylines.clear();
-    _polylines.add(
-      Polyline(
-        polylineId: const PolylineId('live_tracking_trail'),
-        points: List.from(_liveTrailPoints),
-        color: AppColors.primary,
-        width: 5,
-        startCap: Cap.roundCap,
-        endCap: Cap.roundCap,
-        jointType: JointType.round,
-      ),
-    );
+    List<LatLng> coords = _generateSmoothCurve(_liveTrailPoints);
 
-    _adaptivePolylines.clear();
-    _adaptivePolylines.add(
-      AdaptivePolyline(
-        id: 'live_tracking_trail',
-        points: _liveTrailPoints.map((p) => ll.LatLng(p.latitude, p.longitude)).toList(),
-        color: AppColors.primary,
-        strokeWidth: 5.0,
-      ),
-    );
+    try {
+      final result = await RoutingService.getRoute(
+        waypoints: _liveTrailPoints,
+        profile: RouteProfile.bicycle,
+      );
+      if (result.points.isNotEmpty) {
+        coords = result.points;
+      }
+    } catch (e) {
+      debugPrint('[MemberMapScreen] Directional road routing fallback: $e');
+    }
+
+    if (mounted && reqId == _routingRequestId) {
+      setState(() {
+        _polylines.clear();
+        _polylines.add(
+          Polyline(
+            polylineId: const PolylineId('live_tracking_trail'),
+            points: List.from(coords),
+            color: AppColors.primary,
+            width: 5,
+            startCap: Cap.roundCap,
+            endCap: Cap.roundCap,
+            jointType: JointType.round,
+          ),
+        );
+
+        _adaptivePolylines.clear();
+        _adaptivePolylines.add(
+          AdaptivePolyline(
+            id: 'live_tracking_trail',
+            points: coords.map((p) => ll.LatLng(p.latitude, p.longitude)).toList(),
+            color: AppColors.primary,
+            strokeWidth: 5.0,
+          ),
+        );
+      });
+    }
+  }
+
+  /// Incremental O(N) map point and marker pre-computation (0 allocations during build)
+  void _rebuildMapPointsAndMarkers() {
+    _markers.clear();
+    _adaptivePoints.clear();
+
+    final now = DateTime.now();
+
+    for (int i = 0; i < _sessionUpdates.length; i++) {
+      final u = _sessionUpdates[i];
+      if (u.latitude == 0.0 && u.longitude == 0.0) continue;
+
+      final isCurrent = i == _sessionUpdates.length - 1;
+      final isStart = i == 0;
+      final dateStr = u.date.isNotEmpty
+          ? u.date
+          : (u.timeStamp > 0
+              ? DateFormat('MMM dd, yyyy').format(DateTime.fromMillisecondsSinceEpoch(u.timeStamp))
+              : DateFormat('MMM dd, yyyy').format(now));
+
+      final timeStr = u.timeStamp > 0
+          ? DateFormat('hh:mm:ss a').format(
+              DateTime.fromMillisecondsSinceEpoch(u.timeStamp),
+            )
+          : '';
+
+      final addrStr = u.address.isNotEmpty
+          ? u.address
+          : (isCurrent && _resolvedAddress.isNotEmpty
+              ? _resolvedAddress
+              : 'Lat: ${u.latitude.toStringAsFixed(5)}, Lng: ${u.longitude.toStringAsFixed(5)}');
+
+      if (isCurrent) {
+        _markers.add(
+          Marker(
+            markerId: MarkerId(widget.member.mobile),
+            position: LatLng(u.latitude, u.longitude),
+            zIndexInt: 100,
+            icon: _customMarkerIcon ?? BitmapDescriptor.defaultMarker,
+            infoWindow: InfoWindow(
+              title: '📍 ${widget.member.name} (Current)',
+              snippet: '📅 $dateStr • 🕒 $timeStr\n📍 $addrStr\n⚡ Battery: ${u.batteryPercentage}%',
+            ),
+          ),
+        );
+      } else if (isStart) {
+        _markers.add(
+          Marker(
+            markerId: const MarkerId('live_step_start'),
+            position: LatLng(u.latitude, u.longitude),
+            icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen),
+            zIndexInt: 30,
+            infoWindow: InfoWindow(
+              title: '🟢 Start Location (#1)',
+              snippet: '📅 $dateStr • 🕒 $timeStr\n📍 $addrStr\n⚡ Battery: ${u.batteryPercentage}%',
+            ),
+          ),
+        );
+      } else {
+        _markers.add(
+          Marker(
+            markerId: MarkerId('live_step_$i'),
+            position: LatLng(u.latitude, u.longitude),
+            icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure),
+            zIndexInt: 10,
+            infoWindow: InfoWindow(
+              title: '🔵 Location Update #${i + 1}',
+              snippet: '📅 $dateStr • 🕒 $timeStr\n📍 $addrStr\n⚡ Battery: ${u.batteryPercentage}%',
+            ),
+          ),
+        );
+      }
+
+      _adaptivePoints.add(
+        AdaptiveMapPoint(
+          id: isCurrent ? widget.member.mobile : 'live_step_$i',
+          latitude: u.latitude,
+          longitude: u.longitude,
+          title: isCurrent
+              ? '${widget.member.name} (Current)'
+              : (isStart ? '🟢 Start Location (#1)' : '🔵 Update #${i + 1}'),
+          snippet: u.address.isNotEmpty
+              ? u.address
+              : (isCurrent && _resolvedAddress.isNotEmpty ? _resolvedAddress : ''),
+          pinColor: isCurrent
+              ? AppColors.primary
+              : (isStart ? AppColors.success : AppColors.accent),
+        ),
+      );
+    }
+  }
+
+  /// Generate smooth Catmull-Rom spline curves between discrete GPS update points
+  List<LatLng> _generateSmoothCurve(List<LatLng> points, {int stepsPerSegment = 10}) {
+    if (points.length < 3) {
+      return List.from(points);
+    }
+
+    final List<LatLng> smoothPoints = [];
+    final int n = points.length;
+
+    for (int i = 0; i < n - 1; i++) {
+      final p0 = i == 0
+          ? LatLng(2 * points[0].latitude - points[1].latitude,
+                   2 * points[0].longitude - points[1].longitude)
+          : points[i - 1];
+      final p1 = points[i];
+      final p2 = points[i + 1];
+      final p3 = i + 2 < n
+          ? points[i + 2]
+          : LatLng(2 * points[n - 1].latitude - points[n - 2].latitude,
+                   2 * points[n - 1].longitude - points[n - 2].longitude);
+
+      for (int step = 0; step < stepsPerSegment; step++) {
+        final double t = step / stepsPerSegment;
+        final double t2 = t * t;
+        final double t3 = t2 * t;
+
+        final double lat = 0.5 * (
+          (2 * p1.latitude) +
+          (-p0.latitude + p2.latitude) * t +
+          (2 * p0.latitude - 5 * p1.latitude + 4 * p2.latitude - p3.latitude) * t2 +
+          (-p0.latitude + 3 * p1.latitude - 3 * p2.latitude + p3.latitude) * t3
+        );
+
+        final double lng = 0.5 * (
+          (2 * p1.longitude) +
+          (-p0.longitude + p2.longitude) * t +
+          (2 * p0.longitude - 5 * p1.longitude + 4 * p2.longitude - p3.longitude) * t2 +
+          (-p0.longitude + 3 * p1.longitude - 3 * p2.longitude + p3.longitude) * t3
+        );
+
+        smoothPoints.add(LatLng(lat, lng));
+      }
+    }
+
+    // Append exact final endpoint
+    smoothPoints.add(points.last);
+    return smoothPoints;
   }
 
   void _resolveAddress(double lat, double lng) {
     if (lat != 0.0 || lng != 0.0) {
       GeocodingService.getAddressFromCoordinates(lat, lng).then((addr) {
         if (mounted && addr.isNotEmpty) {
-          setState(() => _resolvedAddress = addr);
+          setState(() {
+            _resolvedAddress = addr;
+            _rebuildMapPointsAndMarkers();
+          });
         }
       });
     }
@@ -151,21 +329,31 @@ class _MemberMapScreenState extends State<MemberMapScreen> {
         setState(() {
           _currentLocation = loc;
           if (hasCoords) {
-            // Append new update marker and trail point if moved
-            if (_sessionUpdates.isEmpty) {
+            if (!_isInitialPositionLoaded || _sessionUpdates.isEmpty) {
+              // Initialize member's starting position without forming a line
+              _sessionUpdates.clear();
+              _liveTrailPoints.clear();
               _sessionUpdates.add(loc);
               _liveTrailPoints.add(newLatLng);
+              _isInitialPositionLoaded = true;
+              _rebuildMapPointsAndMarkers();
+              _updatePolylineSet();
             } else {
+              // Check if the member has physically moved
               final last = _sessionUpdates.last;
-              if ((last.latitude - loc.latitude).abs() > 0.00001 ||
-                  (last.longitude - loc.longitude).abs() > 0.00001) {
+              final latDiff = (last.latitude - loc.latitude).abs();
+              final lngDiff = (last.longitude - loc.longitude).abs();
+
+              if (latDiff > 0.00003 || lngDiff > 0.00003) {
                 _sessionUpdates.add(loc);
                 _liveTrailPoints.add(newLatLng);
+                _rebuildMapPointsAndMarkers();
+                _updatePolylineSet();
               } else {
                 _sessionUpdates.last = loc;
+                _rebuildMapPointsAndMarkers();
               }
             }
-            _updatePolylineSet();
           }
         });
 
@@ -269,76 +457,6 @@ class _MemberMapScreenState extends State<MemberMapScreen> {
             ? _currentLocation!.address
             : 'Fetching street address...');
 
-    // Generate markers for EVERY location update
-    final markers = <Marker>{};
-
-    for (int i = 0; i < _sessionUpdates.length; i++) {
-      final u = _sessionUpdates[i];
-      if (u.latitude == 0.0 && u.longitude == 0.0) continue;
-
-      final isCurrent = i == _sessionUpdates.length - 1;
-      final isStart = i == 0;
-      final dateStr = u.date.isNotEmpty
-          ? u.date
-          : (u.timeStamp > 0
-              ? DateFormat('MMM dd, yyyy').format(DateTime.fromMillisecondsSinceEpoch(u.timeStamp))
-              : DateFormat('MMM dd, yyyy').format(DateTime.now()));
-
-      final timeStr = u.timeStamp > 0
-          ? DateFormat('hh:mm:ss a').format(
-              DateTime.fromMillisecondsSinceEpoch(u.timeStamp),
-            )
-          : '';
-
-      final addrStr = u.address.isNotEmpty
-          ? u.address
-          : (isCurrent && _resolvedAddress.isNotEmpty ? _resolvedAddress : 'Lat: ${u.latitude.toStringAsFixed(5)}, Lng: ${u.longitude.toStringAsFixed(5)}');
-
-      if (isCurrent) {
-        // Current Latest Position Marker
-        markers.add(
-          Marker(
-            markerId: MarkerId(widget.member.mobile),
-            position: LatLng(u.latitude, u.longitude),
-            zIndexInt: 100,
-            icon: _customMarkerIcon ?? BitmapDescriptor.defaultMarker,
-            infoWindow: InfoWindow(
-              title: '📍 ${widget.member.name} (Current)',
-              snippet: '📅 $dateStr • 🕒 $timeStr\n📍 $addrStr\n⚡ Battery: ${u.batteryPercentage}%',
-            ),
-          ),
-        );
-      } else if (isStart) {
-        // Start Origin Position Marker
-        markers.add(
-          Marker(
-            markerId: const MarkerId('live_step_start'),
-            position: LatLng(u.latitude, u.longitude),
-            icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen),
-            zIndexInt: 30,
-            infoWindow: InfoWindow(
-              title: '🟢 Start Location (#1)',
-              snippet: '📅 $dateStr • 🕒 $timeStr\n📍 $addrStr\n⚡ Battery: ${u.batteryPercentage}%',
-            ),
-          ),
-        );
-      } else {
-        // Intermediate Update Marker for every new update
-        markers.add(
-          Marker(
-            markerId: MarkerId('live_step_$i'),
-            position: LatLng(u.latitude, u.longitude),
-            icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure),
-            zIndexInt: 10,
-            infoWindow: InfoWindow(
-              title: '🔵 Location Update #${i + 1}',
-              snippet: '📅 $dateStr • 🕒 $timeStr\n📍 $addrStr\n⚡ Battery: ${u.batteryPercentage}%',
-            ),
-          ),
-        );
-      }
-    }
-
     return Scaffold(
       appBar: AppBar(
         title: Text(widget.member.name),
@@ -388,28 +506,9 @@ class _MemberMapScreenState extends State<MemberMapScreen> {
             initialLng: pos.longitude,
             initialZoom: 15,
             mapType: _currentMapType,
-            points: _sessionUpdates.asMap().entries.map((entry) {
-              final i = entry.key;
-              final u = entry.value;
-              final isCurrent = i == _sessionUpdates.length - 1;
-              final isStart = i == 0;
-              return AdaptiveMapPoint(
-                id: isCurrent ? widget.member.mobile : 'live_step_$i',
-                latitude: u.latitude,
-                longitude: u.longitude,
-                title: isCurrent
-                    ? '${widget.member.name} (Current)'
-                    : (isStart ? '🟢 Start Location (#1)' : '🔵 Update #${i + 1}'),
-                snippet: u.address.isNotEmpty
-                    ? u.address
-                    : (isCurrent && _resolvedAddress.isNotEmpty ? _resolvedAddress : ''),
-                pinColor: isCurrent
-                    ? AppColors.primary
-                    : (isStart ? AppColors.success : AppColors.accent),
-              );
-            }).where((p) => p.latitude != 0.0 && p.longitude != 0.0).toList(),
+            points: _adaptivePoints,
             polylines: _adaptivePolylines,
-            googleMarkers: markers,
+            googleMarkers: _markers,
             googlePolylines: _polylines,
             onGoogleMapCreated: (controller) {
               if (!_controller.isCompleted) {

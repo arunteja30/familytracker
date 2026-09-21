@@ -129,13 +129,32 @@ class MarkerGenerator {
       );
     }
 
-    // 4. Draw pointer pin triangle
-    final path = Path();
-    path.moveTo(markerWidth / 2 - 8, avatarRadius * 2 + 2);
-    path.lineTo(markerWidth / 2 + 8, avatarRadius * 2 + 2);
-    path.lineTo(markerWidth / 2, avatarRadius * 2 + 12);
-    path.close();
-    canvas.drawPath(path, Paint()..color = pinColor);
+    // 4. Draw Pin Stick / Needle pointing down
+    final needlePaint = Paint()
+      ..shader = ui.Gradient.linear(
+        const Offset(markerWidth / 2 - 2, avatarRadius * 2 + 2),
+        const Offset(markerWidth / 2 + 2, avatarRadius * 2 + 2),
+        [
+          const Color(0xFF64748B),
+          const Color(0xFF334155),
+          const Color(0xFF1E293B),
+        ],
+      )
+      ..strokeWidth = 3.5
+      ..strokeCap = StrokeCap.round;
+
+    canvas.drawLine(
+      const Offset(markerWidth / 2, avatarRadius * 2 + 2),
+      const Offset(markerWidth / 2, avatarRadius * 2 + 18),
+      needlePaint,
+    );
+
+    // Specular highlight spot on sphere
+    canvas.drawCircle(
+      const Offset(markerWidth / 2 - avatarRadius * 0.35, avatarRadius + 4 - avatarRadius * 0.35),
+      avatarRadius * 0.28,
+      Paint()..color = Colors.white.withValues(alpha: 0.7),
+    );
 
     // 5. Draw Name Badge Pill at bottom
     final namePainter = TextPainter(
@@ -157,7 +176,7 @@ class MarkerGenerator {
     const badgeHeight = 22.0;
     final badgeRect = RRect.fromRectAndRadius(
       Rect.fromCenter(
-        center: const Offset(markerWidth / 2, avatarRadius * 2 + 24),
+        center: const Offset(markerWidth / 2, avatarRadius * 2 + 30),
         width: badgeWidth < 60 ? 60 : badgeWidth,
         height: badgeHeight,
       ),
@@ -192,9 +211,183 @@ class MarkerGenerator {
       canvas,
       Offset(
         (markerWidth - namePainter.width) / 2,
-        avatarRadius * 2 + 24 - (namePainter.height / 2),
+        avatarRadius * 2 + 30 - (namePainter.height / 2),
       ),
     );
+
+    final picture = recorder.endRecording();
+    final image = await picture.toImage(
+      markerWidth.toInt(),
+      markerHeight.toInt(),
+    );
+    final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
+
+    if (byteData == null) {
+      return BitmapDescriptor.defaultMarker;
+    }
+
+    final Uint8List uint8list = byteData.buffer.asUint8List();
+    final descriptor = BitmapDescriptor.bytes(uint8list);
+    _markerCache[cacheKey] = descriptor;
+    return descriptor;
+  }
+
+  /// Generate a 3D Pushpin / Stick Pin marker (like the red ball stick pin in reference image)
+  static Future<BitmapDescriptor> createPushpinMarker({
+    required Color pinColor,
+    String badgeText = '',
+    bool isSelected = false,
+  }) async {
+    final cacheKey = 'pushpin_${pinColor.toARGB32()}_${badgeText}_$isSelected';
+    if (_markerCache.containsKey(cacheKey)) {
+      return _markerCache[cacheKey]!;
+    }
+
+    const double markerWidth = 110;
+    const double markerHeight = 100;
+    const double sphereRadius = 16;
+    const double sphereCenterX = markerWidth / 2;
+    final double sphereCenterY = badgeText.isNotEmpty ? 42.0 : 26.0;
+    const double needleLength = 26.0;
+
+    final recorder = ui.PictureRecorder();
+    final canvas = Canvas(recorder);
+
+    // 1. Draw top label pill if present
+    if (badgeText.isNotEmpty) {
+      final textPainter = TextPainter(
+        text: TextSpan(
+          text: badgeText,
+          style: TextStyle(
+            color: isSelected ? const Color(0xFFFCD34D) : Colors.white,
+            fontSize: 10.5,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        textDirection: TextDirection.ltr,
+      );
+      textPainter.layout();
+
+      final pillWidth = textPainter.width + 14;
+      const pillHeight = 19.0;
+      final pillRect = RRect.fromRectAndRadius(
+        Rect.fromCenter(
+          center: const Offset(sphereCenterX, 13),
+          width: pillWidth < 40 ? 40 : pillWidth,
+          height: pillHeight,
+        ),
+        const Radius.circular(10),
+      );
+
+      // Pill shadow & fill
+      canvas.drawRRect(
+        pillRect.shift(const Offset(0, 1.5)),
+        Paint()
+          ..color = Colors.black.withValues(alpha: 0.3)
+          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 2),
+      );
+      canvas.drawRRect(
+        pillRect,
+        Paint()..color = isSelected ? const Color(0xFF1E293B) : const Color(0xFF0F172A).withValues(alpha: 0.9),
+      );
+      if (isSelected) {
+        canvas.drawRRect(
+          pillRect,
+          Paint()
+            ..color = const Color(0xFFF59E0B)
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 1.5,
+        );
+      }
+      textPainter.paint(
+        canvas,
+        Offset(
+          sphereCenterX - (textPainter.width / 2),
+          13 - (textPainter.height / 2),
+        ),
+      );
+    }
+
+    // 2. Needle Shadow on Ground
+    final groundContactY = sphereCenterY + sphereRadius + needleLength;
+    canvas.drawOval(
+      Rect.fromCenter(
+        center: Offset(sphereCenterX + 1, groundContactY),
+        width: 10,
+        height: 4,
+      ),
+      Paint()
+        ..color = Colors.black.withValues(alpha: 0.35)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 2),
+    );
+
+    // 3. Pin Needle / Stick (Metallic Grey)
+    final needlePaint = Paint()
+      ..shader = ui.Gradient.linear(
+        Offset(sphereCenterX - 2, sphereCenterY),
+        Offset(sphereCenterX + 2, sphereCenterY),
+        [
+          const Color(0xFF64748B),
+          const Color(0xFF334155),
+          const Color(0xFF1E293B),
+        ],
+      )
+      ..strokeWidth = 3.2
+      ..strokeCap = StrokeCap.round;
+
+    canvas.drawLine(
+      Offset(sphereCenterX, sphereCenterY + sphereRadius - 2),
+      Offset(sphereCenterX, groundContactY),
+      needlePaint,
+    );
+
+    // 4. Outer Sphere Shadow
+    canvas.drawCircle(
+      Offset(sphereCenterX, sphereCenterY + 2),
+      sphereRadius + (isSelected ? 3 : 1.5),
+      Paint()
+        ..color = isSelected
+            ? const Color(0xFFF59E0B).withValues(alpha: 0.5)
+            : Colors.black.withValues(alpha: 0.3)
+        ..maskFilter = MaskFilter.blur(BlurStyle.normal, isSelected ? 6 : 4),
+    );
+
+    // 5. 3D Spherical Head (Radial Gradient)
+    final sphereCenter = Offset(sphereCenterX, sphereCenterY);
+    final spherePaint = Paint()
+      ..shader = ui.Gradient.radial(
+        Offset(sphereCenterX - sphereRadius * 0.35, sphereCenterY - sphereRadius * 0.35),
+        sphereRadius * 1.35,
+        [
+          Color.lerp(pinColor, Colors.white, 0.45)!,
+          pinColor,
+          Color.lerp(pinColor, Colors.black, 0.45)!,
+        ],
+        [0.0, 0.55, 1.0],
+      );
+
+    canvas.drawCircle(sphereCenter, sphereRadius, spherePaint);
+
+    // 6. Specular Highlight Dot (matching reference image)
+    final highlightPaint = Paint()
+      ..color = Colors.white.withValues(alpha: 0.75);
+    canvas.drawCircle(
+      Offset(sphereCenterX - sphereRadius * 0.32, sphereCenterY - sphereRadius * 0.32),
+      sphereRadius * 0.32,
+      highlightPaint,
+    );
+
+    // 7. Selected Golden Ring
+    if (isSelected) {
+      canvas.drawCircle(
+        sphereCenter,
+        sphereRadius + 2,
+        Paint()
+          ..color = const Color(0xFFF59E0B)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 2.5,
+      );
+    }
 
     final picture = recorder.endRecording();
     final image = await picture.toImage(
