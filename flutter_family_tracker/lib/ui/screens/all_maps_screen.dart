@@ -475,19 +475,45 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
     // Rebuild markers immediately so the selected member's marker is highlighted
     _loadPhotosAndBuildMarkers();
 
-    final loc = _liveLocations[member.mobile] ?? widget.locations[member.mobile];
+    // Robust multi-tier location resolution (handles phone format variations e.g. +91 vs raw)
+    LocationDetailsModel? loc = _liveLocations[member.mobile] ?? widget.locations[member.mobile];
+    if (loc == null || (loc.latitude == 0.0 && loc.longitude == 0.0)) {
+      for (final entry in _liveLocations.entries) {
+        if (DatabaseService.matchPhones(entry.key, member.mobile)) {
+          loc = entry.value;
+          break;
+        }
+      }
+    }
+    if (loc == null || (loc.latitude == 0.0 && loc.longitude == 0.0)) {
+      for (final entry in widget.locations.entries) {
+        if (DatabaseService.matchPhones(entry.key, member.mobile)) {
+          loc = entry.value;
+          break;
+        }
+      }
+    }
+    if (loc == null || (loc.latitude == 0.0 && loc.longitude == 0.0)) {
+      loc = await _dbService.getLocationDetails(member.mobile);
+      if (loc != null && (loc.latitude != 0.0 || loc.longitude != 0.0)) {
+        _liveLocations[member.mobile] = loc;
+      }
+    }
+
     if (loc != null && (loc.latitude != 0.0 || loc.longitude != 0.0)) {
+      // 1. Zoom into the selected member on Web (zoom 17.0 for close marker focus)
       try {
-        _flutterMapController.move(ll.LatLng(loc.latitude, loc.longitude), 16);
+        _flutterMapController.move(ll.LatLng(loc.latitude, loc.longitude), 17.0);
       } catch (_) {}
 
+      // 2. Animate camera and zoom into selected member marker on Google Maps
       try {
         final GoogleMapController controller = await _controller.future;
         await controller.animateCamera(
           CameraUpdate.newCameraPosition(
             CameraPosition(
               target: LatLng(loc.latitude, loc.longitude),
-              zoom: 16,
+              zoom: 17.0,
             ),
           ),
         );
