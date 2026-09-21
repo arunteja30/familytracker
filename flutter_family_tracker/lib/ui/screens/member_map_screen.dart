@@ -68,6 +68,29 @@ class _MemberMapScreenState extends State<MemberMapScreen> {
     _rebuildMapPointsAndMarkers();
     _loadProfileAndMarker();
     _subscribeToLiveLocation();
+
+    // Fallback: If initial location was missing or placeholder (0,0), fetch from DatabaseService immediately
+    if (_currentLocation == null ||
+        (_currentLocation!.latitude == 0.0 && _currentLocation!.longitude == 0.0)) {
+      _fetchInitialLocationFallback();
+    }
+  }
+
+  Future<void> _fetchInitialLocationFallback() async {
+    final loc = await _dbService.getLocationDetails(widget.member.mobile);
+    if (mounted && loc != null && (loc.latitude != 0.0 || loc.longitude != 0.0)) {
+      setState(() {
+        _currentLocation = loc;
+        if (_sessionUpdates.isEmpty) {
+          _sessionUpdates.add(loc);
+          _liveTrailPoints.add(LatLng(loc.latitude, loc.longitude));
+          _isInitialPositionLoaded = true;
+          _rebuildMapPointsAndMarkers();
+          _updatePolylineSet();
+          _animateCamera(loc.latitude, loc.longitude);
+        }
+      });
+    }
   }
 
   Future<void> _loadProfileAndMarker() async {
@@ -77,11 +100,17 @@ class _MemberMapScreenState extends State<MemberMapScreen> {
       setState(() => _profileImageFile = photo);
     }
 
-    final icon = await MarkerGenerator.createCustomMemberMarker(
-      name: widget.member.name,
-      pinColor: AppColors.primary,
-      localPhotoPath: photo?.path,
-    );
+    BitmapDescriptor icon;
+    try {
+      icon = await MarkerGenerator.createCustomMemberMarker(
+        name: widget.member.name,
+        pinColor: AppColors.primary,
+        localPhotoPath: photo?.path,
+      );
+    } catch (e) {
+      debugPrint('[MemberMapScreen] Error creating custom marker: $e');
+      icon = BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure);
+    }
 
     if (mounted) {
       setState(() {
@@ -508,8 +537,8 @@ class _MemberMapScreenState extends State<MemberMapScreen> {
             mapType: _currentMapType,
             points: _adaptivePoints,
             polylines: _adaptivePolylines,
-            googleMarkers: _markers,
-            googlePolylines: _polylines,
+            googleMarkers: Set<Marker>.from(_markers),
+            googlePolylines: Set<Polyline>.from(_polylines),
             onGoogleMapCreated: (controller) {
               if (!_controller.isCompleted) {
                 _controller.complete(controller);

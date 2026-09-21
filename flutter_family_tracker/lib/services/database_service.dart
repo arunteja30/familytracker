@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:geolocator/geolocator.dart';
@@ -223,30 +224,92 @@ class DatabaseService {
     return groups.toList();
   }
 
-  // Stream of Real-time Location for a Specific Mobile Number
+  // Stream of Real-time Location for a Specific Mobile Number (Multi-format broadcast stream)
   Stream<LocationDetailsModel?> streamLocationDetails(String mobile) {
-    return _db.ref(AppConstants.locationList).child(mobile).onValue.map((event) {
-      final data = event.snapshot.value;
-      if (data == null || data is! Map) return null;
-      return LocationDetailsModel.fromJson(data);
-    });
+    final candidates = <String>{
+      mobile,
+      mobile.replaceAll(RegExp(r'[^0-9+]'), ''),
+      mobile.replaceAll(RegExp(r'\D'), ''),
+    };
+    final digits = mobile.replaceAll(RegExp(r'\D'), '');
+    if (digits.length >= 10) {
+      final last10 = digits.substring(digits.length - 10);
+      candidates.add(last10);
+      candidates.add('+91$last10');
+      candidates.add('91$last10');
+    }
+    candidates.removeWhere((c) => c.isEmpty);
+
+    late StreamController<LocationDetailsModel?> controller;
+    final subscriptions = <StreamSubscription>[];
+
+    controller = StreamController<LocationDetailsModel?>.broadcast(
+      onListen: () {
+        // Emit current initial value immediately so UI has markers right away
+        getLocationDetails(mobile).then((loc) {
+          if (!controller.isClosed && loc != null) {
+            controller.add(loc);
+          }
+        }).catchError((_) {});
+
+        for (final phone in candidates) {
+          subscriptions.add(
+            _db.ref(AppConstants.locationList).child(phone).onValue.listen((event) {
+              final data = event.snapshot.value;
+              if (data != null && data is Map && !controller.isClosed) {
+                controller.add(LocationDetailsModel.fromJson(data));
+              }
+            }, onError: (_) {}),
+          );
+          subscriptions.add(
+            _db.ref(AppConstants.legacyLocationList).child(phone).onValue.listen((event) {
+              final data = event.snapshot.value;
+              if (data != null && data is Map && !controller.isClosed) {
+                controller.add(LocationDetailsModel.fromJson(data));
+              }
+            }, onError: (_) {}),
+          );
+        }
+      },
+      onCancel: () {
+        for (final sub in subscriptions) {
+          sub.cancel();
+        }
+        subscriptions.clear();
+      },
+    );
+
+    return controller.stream;
   }
 
-  // Get Location Details Once
+  // Get Location Details Once (with phone format fallback & legacy node support)
   Future<LocationDetailsModel?> getLocationDetails(String mobile) async {
     try {
-      var snapshot =
-          await _db.ref(AppConstants.locationList).child(mobile).get();
-      if (!snapshot.exists || snapshot.value == null) {
-        snapshot = await _db
-            .ref(AppConstants.legacyLocationList)
-            .child(mobile)
-            .get();
+      final candidates = <String>{
+        mobile,
+        mobile.replaceAll(RegExp(r'[^0-9+]'), ''),
+        mobile.replaceAll(RegExp(r'\D'), ''),
+      };
+      final digits = mobile.replaceAll(RegExp(r'\D'), '');
+      if (digits.length >= 10) {
+        final last10 = digits.substring(digits.length - 10);
+        candidates.add(last10);
+        candidates.add('+91$last10');
+        candidates.add('91$last10');
       }
-      if (!snapshot.exists || snapshot.value == null || snapshot.value is! Map) {
-        return null;
+
+      for (final phone in candidates) {
+        if (phone.isEmpty) continue;
+        var snapshot = await _db.ref(AppConstants.locationList).child(phone).get();
+        if (snapshot.exists && snapshot.value is Map) {
+          return LocationDetailsModel.fromJson(snapshot.value as Map);
+        }
+        var legacySnap = await _db.ref(AppConstants.legacyLocationList).child(phone).get();
+        if (legacySnap.exists && legacySnap.value is Map) {
+          return LocationDetailsModel.fromJson(legacySnap.value as Map);
+        }
       }
-      return LocationDetailsModel.fromJson(snapshot.value as Map);
+      return null;
     } catch (e) {
       return null;
     }

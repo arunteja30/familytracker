@@ -399,15 +399,40 @@ class _AdaptiveMapViewState extends State<AdaptiveMapView> {
 
   // Google Maps for Android / iOS Native
   Widget _buildGoogleMap() {
+    final markers = (widget.googleMarkers != null && widget.googleMarkers!.isNotEmpty)
+        ? Set<gmaps.Marker>.from(widget.googleMarkers!)
+        : widget.points
+            .where((p) => p.latitude != 0.0 && p.longitude != 0.0)
+            .map((p) {
+              return gmaps.Marker(
+                markerId: gmaps.MarkerId(p.id),
+                position: gmaps.LatLng(p.latitude, p.longitude),
+                icon: gmaps.BitmapDescriptor.defaultMarkerWithHue(
+                  p.isSelected
+                      ? gmaps.BitmapDescriptor.hueOrange
+                      : gmaps.BitmapDescriptor.hueAzure,
+                ),
+                infoWindow: gmaps.InfoWindow(
+                  title: p.title,
+                  snippet: p.snippet,
+                ),
+                onTap: p.onTap,
+              );
+            }).toSet();
+
     return gmaps.GoogleMap(
       mapType: widget.mapType,
       initialCameraPosition: gmaps.CameraPosition(
         target: gmaps.LatLng(widget.initialLat, widget.initialLng),
         zoom: widget.initialZoom,
       ),
-      markers: widget.googleMarkers ?? {},
-      polylines: widget.googlePolylines ?? {},
-      circles: widget.googleCircles ?? {},
+      markers: markers,
+      polylines: widget.googlePolylines != null
+          ? Set<gmaps.Polyline>.from(widget.googlePolylines!)
+          : {},
+      circles: widget.googleCircles != null
+          ? Set<gmaps.Circle>.from(widget.googleCircles!)
+          : {},
       onMapCreated: widget.onGoogleMapCreated,
       myLocationEnabled: true,
       myLocationButtonEnabled: false,

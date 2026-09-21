@@ -84,6 +84,38 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
   }
 
   @override
+  void didUpdateWidget(covariant AllMapsScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    bool shouldRebuild = false;
+
+    if (widget.members.length != oldWidget.members.length ||
+        widget.locations.length != oldWidget.locations.length ||
+        widget.familyName != oldWidget.familyName ||
+        (_markers.isEmpty && widget.members.isNotEmpty)) {
+      shouldRebuild = true;
+    } else {
+      for (final entry in widget.locations.entries) {
+        final oldLoc = oldWidget.locations[entry.key];
+        if (oldLoc == null ||
+            oldLoc.latitude != entry.value.latitude ||
+            oldLoc.longitude != entry.value.longitude) {
+          shouldRebuild = true;
+          break;
+        }
+      }
+    }
+
+    if (shouldRebuild) {
+      _liveLocations.addAll(widget.locations);
+      if (_selectedMember == null && widget.members.isNotEmpty) {
+        _selectedMember = widget.members.first;
+      }
+      _subscribeToLiveMovements();
+      _loadPhotosAndBuildMarkers();
+    }
+  }
+
+  @override
   void dispose() {
     for (var sub in _locationSubscriptions) {
       sub.cancel();
@@ -156,6 +188,11 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
 
   // Subscribe to live location stream for all family members to track movements live
   void _subscribeToLiveMovements() {
+    for (var sub in _locationSubscriptions) {
+      sub.cancel();
+    }
+    _locationSubscriptions.clear();
+
     for (int i = 0; i < widget.members.length; i++) {
       final member = widget.members[i];
       final memberIndex = i;
@@ -191,7 +228,30 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
 
   Future<Marker?> _buildMarkerForMember(
       FamilyMemberModel member, LocationDetailsModel? loc, int index) async {
-    if (loc == null || (loc.latitude == 0.0 && loc.longitude == 0.0)) return null;
+    LocationDetailsModel? effectiveLoc = loc;
+    if (effectiveLoc == null || (effectiveLoc.latitude == 0.0 && effectiveLoc.longitude == 0.0)) {
+      for (final entry in _liveLocations.entries) {
+        if (DatabaseService.matchPhones(entry.key, member.mobile)) {
+          effectiveLoc = entry.value;
+          break;
+        }
+      }
+    }
+    if (effectiveLoc == null || (effectiveLoc.latitude == 0.0 && effectiveLoc.longitude == 0.0)) {
+      for (final entry in widget.locations.entries) {
+        if (DatabaseService.matchPhones(entry.key, member.mobile)) {
+          effectiveLoc = entry.value;
+          break;
+        }
+      }
+    }
+    if (effectiveLoc == null || (effectiveLoc.latitude == 0.0 && effectiveLoc.longitude == 0.0)) {
+      effectiveLoc = await _dbService.getLocationDetails(member.mobile);
+      if (effectiveLoc != null && (effectiveLoc.latitude != 0.0 || effectiveLoc.longitude != 0.0)) {
+        _liveLocations[member.mobile] = effectiveLoc;
+      }
+    }
+    if (effectiveLoc == null || (effectiveLoc.latitude == 0.0 && effectiveLoc.longitude == 0.0)) return null;
 
     final color = _markerColors[index % _markerColors.length];
     File? photoFile;
@@ -204,38 +264,46 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
     }
 
     // Resolve address in background if missing
-    if (loc.address.isEmpty || loc.address.startsWith('Lat:')) {
-      GeocodingService.getAddressFromCoordinates(loc.latitude, loc.longitude)
+    if (effectiveLoc.address.isEmpty || effectiveLoc.address.startsWith('Lat:')) {
+      GeocodingService.getAddressFromCoordinates(effectiveLoc.latitude, effectiveLoc.longitude)
           .then((addr) {
         if (mounted) {
           setState(() => _resolvedAddresses[member.mobile] = addr);
         }
       });
     } else {
-      _resolvedAddresses[member.mobile] = loc.address;
+      _resolvedAddresses[member.mobile] = effectiveLoc.address;
     }
 
-    final customIcon = await MarkerGenerator.createCustomMemberMarker(
-      name: member.name,
-      pinColor: color,
-      localPhotoPath: photoFile?.path,
-    );
+    BitmapDescriptor customIcon;
+    try {
+      customIcon = await MarkerGenerator.createCustomMemberMarker(
+        name: member.name,
+        pinColor: color,
+        localPhotoPath: photoFile?.path,
+      );
+    } catch (e) {
+      debugPrint('[AllMapsScreen] Error creating custom marker: $e');
+      customIcon = BitmapDescriptor.defaultMarkerWithHue(
+        BitmapDescriptor.hueAzure,
+      );
+    }
 
-    final lastUpdated = loc.timeStamp > 0
+    final lastUpdated = effectiveLoc.timeStamp > 0
         ? DateFormat('MMM dd, yyyy • hh:mm:ss a').format(
-            DateTime.fromMillisecondsSinceEpoch(loc.timeStamp),
+            DateTime.fromMillisecondsSinceEpoch(effectiveLoc.timeStamp),
           )
-        : (loc.date.isNotEmpty ? loc.date : 'Recently');
+        : (effectiveLoc.date.isNotEmpty ? effectiveLoc.date : 'Recently');
 
-    final displayAddr = _resolvedAddresses[member.mobile] ?? loc.address;
+    final displayAddr = _resolvedAddresses[member.mobile] ?? effectiveLoc.address;
 
     return Marker(
       markerId: MarkerId(member.mobile),
-      position: LatLng(loc.latitude, loc.longitude),
+      position: LatLng(effectiveLoc.latitude, effectiveLoc.longitude),
       icon: customIcon,
       infoWindow: InfoWindow(
         title: member.name,
-        snippet: '🕒 $lastUpdated\n📍 $displayAddr\n⚡ Battery: ${loc.batteryPercentage}%${loc.isMoving ? " • 🚗 ${loc.formattedSpeed}" : ""}',
+        snippet: '🕒 $lastUpdated\n📍 $displayAddr\n⚡ Battery: ${effectiveLoc.batteryPercentage}%${effectiveLoc.isMoving ? " • 🚗 ${effectiveLoc.formattedSpeed}" : ""}',
       ),
       onTap: () {
         _focusMember(member);
@@ -541,7 +609,24 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
             initialZoom: 12,
             mapType: _currentMapType,
             points: widget.members.map((m) {
-              final loc = _liveLocations[m.mobile] ?? widget.locations[m.mobile];
+              LocationDetailsModel? loc = _liveLocations[m.mobile] ?? widget.locations[m.mobile];
+              if (loc == null || (loc.latitude == 0.0 && loc.longitude == 0.0)) {
+                for (final entry in _liveLocations.entries) {
+                  if (DatabaseService.matchPhones(entry.key, m.mobile)) {
+                    loc = entry.value;
+                    break;
+                  }
+                }
+              }
+              if (loc == null || (loc.latitude == 0.0 && loc.longitude == 0.0)) {
+                for (final entry in widget.locations.entries) {
+                  if (DatabaseService.matchPhones(entry.key, m.mobile)) {
+                    loc = entry.value;
+                    break;
+                  }
+                }
+              }
+
               return AdaptiveMapPoint(
                 id: m.mobile,
                 latitude: loc?.latitude ?? 0.0,
@@ -554,7 +639,9 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
                 },
               );
             }).where((p) => p.latitude != 0.0 && p.longitude != 0.0).toList(),
-            googleMarkers: _showPlacesLayer ? {..._markers, ..._placeMarkers} : _markers,
+            googleMarkers: _showPlacesLayer
+                ? {..._markers, ..._placeMarkers}
+                : Set<Marker>.from(_markers),
             googlePolylines: _polylines,
             googleCircles: _showPlacesLayer ? _geofenceCircles : {},
             polylines: _adaptivePolylines,
