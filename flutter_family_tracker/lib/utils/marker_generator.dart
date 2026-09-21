@@ -19,29 +19,66 @@ class MarkerGenerator {
     }
   }
 
-  // Generate a custom map marker with Member Avatar + Name Label Pill (Cached)
+  // Generate a custom map marker with Member Avatar + Name & Last Updated Details Label Pill (Cached)
   static Future<BitmapDescriptor> createCustomMemberMarker({
     required String name,
     String? localPhotoPath,
     Color pinColor = AppColors.primary,
+    bool isHighlighted = false,
+    String lastUpdated = '',
+    int batteryPercentage = 0,
+    bool isMoving = false,
   }) async {
     final displayName = name.isNotEmpty ? name : 'Member';
     final initial = displayName[0].toUpperCase();
 
     // 0. Cache Check for instant 0ms retrieval
-    final cacheKey = '${displayName}_${pinColor.toARGB32()}_${localPhotoPath ?? ''}';
+    final cacheKey = '${displayName}_${pinColor.toARGB32()}_${localPhotoPath ?? ''}_hl_${isHighlighted}_lu_${lastUpdated}_bat_${batteryPercentage}_mov_$isMoving';
     if (_markerCache.containsKey(cacheKey)) {
       return _markerCache[cacheKey]!;
     }
 
-    const double markerWidth = 140;
-    const double markerHeight = 110;
+    const double markerWidth = 150;
+    const double markerHeight = 125;
     const double avatarRadius = 26;
 
     final recorder = ui.PictureRecorder();
     final canvas = Canvas(recorder);
 
     // 1. Draw avatar outer shadow & border
+    if (isHighlighted) {
+      final glowPaint = Paint()
+        ..color = const Color(0xFFF59E0B).withValues(alpha: 0.55)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 10);
+      canvas.drawCircle(
+        const Offset(markerWidth / 2, avatarRadius + 4),
+        avatarRadius + 8,
+        glowPaint,
+      );
+
+      final outerGoldRing = Paint()
+        ..color = const Color(0xFFF59E0B)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 3.5;
+      canvas.drawCircle(
+        const Offset(markerWidth / 2, avatarRadius + 4),
+        avatarRadius + 3.5,
+        outerGoldRing,
+      );
+    }
+
+    if (isMoving) {
+      final movingRing = Paint()
+        ..color = const Color(0xFF10B981)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 3;
+      canvas.drawCircle(
+        const Offset(markerWidth / 2, avatarRadius + 4),
+        avatarRadius + (isHighlighted ? 6.0 : 3.0),
+        movingRing,
+      );
+    }
+
     final shadowPaint = Paint()
       ..color = Colors.black.withValues(alpha: 0.25)
       ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6);
@@ -52,7 +89,7 @@ class MarkerGenerator {
     );
 
     // Avatar background circle
-    final circlePaint = Paint()..color = pinColor;
+    final circlePaint = Paint()..color = isHighlighted ? const Color(0xFFF59E0B) : pinColor;
     canvas.drawCircle(
       const Offset(markerWidth / 2, avatarRadius + 4),
       avatarRadius,
@@ -156,15 +193,15 @@ class MarkerGenerator {
       Paint()..color = Colors.white.withValues(alpha: 0.7),
     );
 
-    // 5. Draw Name Badge Pill at bottom
+    // 5. Draw Name & Last Updated Details Badge Pill at bottom
     final namePainter = TextPainter(
       text: TextSpan(
         text: displayName.length > 12
             ? '${displayName.substring(0, 10)}...'
             : displayName,
-        style: const TextStyle(
-          color: AppColors.textPrimary,
-          fontSize: 12,
+        style: TextStyle(
+          color: isHighlighted ? const Color(0xFF78350F) : AppColors.textPrimary,
+          fontSize: 11,
           fontWeight: FontWeight.bold,
         ),
       ),
@@ -172,12 +209,44 @@ class MarkerGenerator {
     );
     namePainter.layout();
 
-    final badgeWidth = namePainter.width + 16;
-    const badgeHeight = 22.0;
+    String detailsText = '';
+    if (isMoving) {
+      detailsText = '🚗 Moving • ${lastUpdated.isNotEmpty ? lastUpdated : "Now"}';
+    } else if (lastUpdated.isNotEmpty) {
+      detailsText = '🕒 $lastUpdated${batteryPercentage > 0 ? " • ⚡$batteryPercentage%" : ""}';
+    } else if (batteryPercentage > 0) {
+      detailsText = '⚡ $batteryPercentage%';
+    }
+
+    TextPainter? detailsPainter;
+    if (detailsText.isNotEmpty) {
+      detailsPainter = TextPainter(
+        text: TextSpan(
+          text: detailsText,
+          style: TextStyle(
+            color: isHighlighted
+                ? const Color(0xFF92400E)
+                : const Color(0xFF475569),
+            fontSize: 8.5,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        textDirection: TextDirection.ltr,
+      );
+      detailsPainter.layout();
+    }
+
+    final double contentWidth = detailsPainter != null
+        ? (detailsPainter.width > namePainter.width ? detailsPainter.width : namePainter.width)
+        : namePainter.width;
+    final badgeWidth = (contentWidth + 16).clamp(64.0, 140.0);
+    final badgeHeight = detailsPainter != null ? 32.0 : 22.0;
+
+    final badgeCenterY = avatarRadius * 2 + 18 + badgeHeight / 2;
     final badgeRect = RRect.fromRectAndRadius(
       Rect.fromCenter(
-        center: const Offset(markerWidth / 2, avatarRadius * 2 + 30),
-        width: badgeWidth < 60 ? 60 : badgeWidth,
+        center: Offset(markerWidth / 2, badgeCenterY),
+        width: badgeWidth,
         height: badgeHeight,
       ),
       const Radius.circular(10),
@@ -187,33 +256,52 @@ class MarkerGenerator {
     canvas.drawRRect(
       badgeRect.shift(const Offset(0, 2)),
       Paint()
-        ..color = Colors.black.withValues(alpha: 0.2)
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 3),
+        ..color = isHighlighted
+            ? const Color(0xFFF59E0B).withValues(alpha: 0.45)
+            : Colors.black.withValues(alpha: 0.2)
+        ..maskFilter = MaskFilter.blur(BlurStyle.normal, isHighlighted ? 5 : 3),
     );
 
     // Pill background
     canvas.drawRRect(
       badgeRect,
-      Paint()..color = Colors.white,
+      Paint()..color = isHighlighted ? const Color(0xFFFEF3C7) : Colors.white,
     );
 
     // Pill border
     canvas.drawRRect(
       badgeRect,
       Paint()
-        ..color = pinColor.withValues(alpha: 0.6)
+        ..color = isHighlighted ? const Color(0xFFF59E0B) : pinColor.withValues(alpha: 0.6)
         ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.5,
+        ..strokeWidth = isHighlighted ? 2.2 : 1.5,
     );
 
-    // Pill Text
-    namePainter.paint(
-      canvas,
-      Offset(
-        (markerWidth - namePainter.width) / 2,
-        avatarRadius * 2 + 30 - (namePainter.height / 2),
-      ),
-    );
+    // Pill Texts
+    if (detailsPainter != null) {
+      namePainter.paint(
+        canvas,
+        Offset(
+          (markerWidth - namePainter.width) / 2,
+          badgeCenterY - badgeHeight / 2 + 3,
+        ),
+      );
+      detailsPainter.paint(
+        canvas,
+        Offset(
+          (markerWidth - detailsPainter.width) / 2,
+          badgeCenterY - badgeHeight / 2 + 17,
+        ),
+      );
+    } else {
+      namePainter.paint(
+        canvas,
+        Offset(
+          (markerWidth - namePainter.width) / 2,
+          badgeCenterY - (namePainter.height / 2),
+        ),
+      );
+    }
 
     final picture = recorder.endRecording();
     final image = await picture.toImage(

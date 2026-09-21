@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:flutter_map/flutter_map.dart' as fmap;
 import 'package:latlong2/latlong.dart' as ll;
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
@@ -42,6 +43,7 @@ class AllMapsScreen extends StatefulWidget {
 
 class _AllMapsScreenState extends State<AllMapsScreen> {
   final Completer<GoogleMapController> _controller = Completer();
+  final fmap.MapController _flutterMapController = fmap.MapController();
   final DatabaseService _dbService = DatabaseService();
   final List<StreamSubscription> _locationSubscriptions = [];
   StreamSubscription? _placesSubscription;
@@ -70,6 +72,19 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
     const Color(0xFFEC4899), // Pink
     const Color(0xFF8B5CF6), // Purple
   ];
+
+  final Map<String, DateTime> _recentlyUpdatedMobiles = {};
+  final Map<String, Timer> _pulseResetTimers = {};
+  final Set<Circle> _pulseCircles = {};
+
+  String _formatRelativeTime(int timestampMs) {
+    if (timestampMs <= 0) return 'Recently';
+    final diff = DateTime.now().difference(DateTime.fromMillisecondsSinceEpoch(timestampMs));
+    if (diff.inSeconds < 45) return 'Just now';
+    if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
+    if (diff.inHours < 24) return '${diff.inHours}h ago';
+    return '${diff.inDays}d ago';
+  }
 
   @override
   void initState() {
@@ -117,6 +132,9 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
 
   @override
   void dispose() {
+    for (var timer in _pulseResetTimers.values) {
+      timer.cancel();
+    }
     for (var sub in _locationSubscriptions) {
       sub.cancel();
     }
@@ -275,25 +293,31 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
       _resolvedAddresses[member.mobile] = effectiveLoc.address;
     }
 
+    final isSelected = _selectedMember != null && DatabaseService.matchPhones(_selectedMember!.mobile, member.mobile);
+    final relativeTime = effectiveLoc.timeStamp > 0
+        ? _formatRelativeTime(effectiveLoc.timeStamp)
+        : (effectiveLoc.date.isNotEmpty ? effectiveLoc.date : 'Recently');
+    final updatedTime = _recentlyUpdatedMobiles[member.mobile];
+    final isRecentlyUpdated = updatedTime != null && DateTime.now().difference(updatedTime).inSeconds < 15;
+    final isMoving = effectiveLoc.isMoving || isRecentlyUpdated;
+
     BitmapDescriptor customIcon;
     try {
       customIcon = await MarkerGenerator.createCustomMemberMarker(
         name: member.name,
-        pinColor: color,
+        pinColor: isSelected ? const Color(0xFFF59E0B) : color,
         localPhotoPath: photoFile?.path,
+        isHighlighted: isSelected,
+        lastUpdated: relativeTime,
+        batteryPercentage: effectiveLoc.batteryPercentage,
+        isMoving: isMoving,
       );
     } catch (e) {
       debugPrint('[AllMapsScreen] Error creating custom marker: $e');
       customIcon = BitmapDescriptor.defaultMarkerWithHue(
-        BitmapDescriptor.hueAzure,
+        isSelected ? BitmapDescriptor.hueOrange : BitmapDescriptor.hueAzure,
       );
     }
-
-    final lastUpdated = effectiveLoc.timeStamp > 0
-        ? DateFormat('MMM dd, yyyy • hh:mm:ss a').format(
-            DateTime.fromMillisecondsSinceEpoch(effectiveLoc.timeStamp),
-          )
-        : (effectiveLoc.date.isNotEmpty ? effectiveLoc.date : 'Recently');
 
     final displayAddr = _resolvedAddresses[member.mobile] ?? effectiveLoc.address;
 
@@ -301,9 +325,10 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
       markerId: MarkerId(member.mobile),
       position: LatLng(effectiveLoc.latitude, effectiveLoc.longitude),
       icon: customIcon,
+      zIndexInt: isSelected ? 999 : (10 + index),
       infoWindow: InfoWindow(
-        title: member.name,
-        snippet: '🕒 $lastUpdated\n📍 $displayAddr\n⚡ Battery: ${effectiveLoc.batteryPercentage}%${effectiveLoc.isMoving ? " • 🚗 ${effectiveLoc.formattedSpeed}" : ""}',
+        title: isSelected ? '⭐ ${member.name} (Selected)' : member.name,
+        snippet: '🕒 $relativeTime\n📍 $displayAddr\n⚡ Battery: ${effectiveLoc.batteryPercentage}%${effectiveLoc.isMoving ? " • 🚗 ${effectiveLoc.formattedSpeed}" : ""}',
       ),
       onTap: () {
         _focusMember(member);
@@ -313,48 +338,40 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
 
   Future<void> _updateMemberMarker(
       FamilyMemberModel member, LocationDetailsModel loc, int index) async {
+    // Record recent movement/update timestamp to trigger blinking animation
+    _recentlyUpdatedMobiles[member.mobile] = DateTime.now();
+    _pulseResetTimers[member.mobile]?.cancel();
+    _pulseResetTimers[member.mobile] = Timer(const Duration(seconds: 15), () {
+      if (mounted) {
+        setState(() {
+          _recentlyUpdatedMobiles.remove(member.mobile);
+          _buildPulseCircles();
+        });
+      }
+    });
+
     final marker = await _buildMarkerForMember(member, loc, index);
     if (marker != null && mounted) {
       setState(() {
-        // Track live movement path for current active session
+        // Track live coordinates in memory for individual tracking
         final memberTrail =
             _sessionMovements.putIfAbsent(member.mobile, () => []);
         final newPoint = LatLng(loc.latitude, loc.longitude);
         if (memberTrail.isEmpty ||
             memberTrail.last.latitude != newPoint.latitude ||
             memberTrail.last.longitude != newPoint.longitude) {
-          // If there was a previous location, create an intermediate update marker at that previous location
-          if (memberTrail.isNotEmpty) {
-            final stepIndex = memberTrail.length;
-            final prevPoint = memberTrail.last;
-            final nowStr = DateFormat('MMM dd, yyyy • hh:mm:ss a').format(DateTime.now());
-            _markers.add(
-              Marker(
-                markerId: MarkerId('step_${member.mobile}_$stepIndex'),
-                position: prevPoint,
-                icon: BitmapDescriptor.defaultMarkerWithHue(
-                  BitmapDescriptor.hueAzure,
-                ),
-                zIndexInt: 5,
-                infoWindow: InfoWindow(
-                  title: '${member.name} • Update #$stepIndex',
-                  snippet: '🕒 $nowStr\n📍 Update Position',
-                ),
-              ),
-            );
-          }
-
           memberTrail.add(newPoint);
-          if (memberTrail.length > 25) {
+          if (memberTrail.length > 30) {
             memberTrail.removeAt(0);
           }
         }
 
-        // Update current member marker
+        // Update current member marker position cleanly (no intermediate clutter markers)
         _markers.removeWhere((m) => m.markerId.value == member.mobile);
         _markers.add(marker);
 
         _updateActiveMovementPolylines();
+        _buildPulseCircles();
       });
     }
   }
@@ -363,36 +380,70 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
     _polylines.clear();
     _adaptivePolylines.clear();
 
+    // User requirement: When ALL is selected (_selectedMember == null),
+    // DO NOT draw polylines. Just update member positions and alert with animations!
+    if (_selectedMember == null) {
+      return;
+    }
+
+    final member = _selectedMember!;
+    final trail = _sessionMovements[member.mobile];
+    if (trail != null && trail.length >= 2) {
+      final index = widget.members.indexWhere((m) => m.mobile == member.mobile);
+      final color = _markerColors[(index >= 0 ? index : 0) % _markerColors.length];
+      _polylines.add(
+        Polyline(
+          polylineId: PolylineId('active_move_${member.mobile}'),
+          points: List.from(trail),
+          color: color,
+          width: 5,
+          startCap: Cap.roundCap,
+          endCap: Cap.roundCap,
+          jointType: JointType.round,
+        ),
+      );
+
+      _adaptivePolylines.add(
+        AdaptivePolyline(
+          id: 'active_move_${member.mobile}',
+          points: trail.map((p) => ll.LatLng(p.latitude, p.longitude)).toList(),
+          color: color,
+          strokeWidth: 5.0,
+        ),
+      );
+    }
+  }
+
+  void _buildPulseCircles() {
+    final Set<Circle> circles = {};
+    final now = DateTime.now();
+
     for (int i = 0; i < widget.members.length; i++) {
       final member = widget.members[i];
-      final trail = _sessionMovements[member.mobile];
-      if (trail != null && trail.length >= 2) {
-        // Show current movement trail only for active movements
-        if (_selectedMember == null || _selectedMember!.mobile == member.mobile) {
-          final color = _markerColors[i % _markerColors.length];
-          _polylines.add(
-            Polyline(
-              polylineId: PolylineId('active_move_${member.mobile}'),
-              points: List.from(trail),
-              color: color,
-              width: 4,
-              startCap: Cap.roundCap,
-              endCap: Cap.roundCap,
-              jointType: JointType.round,
-            ),
-          );
+      final loc = _liveLocations[member.mobile] ?? widget.locations[member.mobile];
+      if (loc == null || (loc.latitude == 0.0 && loc.longitude == 0.0)) continue;
 
-          _adaptivePolylines.add(
-            AdaptivePolyline(
-              id: 'active_move_${member.mobile}',
-              points: trail.map((p) => ll.LatLng(p.latitude, p.longitude)).toList(),
-              color: color,
-              strokeWidth: 4.0,
-            ),
-          );
-        }
+      final updatedTime = _recentlyUpdatedMobiles[member.mobile];
+      final isRecentlyUpdated = updatedTime != null && now.difference(updatedTime).inSeconds < 15;
+      final isMoving = loc.isMoving;
+
+      if (isMoving || isRecentlyUpdated) {
+        final alertColor = isMoving ? const Color(0xFF10B981) : const Color(0xFF3B82F6);
+        circles.add(
+          Circle(
+            circleId: CircleId('pulse_${member.mobile}'),
+            center: LatLng(loc.latitude, loc.longitude),
+            radius: isMoving ? 50.0 : 35.0,
+            fillColor: alertColor.withValues(alpha: 0.25),
+            strokeColor: alertColor.withValues(alpha: 0.90),
+            strokeWidth: 2,
+          ),
+        );
       }
     }
+
+    _pulseCircles.clear();
+    _pulseCircles.addAll(circles);
   }
 
   Future<void> _loadPhotosAndBuildMarkers() async {
@@ -421,11 +472,18 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
       _updateActiveMovementPolylines();
     });
 
+    // Rebuild markers immediately so the selected member's marker is highlighted
+    _loadPhotosAndBuildMarkers();
+
     final loc = _liveLocations[member.mobile] ?? widget.locations[member.mobile];
     if (loc != null && (loc.latitude != 0.0 || loc.longitude != 0.0)) {
       try {
+        _flutterMapController.move(ll.LatLng(loc.latitude, loc.longitude), 16);
+      } catch (_) {}
+
+      try {
         final GoogleMapController controller = await _controller.future;
-        controller.animateCamera(
+        await controller.animateCamera(
           CameraUpdate.newCameraPosition(
             CameraPosition(
               target: LatLng(loc.latitude, loc.longitude),
@@ -433,6 +491,7 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
             ),
           ),
         );
+        await controller.showMarkerInfoWindow(MarkerId(member.mobile));
       } catch (_) {}
     }
   }
@@ -443,6 +502,9 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
       _showBottomCard = false;
       _updateActiveMovementPolylines();
     });
+
+    // Reset marker highlights back to normal
+    _loadPhotosAndBuildMarkers();
 
     if (_markers.isEmpty) return;
     try {
@@ -608,6 +670,7 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
             initialLng: initialPos.longitude,
             initialZoom: 12,
             mapType: _currentMapType,
+            flutterMapController: _flutterMapController,
             points: widget.members.map((m) {
               LocationDetailsModel? loc = _liveLocations[m.mobile] ?? widget.locations[m.mobile];
               if (loc == null || (loc.latitude == 0.0 && loc.longitude == 0.0)) {
@@ -627,13 +690,28 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
                 }
               }
 
+              final isSelected = _selectedMember != null && DatabaseService.matchPhones(_selectedMember!.mobile, m.mobile);
+              final updatedTime = _recentlyUpdatedMobiles[m.mobile];
+              final isRecentlyUpdated = updatedTime != null && DateTime.now().difference(updatedTime).inSeconds < 15;
+              final isMoving = loc?.isMoving ?? false;
+              final relativeTime = loc != null && loc.timeStamp > 0
+                  ? _formatRelativeTime(loc.timeStamp)
+                  : (loc?.date.isNotEmpty == true ? loc!.date : 'Recently');
+
               return AdaptiveMapPoint(
                 id: m.mobile,
                 latitude: loc?.latitude ?? 0.0,
                 longitude: loc?.longitude ?? 0.0,
-                title: m.name,
+                title: isSelected ? '⭐ ${m.name}' : m.name,
                 snippet: loc?.address ?? '',
-                pinColor: MarkerGenerator.getMarkerColor(m.relationship),
+                pinColor: isSelected ? const Color(0xFFF59E0B) : MarkerGenerator.getMarkerColor(m.relationship),
+                isSelected: isSelected,
+                isMoving: isMoving,
+                isUpdating: isRecentlyUpdated,
+                lastUpdated: relativeTime,
+                batteryPercentage: loc?.batteryPercentage ?? 0,
+                photoFile: _memberPhotos[m.mobile],
+                localPhotoPath: _memberPhotos[m.mobile]?.path,
                 onTap: () {
                   _focusMember(m);
                 },
@@ -643,7 +721,9 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
                 ? {..._markers, ..._placeMarkers}
                 : Set<Marker>.from(_markers),
             googlePolylines: _polylines,
-            googleCircles: _showPlacesLayer ? _geofenceCircles : {},
+            googleCircles: _showPlacesLayer
+                ? {..._geofenceCircles, ..._pulseCircles}
+                : _pulseCircles,
             polylines: _adaptivePolylines,
             onGoogleMapCreated: (GoogleMapController controller) {
               if (!_controller.isCompleted) {

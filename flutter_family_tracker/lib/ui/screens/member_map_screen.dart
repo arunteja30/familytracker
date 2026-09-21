@@ -100,12 +100,20 @@ class _MemberMapScreenState extends State<MemberMapScreen> {
       setState(() => _profileImageFile = photo);
     }
 
+    final timeStr = _currentLocation != null && _currentLocation!.timeStamp > 0
+        ? DateFormat('hh:mm a').format(DateTime.fromMillisecondsSinceEpoch(_currentLocation!.timeStamp))
+        : '';
+
     BitmapDescriptor icon;
     try {
       icon = await MarkerGenerator.createCustomMemberMarker(
         name: widget.member.name,
         pinColor: AppColors.primary,
         localPhotoPath: photo?.path,
+        isHighlighted: true,
+        lastUpdated: timeStr,
+        batteryPercentage: _currentLocation?.batteryPercentage ?? 0,
+        isMoving: _currentLocation?.isMoving ?? false,
       );
     } catch (e) {
       debugPrint('[MemberMapScreen] Error creating custom marker: $e');
@@ -280,6 +288,12 @@ class _MemberMapScreenState extends State<MemberMapScreen> {
           pinColor: isCurrent
               ? AppColors.primary
               : (isStart ? AppColors.success : AppColors.accent),
+          isSelected: isCurrent,
+          isMoving: isCurrent && u.isMoving,
+          lastUpdated: timeStr.isNotEmpty ? timeStr : dateStr,
+          batteryPercentage: u.batteryPercentage,
+          photoFile: isCurrent ? _profileImageFile : null,
+          localPhotoPath: isCurrent ? _profileImageFile?.path : null,
         ),
       );
     }

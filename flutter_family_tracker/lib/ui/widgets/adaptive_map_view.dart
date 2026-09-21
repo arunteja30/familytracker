@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart' as fmap;
@@ -14,7 +15,12 @@ class AdaptiveMapPoint {
   final Color pinColor;
   final VoidCallback? onTap;
   final String? localPhotoPath;
+  final File? photoFile;
   final bool isSelected;
+  final bool isMoving;
+  final bool isUpdating;
+  final String lastUpdated;
+  final int batteryPercentage;
 
   AdaptiveMapPoint({
     required this.id,
@@ -25,7 +31,12 @@ class AdaptiveMapPoint {
     this.pinColor = AppColors.primary,
     this.onTap,
     this.localPhotoPath,
+    this.photoFile,
     this.isSelected = false,
+    this.isMoving = false,
+    this.isUpdating = false,
+    this.lastUpdated = '',
+    this.batteryPercentage = 0,
   });
 }
 
@@ -75,13 +86,30 @@ class AdaptiveMapView extends StatefulWidget {
   State<AdaptiveMapView> createState() => _AdaptiveMapViewState();
 }
 
-class _AdaptiveMapViewState extends State<AdaptiveMapView> {
+class _AdaptiveMapViewState extends State<AdaptiveMapView>
+    with SingleTickerProviderStateMixin {
   late final fmap.MapController _flutterMapController;
+  late final AnimationController _pulseController;
+  late final Animation<double> _pulseAnimation;
 
   @override
   void initState() {
     super.initState();
     _flutterMapController = widget.flutterMapController ?? fmap.MapController();
+    _pulseController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1500),
+    )..repeat(reverse: true);
+    _pulseAnimation = CurvedAnimation(
+      parent: _pulseController,
+      curve: Curves.easeInOut,
+    );
+  }
+
+  @override
+  void dispose() {
+    _pulseController.dispose();
+    super.dispose();
   }
 
   @override
@@ -148,20 +176,39 @@ class _AdaptiveMapViewState extends State<AdaptiveMapView> {
                 }).toList(),
               ),
 
-            // Custom Interactive Libre Markers Layer with 3D Pushpin Stick Markers
+            // Custom Interactive Libre Markers Layer with Member Avatars & Live Status
             if (widget.points.isNotEmpty)
               fmap.MarkerLayer(
                 markers: widget.points.map((p) {
                   final isSelected = p.isSelected;
                   final pinColor = isSelected ? const Color(0xFFF59E0B) : p.pinColor;
-                  final headSize = isSelected ? 32.0 : 26.0;
-                  final needleHeight = isSelected ? 22.0 : 18.0;
+                  final avatarSize = isSelected ? 42.0 : 34.0;
+                  final needleHeight = isSelected ? 20.0 : 16.0;
                   final needleWidth = isSelected ? 3.5 : 2.8;
+
+                  File? validPhotoFile = p.photoFile;
+                  if (validPhotoFile == null && p.localPhotoPath != null && p.localPhotoPath!.isNotEmpty) {
+                    try {
+                      final f = File(p.localPhotoPath!);
+                      if (f.existsSync()) validPhotoFile = f;
+                    } catch (_) {}
+                  }
+
+                  String detailsText = '';
+                  if (p.isMoving) {
+                    detailsText = '🚗 Moving${p.lastUpdated.isNotEmpty ? " • ${p.lastUpdated}" : ""}';
+                  } else if (p.lastUpdated.isNotEmpty) {
+                    detailsText = '🕒 ${p.lastUpdated}${p.batteryPercentage > 0 ? " • ⚡${p.batteryPercentage}%" : ""}';
+                  } else if (p.batteryPercentage > 0) {
+                    detailsText = '⚡ ${p.batteryPercentage}% Battery';
+                  } else if (p.snippet.isNotEmpty) {
+                    detailsText = p.snippet;
+                  }
 
                   return fmap.Marker(
                     point: ll.LatLng(p.latitude, p.longitude),
-                    width: isSelected ? 150 : 130,
-                    height: isSelected ? 100 : 88,
+                    width: isSelected ? 170 : 150,
+                    height: isSelected ? 115 : 100,
                     alignment: Alignment.bottomCenter,
                     child: GestureDetector(
                       behavior: HitTestBehavior.opaque,
@@ -171,146 +218,183 @@ class _AdaptiveMapViewState extends State<AdaptiveMapView> {
                         mainAxisAlignment: MainAxisAlignment.end,
                         crossAxisAlignment: CrossAxisAlignment.center,
                         children: [
-                          // Name / Status Label Pill (Above the Pin)
-                          if (p.title.isNotEmpty)
-                            AnimatedContainer(
-                              duration: const Duration(milliseconds: 200),
-                              margin: const EdgeInsets.only(bottom: 2),
-                              padding: EdgeInsets.symmetric(
-                                horizontal: isSelected ? 8 : 6,
-                                vertical: isSelected ? 3 : 2,
-                              ),
-                              decoration: BoxDecoration(
-                                color: isSelected
-                                    ? const Color(0xFF1E293B)
-                                    : const Color(0xFF0F172A).withValues(alpha: 0.88),
-                                borderRadius: BorderRadius.circular(10),
-                                border: Border.all(
-                                  color: isSelected
-                                      ? const Color(0xFFF59E0B)
-                                      : Colors.white.withValues(alpha: 0.35),
-                                  width: isSelected ? 1.5 : 0.8,
-                                ),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: isSelected
-                                        ? const Color(0xFFF59E0B).withValues(alpha: 0.5)
-                                        : Colors.black.withValues(alpha: 0.35),
-                                    blurRadius: isSelected ? 8 : 4,
-                                    offset: const Offset(0, 2),
-                                  ),
-                                ],
-                              ),
-                              child: Text(
-                                p.title,
-                                style: TextStyle(
-                                  color: isSelected ? const Color(0xFFFCD34D) : Colors.white,
-                                  fontSize: isSelected ? 11 : 10,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
+                          // 1. Name & Last Updated Details Pill (Above Pin)
+                          AnimatedContainer(
+                            duration: const Duration(milliseconds: 200),
+                            margin: const EdgeInsets.only(bottom: 3),
+                            padding: EdgeInsets.symmetric(
+                              horizontal: isSelected ? 8 : 6,
+                              vertical: detailsText.isNotEmpty ? 3 : 2,
                             ),
-
-                          // 3D Pushpin (Spherical Head with Specular Highlight + Metallic Needle + Shadow)
-                          SizedBox(
-                            width: isSelected ? 48 : 40,
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              crossAxisAlignment: CrossAxisAlignment.center,
-                              children: [
-                                // 3D Spherical Head
-                                AnimatedContainer(
-                                  duration: const Duration(milliseconds: 200),
-                                  width: headSize,
-                                  height: headSize,
-                                  decoration: BoxDecoration(
-                                    shape: BoxShape.circle,
-                                    gradient: RadialGradient(
-                                      center: const Alignment(-0.35, -0.35),
-                                      radius: 0.85,
-                                      colors: [
-                                        Color.lerp(pinColor, Colors.white, 0.45)!,
-                                        pinColor,
-                                        Color.lerp(pinColor, Colors.black, 0.45)!,
-                                      ],
-                                      stops: const [0.0, 0.55, 1.0],
-                                    ),
-                                    boxShadow: [
-                                      BoxShadow(
-                                        color: isSelected
-                                            ? const Color(0xFFF59E0B).withValues(alpha: 0.6)
-                                            : Colors.black.withValues(alpha: 0.35),
-                                        blurRadius: isSelected ? 10 : 5,
-                                        offset: const Offset(0, 3),
-                                      ),
-                                      if (isSelected)
-                                        const BoxShadow(
-                                          color: Color(0xFFF59E0B),
-                                          blurRadius: 10,
-                                          spreadRadius: 1.5,
-                                        ),
-                                    ],
-                                  ),
-                                  child: Stack(
-                                    alignment: Alignment.center,
-                                    children: [
-                                      // Specular Highlight Spot (Exact match with reference image)
-                                      Positioned(
-                                        top: headSize * 0.16,
-                                        left: headSize * 0.18,
-                                        child: Container(
-                                          width: headSize * 0.30,
-                                          height: headSize * 0.30,
-                                          decoration: BoxDecoration(
-                                            shape: BoxShape.circle,
-                                            color: Colors.white.withValues(alpha: 0.72),
-                                          ),
-                                        ),
-                                      ),
-                                      // Inner icon (Start / End / Star)
-                                      if (p.title.startsWith('🟢'))
-                                        Icon(Icons.play_arrow_rounded, color: Colors.white, size: headSize * 0.52)
-                                      else if (p.title.startsWith('🏁'))
-                                        Icon(Icons.flag_rounded, color: Colors.white, size: headSize * 0.52)
-                                      else if (isSelected)
-                                        Icon(Icons.star_rounded, color: Colors.white, size: headSize * 0.52),
-                                    ],
-                                  ),
-                                ),
-
-                                // Pin Needle / Stick (Metallic Grey gradient pointing straight down)
-                                Container(
-                                  width: needleWidth,
-                                  height: needleHeight,
-                                  decoration: const BoxDecoration(
-                                    gradient: LinearGradient(
-                                      begin: Alignment.centerLeft,
-                                      end: Alignment.centerRight,
-                                      colors: [
-                                        Color(0xFF64748B),
-                                        Color(0xFF334155),
-                                        Color(0xFF1E293B),
-                                      ],
-                                    ),
-                                    borderRadius: BorderRadius.only(
-                                      bottomLeft: Radius.circular(1.5),
-                                      bottomRight: Radius.circular(1.5),
-                                    ),
-                                  ),
-                                ),
-
-                                // Ground Contact Shadow at Needle Tip
-                                Container(
-                                  width: 7,
-                                  height: 2,
-                                  decoration: const BoxDecoration(
-                                    color: Colors.black45,
-                                    borderRadius: BorderRadius.all(Radius.elliptical(7, 2)),
-                                  ),
+                            decoration: BoxDecoration(
+                              color: isSelected
+                                  ? const Color(0xFF1E293B)
+                                  : const Color(0xFF0F172A).withValues(alpha: 0.90),
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(
+                                color: isSelected
+                                    ? const Color(0xFFF59E0B)
+                                    : Colors.white.withValues(alpha: 0.35),
+                                width: isSelected ? 1.6 : 0.9,
+                              ),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: isSelected
+                                      ? const Color(0xFFF59E0B).withValues(alpha: 0.5)
+                                      : Colors.black.withValues(alpha: 0.35),
+                                  blurRadius: isSelected ? 8 : 4,
+                                  offset: const Offset(0, 2),
                                 ),
                               ],
+                            ),
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  p.title,
+                                  style: TextStyle(
+                                    color: isSelected ? const Color(0xFFFCD34D) : Colors.white,
+                                    fontSize: isSelected ? 11 : 10,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                if (detailsText.isNotEmpty)
+                                  Text(
+                                    detailsText,
+                                    style: TextStyle(
+                                      color: isSelected
+                                          ? const Color(0xFFFDE68A)
+                                          : const Color(0xFFCBD5E1),
+                                      fontSize: 8.5,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                              ],
+                            ),
+                          ),
+
+                          // 2. Avatar Head with Pulsing Radar Ring & Image
+                          AnimatedBuilder(
+                            animation: _pulseAnimation,
+                            builder: (context, child) {
+                              final isAlerting = p.isMoving || p.isUpdating;
+                              final pulseSpread = isAlerting ? (_pulseAnimation.value * 18.0) : 0.0;
+                              final pulseOpacity = isAlerting ? ((1.0 - _pulseAnimation.value) * 0.70) : 0.0;
+
+                              return Stack(
+                                alignment: Alignment.center,
+                                clipBehavior: Clip.none,
+                                children: [
+                                  // Radar Pulsing Aura Ring
+                                  if (isAlerting)
+                                    Container(
+                                      width: avatarSize + pulseSpread,
+                                      height: avatarSize + pulseSpread,
+                                      decoration: BoxDecoration(
+                                        shape: BoxShape.circle,
+                                        color: (p.isMoving
+                                                ? const Color(0xFF10B981)
+                                                : const Color(0xFF3B82F6))
+                                            .withValues(alpha: pulseOpacity),
+                                      ),
+                                    ),
+
+                                  // Main Circular Avatar
+                                  Container(
+                                    width: avatarSize,
+                                    height: avatarSize,
+                                    decoration: BoxDecoration(
+                                      shape: BoxShape.circle,
+                                      color: pinColor,
+                                      border: Border.all(
+                                        color: isSelected ? const Color(0xFFF59E0B) : Colors.white,
+                                        width: isSelected ? 3.0 : 2.0,
+                                      ),
+                                      boxShadow: [
+                                        BoxShadow(
+                                          color: isSelected
+                                              ? const Color(0xFFF59E0B).withValues(alpha: 0.6)
+                                              : Colors.black.withValues(alpha: 0.35),
+                                          blurRadius: isSelected ? 10 : 5,
+                                          offset: const Offset(0, 3),
+                                        ),
+                                      ],
+                                    ),
+                                    child: ClipOval(
+                                      child: validPhotoFile != null
+                                          ? Image.file(
+                                              validPhotoFile,
+                                              width: avatarSize,
+                                              height: avatarSize,
+                                              fit: BoxFit.cover,
+                                            )
+                                          : Center(
+                                              child: Text(
+                                                p.title.isNotEmpty
+                                                    ? p.title.replaceAll(RegExp(r'[^a-zA-Z]'), '')[0].toUpperCase()
+                                                    : 'M',
+                                                style: TextStyle(
+                                                  color: Colors.white,
+                                                  fontSize: isSelected ? 18 : 14,
+                                                  fontWeight: FontWeight.bold,
+                                                ),
+                                              ),
+                                            ),
+                                    ),
+                                  ),
+
+                                  // Moving indicator badge
+                                  if (p.isMoving)
+                                    Positioned(
+                                      right: -2,
+                                      bottom: -2,
+                                      child: Container(
+                                        width: 12,
+                                        height: 12,
+                                        decoration: BoxDecoration(
+                                          color: const Color(0xFF10B981),
+                                          shape: BoxShape.circle,
+                                          border: Border.all(color: Colors.white, width: 1.5),
+                                        ),
+                                      ),
+                                    ),
+                                ],
+                              );
+                            },
+                          ),
+
+                          // 3. Pin Needle / Stick (Metallic Grey gradient pointing straight down)
+                          Container(
+                            width: needleWidth,
+                            height: needleHeight,
+                            decoration: const BoxDecoration(
+                              gradient: LinearGradient(
+                                begin: Alignment.centerLeft,
+                                end: Alignment.centerRight,
+                                colors: [
+                                  Color(0xFF64748B),
+                                  Color(0xFF334155),
+                                  Color(0xFF1E293B),
+                                ],
+                              ),
+                              borderRadius: BorderRadius.only(
+                                bottomLeft: Radius.circular(1.5),
+                                bottomRight: Radius.circular(1.5),
+                              ),
+                            ),
+                          ),
+
+                          // Ground Contact Shadow at Needle Tip
+                          Container(
+                            width: 8,
+                            height: 2.5,
+                            decoration: const BoxDecoration(
+                              color: Colors.black45,
+                              borderRadius: BorderRadius.all(Radius.elliptical(8, 2.5)),
                             ),
                           ),
                         ],
