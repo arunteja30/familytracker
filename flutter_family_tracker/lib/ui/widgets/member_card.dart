@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../constants/app_colors.dart';
@@ -318,6 +319,153 @@ class _MemberCardState extends State<MemberCard> {
     );
   }
 
+  String _formatRelativeTime(int ts, String dateStr) {
+    int ms = ts;
+    if (ms > 0 && ms < 10000000000) ms *= 1000;
+    if (ms <= 0 && dateStr.isNotEmpty) {
+      final parsed = DateTime.tryParse(dateStr);
+      if (parsed != null) ms = parsed.millisecondsSinceEpoch;
+    }
+    if (ms <= 0) return '';
+    final diff = DateTime.now().difference(DateTime.fromMillisecondsSinceEpoch(ms));
+    if (diff.isNegative || diff.inSeconds < 45) return 'Just now';
+    if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
+    if (diff.inHours < 24) return '${diff.inHours}h ago';
+    if (diff.inDays < 7) return '${diff.inDays}d ago';
+    return DateFormat('MMM d').format(DateTime.fromMillisecondsSinceEpoch(ms));
+  }
+
+  Color _getPresenceColor(int ts, String dateStr) {
+    int ms = ts;
+    if (ms > 0 && ms < 10000000000) ms *= 1000;
+    if (ms <= 0 && dateStr.isNotEmpty) {
+      final parsed = DateTime.tryParse(dateStr);
+      if (parsed != null) ms = parsed.millisecondsSinceEpoch;
+    }
+    if (ms <= 0) return const Color(0xFF94A3B8);
+    final diff = DateTime.now().difference(DateTime.fromMillisecondsSinceEpoch(ms));
+    if (diff.inMinutes <= 15) return const Color(0xFF10B981);
+    if (diff.inMinutes <= 60) return const Color(0xFFF59E0B);
+    return const Color(0xFF94A3B8);
+  }
+
+  bool _isRecentlyActive(int ts, String dateStr) {
+    int ms = ts;
+    if (ms > 0 && ms < 10000000000) ms *= 1000;
+    if (ms <= 0 && dateStr.isNotEmpty) {
+      final parsed = DateTime.tryParse(dateStr);
+      if (parsed != null) ms = parsed.millisecondsSinceEpoch;
+    }
+    if (ms <= 0) return false;
+    final diff = DateTime.now().difference(DateTime.fromMillisecondsSinceEpoch(ms));
+    return diff.inMinutes <= 15;
+  }
+
+  Widget _buildBadgePill({
+    required IconData icon,
+    required String text,
+    required Color color,
+    required Color bgColor,
+    Color? borderColor,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3.5),
+      decoration: BoxDecoration(
+        color: bgColor,
+        borderRadius: BorderRadius.circular(7),
+        border: Border.all(
+          color: borderColor ?? color.withValues(alpha: 0.25),
+          width: 1,
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 11.5, color: color),
+          const SizedBox(width: 4),
+          Text(
+            text,
+            style: TextStyle(
+              fontSize: 10.5,
+              fontWeight: FontWeight.w600,
+              color: color,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildActionButton({
+    required IconData icon,
+    required String label,
+    required Color bgColor,
+    required Color fgColor,
+    required VoidCallback onTap,
+    bool hasBadge = false,
+    bool isPrimary = false,
+  }) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(10),
+        child: Ink(
+          decoration: BoxDecoration(
+            color: isPrimary ? null : bgColor,
+            gradient: isPrimary ? AppColors.buttonGradient : null,
+            borderRadius: BorderRadius.circular(10),
+            border: isPrimary
+                ? null
+                : Border.all(color: fgColor.withValues(alpha: 0.2), width: 1),
+            boxShadow: isPrimary
+                ? [
+                    BoxShadow(
+                      color: AppColors.primary.withValues(alpha: 0.3),
+                      blurRadius: 6,
+                      offset: const Offset(0, 2),
+                    ),
+                  ]
+                : null,
+          ),
+          padding: const EdgeInsets.symmetric(vertical: 8.5, horizontal: 4),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  Icon(icon, size: 14, color: fgColor),
+                  if (hasBadge)
+                    const Positioned(
+                      right: -3,
+                      top: -3,
+                      child: BuzzingDot(size: 6, color: Color(0xFFEF4444)),
+                    ),
+                ],
+              ),
+              const SizedBox(width: 4),
+              Flexible(
+                child: Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.w600,
+                    color: fgColor,
+                    letterSpacing: -0.1,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final battery = widget.location?.batteryPercentage ?? 0;
@@ -334,6 +482,9 @@ class _MemberCardState extends State<MemberCard> {
 
     final userPhone = PreferencesService.getUserPhone() ?? '';
     final isSelf = DatabaseService.matchPhones(widget.member.mobile, userPhone);
+    final isMemberAdmin =
+        familyProvider.isMemberAdmin(widget.member) || widget.member.isAdmin;
+
     LocationDetailsModel? currentUserLoc;
     if (!isSelf && userPhone.isNotEmpty) {
       for (final entry in familyProvider.memberLocations.entries) {
@@ -352,61 +503,113 @@ class _MemberCardState extends State<MemberCard> {
           )
         : '';
 
-    return Card(
-      margin: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-      elevation: 2,
-      shadowColor: Colors.black.withValues(alpha: 0.08),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-      clipBehavior: Clip.antiAlias,
+    final relativeTime = _formatRelativeTime(
+      widget.location?.timeStamp ?? 0,
+      widget.location?.date ?? '',
+    );
+    final presenceColor = _getPresenceColor(
+      widget.location?.timeStamp ?? 0,
+      widget.location?.date ?? '',
+    );
+    final isRecentlyActive = _isRecentlyActive(
+      widget.location?.timeStamp ?? 0,
+      widget.location?.date ?? '',
+    );
+    final relationshipLabel = widget.member.relationship.trim();
+
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: AppColors.cardBorder.withValues(alpha: 0.8),
+          width: 1.2,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF0F172A).withValues(alpha: 0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
       child: InkWell(
         onTap: widget.onTrackOnMap,
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(20),
         child: Padding(
           padding: const EdgeInsets.all(14),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Top Row: Avatar + Name/Phone/Address + 3-Dots Menu
+              // Top Row: Avatar with Status Ring + Name & Badges + 3-Dots Menu
               Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
+                crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
-                  // Clickable Avatar with Photo Picker
+                  // Clickable Avatar with Dynamic Status Ring
                   GestureDetector(
                     onTap: _showImagePickerModal,
                     child: Stack(
+                      clipBehavior: Clip.none,
                       children: [
                         Container(
-                          padding: const EdgeInsets.all(2),
+                          padding: const EdgeInsets.all(2.5),
                           decoration: BoxDecoration(
                             shape: BoxShape.circle,
-                            border: Border.all(color: AppColors.primary.withValues(alpha: 0.3), width: 2),
+                            gradient: LinearGradient(
+                              colors: isRecentlyActive
+                                  ? [const Color(0xFF10B981), const Color(0xFF06B6D4)]
+                                  : [AppColors.primaryLight, AppColors.primary],
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                            ),
                           ),
-                          child: CircleAvatar(
-                            radius: 24,
-                            backgroundColor: AppColors.primary.withValues(alpha: 0.15),
-                            backgroundImage: _profileImageFile != null ? FileImage(_profileImageFile!) : null,
-                            child: _profileImageFile == null
-                                ? Text(
-                                    widget.member.name.isNotEmpty ? widget.member.name[0].toUpperCase() : 'M',
-                                    style: const TextStyle(
-                                      color: AppColors.primary,
-                                      fontSize: 19,
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  )
-                                : null,
+                          child: Container(
+                            padding: const EdgeInsets.all(1.5),
+                            decoration: const BoxDecoration(
+                              color: Colors.white,
+                              shape: BoxShape.circle,
+                            ),
+                            child: CircleAvatar(
+                              radius: 23,
+                              backgroundColor: AppColors.primary.withValues(alpha: 0.12),
+                              backgroundImage: _profileImageFile != null && !kIsWeb
+                                  ? FileImage(_profileImageFile!)
+                                  : null,
+                              child: _profileImageFile == null || kIsWeb
+                                  ? Text(
+                                      widget.member.name.isNotEmpty
+                                          ? widget.member.name[0].toUpperCase()
+                                          : 'M',
+                                      style: const TextStyle(
+                                        color: AppColors.primary,
+                                        fontSize: 18,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    )
+                                  : null,
+                            ),
                           ),
                         ),
+                        // Presence status dot indicator
                         Positioned(
                           right: 0,
                           bottom: 0,
                           child: Container(
-                            padding: const EdgeInsets.all(3),
-                            decoration: const BoxDecoration(
-                              color: AppColors.primary,
+                            width: 12.5,
+                            height: 12.5,
+                            decoration: BoxDecoration(
+                              color: presenceColor,
                               shape: BoxShape.circle,
+                              border: Border.all(color: Colors.white, width: 2),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: presenceColor.withValues(alpha: 0.4),
+                                  blurRadius: 3,
+                                  spreadRadius: 0.5,
+                                ),
+                              ],
                             ),
-                            child: const Icon(Icons.camera_alt_rounded, size: 9, color: Colors.white),
                           ),
                         ),
                       ],
@@ -414,44 +617,51 @@ class _MemberCardState extends State<MemberCard> {
                   ),
                   const SizedBox(width: 12),
 
-                  // Member Info
+                  // Member Name, Role, Relation & Phone
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Row(
                           children: [
-                            Expanded(
+                            Flexible(
                               child: Text(
                                 widget.member.name,
                                 style: const TextStyle(
-                                  fontSize: 15.5,
+                                  fontSize: 16,
                                   fontWeight: FontWeight.bold,
                                   color: AppColors.textPrimary,
+                                  letterSpacing: -0.2,
                                 ),
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                               ),
                             ),
-                            if (Provider.of<FamilyProvider>(context, listen: false).isMemberAdmin(widget.member)) ...[
+                            if (isMemberAdmin) ...[
                               const SizedBox(width: 6),
                               Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                                 decoration: BoxDecoration(
                                   color: const Color(0xFFFEF3C7),
                                   borderRadius: BorderRadius.circular(6),
-                                  border: Border.all(color: const Color(0xFFF59E0B).withValues(alpha: 0.5)),
+                                  border: Border.all(
+                                    color: const Color(0xFFF59E0B).withValues(alpha: 0.4),
+                                  ),
                                 ),
                                 child: const Row(
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
-                                    Icon(Icons.admin_panel_settings_rounded, size: 12, color: Color(0xFFB45309)),
-                                    SizedBox(width: 3),
+                                    Icon(
+                                      Icons.shield_rounded,
+                                      size: 10,
+                                      color: Color(0xFFB45309),
+                                    ),
+                                    SizedBox(width: 2.5),
                                     Text(
                                       'Admin',
                                       style: TextStyle(
                                         color: Color(0xFFB45309),
-                                        fontSize: 10.5,
+                                        fontSize: 10,
                                         fontWeight: FontWeight.bold,
                                       ),
                                     ),
@@ -459,22 +669,13 @@ class _MemberCardState extends State<MemberCard> {
                                 ),
                               ),
                             ],
-                          ],
-                        ),
-                        const SizedBox(height: 2),
-                        Row(
-                          children: [
-                            Text(
-                              widget.member.mobile,
-                              style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
-                            ),
                             if (isSelf) ...[
-                              const SizedBox(width: 6),
+                              const SizedBox(width: 5),
                               Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                                padding: const EdgeInsets.symmetric(horizontal: 5.5, vertical: 1.5),
                                 decoration: BoxDecoration(
-                                  color: AppColors.primary.withValues(alpha: 0.08),
-                                  borderRadius: BorderRadius.circular(4),
+                                  color: AppColors.primary.withValues(alpha: 0.1),
+                                  borderRadius: BorderRadius.circular(5),
                                 ),
                                 child: const Text(
                                   'You',
@@ -486,47 +687,46 @@ class _MemberCardState extends State<MemberCard> {
                                 ),
                               ),
                             ],
-                          ],
-                        ),
-                        const SizedBox(height: 4),
-                        Row(
-                          children: [
-                            const Icon(Icons.location_on_rounded, size: 13, color: AppColors.primary),
-                            const SizedBox(width: 4),
-                            Expanded(
-                              child: Text(
-                                address,
-                                style: const TextStyle(fontSize: 11.5, color: AppColors.textPrimary),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                            if (relativeDistance.isNotEmpty) ...[
-                              const SizedBox(width: 6),
+                            if (relationshipLabel.isNotEmpty &&
+                                !isMemberAdmin &&
+                                relationshipLabel.toLowerCase() != 'self') ...[
+                              const SizedBox(width: 5),
                               Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                padding: const EdgeInsets.symmetric(horizontal: 5.5, vertical: 1.5),
                                 decoration: BoxDecoration(
-                                  color: const Color(0xFF0284C7).withValues(alpha: 0.1),
-                                  borderRadius: BorderRadius.circular(6),
-                                  border: Border.all(color: const Color(0xFF0284C7).withValues(alpha: 0.3)),
+                                  color: const Color(0xFFF1F5F9),
+                                  borderRadius: BorderRadius.circular(5),
+                                  border: Border.all(color: const Color(0xFFE2E8F0)),
                                 ),
-                                child: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    const Icon(Icons.near_me_rounded, size: 10, color: Color(0xFF0284C7)),
-                                    const SizedBox(width: 3),
-                                    Text(
-                                      relativeDistance,
-                                      style: const TextStyle(
-                                        fontSize: 10,
-                                        fontWeight: FontWeight.bold,
-                                        color: Color(0xFF0284C7),
-                                      ),
-                                    ),
-                                  ],
+                                child: Text(
+                                  relationshipLabel,
+                                  style: const TextStyle(
+                                    fontSize: 9.5,
+                                    fontWeight: FontWeight.w600,
+                                    color: AppColors.textSecondary,
+                                  ),
                                 ),
                               ),
                             ],
+                          ],
+                        ),
+                        const SizedBox(height: 3),
+                        Row(
+                          children: [
+                            const Icon(
+                              Icons.phone_iphone_rounded,
+                              size: 12.5,
+                              color: AppColors.textSecondary,
+                            ),
+                            const SizedBox(width: 3),
+                            Text(
+                              widget.member.mobile,
+                              style: const TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w500,
+                                color: AppColors.textSecondary,
+                              ),
+                            ),
                           ],
                         ),
                       ],
@@ -535,7 +735,7 @@ class _MemberCardState extends State<MemberCard> {
 
                   // 3-Dots More Options Menu Button
                   IconButton(
-                    icon: const Icon(Icons.more_vert_rounded, color: AppColors.textSecondary, size: 22),
+                    icon: const Icon(Icons.more_vert_rounded, color: AppColors.textSecondary, size: 21),
                     padding: EdgeInsets.zero,
                     constraints: const BoxConstraints(),
                     tooltip: 'More actions',
@@ -544,105 +744,166 @@ class _MemberCardState extends State<MemberCard> {
                 ],
               ),
 
-              const SizedBox(height: 10),
+              const SizedBox(height: 11),
 
-              // Status & Quick Action Row
+              // Middle: Status & Context Strip
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 9),
+                decoration: BoxDecoration(
+                  color: AppColors.bgSurfaceElevated,
+                  borderRadius: BorderRadius.circular(13),
+                  border: Border.all(color: AppColors.cardBorder.withValues(alpha: 0.7)),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Address Row
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(3.5),
+                          decoration: BoxDecoration(
+                            color: AppColors.primary.withValues(alpha: 0.1),
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(
+                            Icons.location_on_rounded,
+                            size: 12.5,
+                            color: AppColors.primary,
+                          ),
+                        ),
+                        const SizedBox(width: 7),
+                        Expanded(
+                          child: Text(
+                            address,
+                            style: const TextStyle(
+                              fontSize: 12,
+                              height: 1.35,
+                              fontWeight: FontWeight.w500,
+                              color: AppColors.textPrimary,
+                            ),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
+                    ),
+
+                    // Badges row: Proximity, Battery, Time, Movement
+                    if (battery > 0 ||
+                        relativeDistance.isNotEmpty ||
+                        relativeTime.isNotEmpty ||
+                        (widget.location?.isMoving ?? false)) ...[
+                      const SizedBox(height: 8),
+                      Wrap(
+                        spacing: 6,
+                        runSpacing: 5,
+                        children: [
+                          // Proximity Pill
+                          if (relativeDistance.isNotEmpty)
+                            _buildBadgePill(
+                              icon: Icons.near_me_rounded,
+                              text: relativeDistance,
+                              color: const Color(0xFF0284C7),
+                              bgColor: const Color(0xFFE0F2FE),
+                            ),
+
+                          // Battery Pill
+                          if (battery > 0)
+                            _buildBadgePill(
+                              icon: battery > 20
+                                  ? Icons.battery_std_rounded
+                                  : Icons.battery_alert_rounded,
+                              text: '$battery%',
+                              color: batteryColor,
+                              bgColor: batteryColor.withValues(alpha: 0.12),
+                            ),
+
+                          // Relative Time Pill
+                          if (relativeTime.isNotEmpty)
+                            _buildBadgePill(
+                              icon: Icons.access_time_rounded,
+                              text: relativeTime,
+                              color: AppColors.textSecondary,
+                              bgColor: Colors.white,
+                              borderColor: AppColors.cardBorder,
+                            ),
+
+                          // Moving Status Pill
+                          if (widget.location?.isMoving == true)
+                            _buildBadgePill(
+                              icon: Icons.directions_car_rounded,
+                              text: 'Moving • ${widget.location!.formattedSpeed}',
+                              color: const Color(0xFF16A34A),
+                              bgColor: const Color(0xFFDCFCE7),
+                            ),
+                        ],
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+
+              const SizedBox(height: 11),
+
+              // Bottom: Direct 1-Tap Action Bar
               Row(
                 children: [
-                  // Battery Pill
-                  if (battery > 0)
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
-                      decoration: BoxDecoration(
-                        color: batteryColor.withValues(alpha: 0.1),
-                        borderRadius: BorderRadius.circular(6),
-                        border: Border.all(color: batteryColor.withValues(alpha: 0.3)),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(
-                            battery > 20 ? Icons.battery_std_rounded : Icons.battery_alert_rounded,
-                            size: 12,
-                            color: batteryColor,
-                          ),
-                          const SizedBox(width: 3),
-                          Text(
-                            '$battery%',
-                            style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.bold, color: batteryColor),
-                          ),
-                        ],
-                      ),
-                    ),
-
-                  const Spacer(),
-
-                  // Quick Track Chip
-                  InkWell(
-                    onTap: widget.onTrackOnMap,
-                    borderRadius: BorderRadius.circular(8),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                      decoration: BoxDecoration(
-                        color: AppColors.primary.withValues(alpha: 0.1),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: const Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(Icons.map_rounded, size: 13, color: AppColors.primary),
-                          SizedBox(width: 4),
-                          Text(
-                            'Track',
-                            style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppColors.primary),
-                          ),
-                        ],
-                      ),
+                  // 1-Tap Call
+                  Expanded(
+                    child: _buildActionButton(
+                      icon: Icons.phone_rounded,
+                      label: 'Call',
+                      bgColor: const Color(0xFFDCFCE7),
+                      fgColor: const Color(0xFF16A34A),
+                      onTap: () => _makeCall(widget.member.mobile),
                     ),
                   ),
-
                   const SizedBox(width: 6),
 
-                  // Quick Chat Chip
-                  InkWell(
-                    onTap: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => FamilyChatScreen(targetMember: widget.member),
-                        ),
-                      );
-                    },
-                    borderRadius: BorderRadius.circular(8),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                      decoration: BoxDecoration(
-                        color: Colors.grey.shade100,
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: Colors.grey.shade300),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Stack(
-                            clipBehavior: Clip.none,
-                            children: [
-                              const Icon(Icons.chat_bubble_outline_rounded, size: 13, color: AppColors.textPrimary),
-                              if (hasUnread)
-                                const Positioned(
-                                  right: -2,
-                                  top: -2,
-                                  child: BuzzingDot(size: 5, color: Color(0xFFEF4444)),
-                                ),
-                            ],
+                  // 1-Tap Chat
+                  Expanded(
+                    child: _buildActionButton(
+                      icon: Icons.chat_bubble_outline_rounded,
+                      label: 'Chat',
+                      bgColor: const Color(0xFFEEF2FF),
+                      fgColor: AppColors.primary,
+                      hasBadge: hasUnread,
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => FamilyChatScreen(targetMember: widget.member),
                           ),
-                          const SizedBox(width: 4),
-                          const Text(
-                            'Chat',
-                            style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
-                          ),
-                        ],
-                      ),
+                        );
+                      },
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+
+                  // 1-Tap History
+                  Expanded(
+                    child: _buildActionButton(
+                      icon: Icons.history_rounded,
+                      label: 'History',
+                      bgColor: const Color(0xFFFEF3C7),
+                      fgColor: const Color(0xFFD97706),
+                      onTap: widget.onHistory,
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+
+                  // 1-Tap Track (Primary CTA)
+                  Expanded(
+                    child: _buildActionButton(
+                      icon: Icons.navigation_rounded,
+                      label: 'Track',
+                      bgColor: AppColors.primary,
+                      fgColor: Colors.white,
+                      isPrimary: true,
+                      onTap: widget.onTrackOnMap,
                     ),
                   ),
                 ],
