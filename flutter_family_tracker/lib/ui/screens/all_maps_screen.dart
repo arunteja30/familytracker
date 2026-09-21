@@ -126,6 +126,10 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
     super.didUpdateWidget(oldWidget);
     bool shouldRebuild = false;
 
+    if (widget.familyName != oldWidget.familyName) {
+      _subscribeToPlaces();
+    }
+
     if (widget.members.length != oldWidget.members.length ||
         widget.locations.length != oldWidget.locations.length ||
         widget.familyName != oldWidget.familyName ||
@@ -154,6 +158,25 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_familyPlaces.isEmpty) {
+      try {
+        final fp = context.read<FamilyProvider>();
+        if (fp.familyPlaces.isNotEmpty) {
+          setState(() {
+            _familyPlaces = fp.familyPlaces;
+            _buildGeofenceOverlays();
+          });
+        }
+        if (widget.familyName.trim().isEmpty && fp.currentFamilyName.trim().isNotEmpty) {
+          _subscribeToPlaces();
+        }
+      } catch (_) {}
+    }
+  }
+
+  @override
   void dispose() {
     _radarPulseTimer?.cancel();
     for (var timer in _pulseResetTimers.values) {
@@ -166,9 +189,34 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
     super.dispose();
   }
 
+  String _resolveFamilyName() {
+    if (widget.familyName.trim().isNotEmpty) return widget.familyName.trim();
+    final prefFamily = PreferencesService.getUserFamilyName();
+    if (prefFamily != null && prefFamily.trim().isNotEmpty) return prefFamily.trim();
+    try {
+      final fp = context.read<FamilyProvider>();
+      if (fp.currentFamilyName.trim().isNotEmpty) return fp.currentFamilyName.trim();
+    } catch (_) {}
+    return '';
+  }
+
   // Subscribe to real-time safe places for this family group
   void _subscribeToPlaces() {
-    _placesSubscription = _dbService.streamFamilyPlaces(widget.familyName).listen((places) {
+    _placesSubscription?.cancel();
+
+    // Check if FamilyProvider already has cached places as an immediate seed
+    try {
+      final fp = context.read<FamilyProvider>();
+      if (fp.familyPlaces.isNotEmpty && _familyPlaces.isEmpty) {
+        _familyPlaces = fp.familyPlaces;
+        _buildGeofenceOverlays();
+      }
+    } catch (_) {}
+
+    final family = _resolveFamilyName();
+    if (family.isEmpty) return;
+
+    _placesSubscription = _dbService.streamFamilyPlaces(family).listen((places) {
       if (mounted) {
         setState(() {
           _familyPlaces = places;
@@ -194,13 +242,13 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
           circleId: CircleId('geofence_${place.id}'),
           center: latLng,
           radius: place.radiusMeters,
-          fillColor: color.withValues(alpha: 0.18),
-          strokeColor: color.withValues(alpha: 0.85),
+          fillColor: color.withValues(alpha: 0.22),
+          strokeColor: color.withValues(alpha: 0.90),
           strokeWidth: 2,
         ),
       );
 
-      // 2. Place Marker
+      // 2. Place Marker for Google Maps (Native)
       placeMarkers.add(
         Marker(
           markerId: MarkerId('place_${place.id}'),
@@ -212,12 +260,16 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
                     ? BitmapDescriptor.hueAzure
                     : place.category == PlaceCategory.work
                         ? BitmapDescriptor.hueOrange
-                        : BitmapDescriptor.hueViolet,
+                        : place.category == PlaceCategory.gym
+                            ? BitmapDescriptor.hueRose
+                            : BitmapDescriptor.hueViolet,
           ),
           infoWindow: InfoWindow(
             title: '${place.category.displayName}: ${place.name}',
             snippet: '${place.isForAllMembers ? "For: All Family" : "For: ${place.targetMemberName}"} • Radius ${place.radiusMeters.round()}m',
+            onTap: () => _showPlaceDetailsSheet(place),
           ),
+          onTap: () => _showPlaceDetailsSheet(place),
         ),
       );
     }
@@ -567,22 +619,26 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
       _updateSingleMemberMarker(previousSelected);
     }
 
-    if (_markers.isEmpty) return;
+    final targetMarkers = _showPlacesLayer && _placeMarkers.isNotEmpty
+        ? {..._markers, ..._placeMarkers}
+        : _markers;
 
-    // Move Web FlutterMap camera to fit all members
+    if (targetMarkers.isEmpty) return;
+
+    // Move Web FlutterMap camera to fit all members and safe places
     try {
-      if (_markers.length == 1) {
+      if (targetMarkers.length == 1) {
         _flutterMapController.move(
-          ll.LatLng(_markers.first.position.latitude, _markers.first.position.longitude),
+          ll.LatLng(targetMarkers.first.position.latitude, targetMarkers.first.position.longitude),
           14.0,
         );
-      } else if (_markers.length > 1) {
-        double minLat = _markers.first.position.latitude;
-        double maxLat = _markers.first.position.latitude;
-        double minLng = _markers.first.position.longitude;
-        double maxLng = _markers.first.position.longitude;
+      } else if (targetMarkers.length > 1) {
+        double minLat = targetMarkers.first.position.latitude;
+        double maxLat = targetMarkers.first.position.latitude;
+        double minLng = targetMarkers.first.position.longitude;
+        double maxLng = targetMarkers.first.position.longitude;
 
-        for (var marker in _markers) {
+        for (var marker in targetMarkers) {
           if (marker.position.latitude < minLat) minLat = marker.position.latitude;
           if (marker.position.latitude > maxLat) maxLat = marker.position.latitude;
           if (marker.position.longitude < minLng) minLng = marker.position.longitude;
@@ -595,15 +651,15 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
       }
     } catch (_) {}
 
-    // Animate Google Maps camera to fit all members on Mobile
+    // Animate Google Maps camera to fit all members & safe places on Mobile
     try {
       final GoogleMapController controller = await _controller.future;
 
-      if (_markers.length == 1) {
+      if (targetMarkers.length == 1) {
         controller.animateCamera(
           CameraUpdate.newCameraPosition(
             CameraPosition(
-              target: _markers.first.position,
+              target: targetMarkers.first.position,
               zoom: 15,
             ),
           ),
@@ -611,12 +667,12 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
         return;
       }
 
-      double minLat = _markers.first.position.latitude;
-      double maxLat = _markers.first.position.latitude;
-      double minLng = _markers.first.position.longitude;
-      double maxLng = _markers.first.position.longitude;
+      double minLat = targetMarkers.first.position.latitude;
+      double maxLat = targetMarkers.first.position.latitude;
+      double minLng = targetMarkers.first.position.longitude;
+      double maxLng = targetMarkers.first.position.longitude;
 
-      for (var marker in _markers) {
+      for (var marker in targetMarkers) {
         if (marker.position.latitude < minLat) minLat = marker.position.latitude;
         if (marker.position.latitude > maxLat) maxLat = marker.position.latitude;
         if (marker.position.longitude < minLng) minLng = marker.position.longitude;
@@ -642,34 +698,275 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
     }
   }
 
+  void _showPlaceDetailsSheet(GeofencePlaceModel place) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        return Container(
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black26,
+                blurRadius: 16,
+                offset: Offset(0, -4),
+              ),
+            ],
+          ),
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 28),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade300,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  Container(
+                    width: 48,
+                    height: 48,
+                    decoration: BoxDecoration(
+                      color: place.category.color.withValues(alpha: 0.15),
+                      shape: BoxShape.circle,
+                      border: Border.all(color: place.category.color, width: 2),
+                    ),
+                    child: Icon(place.category.icon, color: place.category.color, size: 26),
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          place.name,
+                          style: const TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                            color: AppColors.textPrimary,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: place.category.color.withValues(alpha: 0.12),
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: Text(
+                                place.category.displayName,
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.bold,
+                                  color: place.category.color,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              'Radius: ${place.radiusMeters.round()}m',
+                              style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              const Divider(height: 1),
+              const SizedBox(height: 14),
+
+              // Details Grid
+              Row(
+                children: [
+                  Expanded(
+                    child: Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: AppColors.bgSurfaceElevated,
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text('Applicable To', style: TextStyle(fontSize: 11, color: AppColors.textSecondary)),
+                          const SizedBox(height: 3),
+                          Text(
+                            place.isForAllMembers ? 'All Family Members' : place.targetMemberName,
+                            style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600, color: AppColors.textPrimary),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: AppColors.bgSurfaceElevated,
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text('Schedule Window', style: TextStyle(fontSize: 11, color: AppColors.textSecondary)),
+                          const SizedBox(height: 3),
+                          Text(
+                            place.formattedSchedule,
+                            style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600, color: AppColors.textPrimary),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+
+              // Actions Row
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () {
+                        Navigator.pop(ctx);
+                        if (kIsWeb) {
+                          _flutterMapController.move(
+                            ll.LatLng(place.latitude, place.longitude),
+                            15.5,
+                          );
+                        } else {
+                          _controller.future.then((c) {
+                            c.animateCamera(
+                              CameraUpdate.newLatLngZoom(
+                                LatLng(place.latitude, place.longitude),
+                                15.5,
+                              ),
+                            );
+                          });
+                        }
+                      },
+                      icon: const Icon(Icons.my_location_rounded, size: 18),
+                      label: const Text('Center on Map'),
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: ElevatedButton.icon(
+                      onPressed: () {
+                        Navigator.pop(ctx);
+                        final userPhone = PreferencesService.getUserPhone() ?? '';
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => PlacesManagerScreen(
+                              familyName: _resolveFamilyName(),
+                              userPhone: userPhone,
+                              initialLat: place.latitude,
+                              initialLng: place.longitude,
+                            ),
+                          ),
+                        );
+                      },
+                      icon: const Icon(Icons.settings_suggest_rounded, size: 18),
+                      label: const Text('Manage Places'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.primary,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
   List<AdaptiveMapPoint> _buildAdaptiveMapPoints() {
-    return widget.members.map((m) {
+    final List<AdaptiveMapPoint> points = [];
+
+    for (final m in widget.members) {
       final loc = _getMemberLocation(m.mobile);
+      if (loc == null || (loc.latitude == 0.0 && loc.longitude == 0.0)) continue;
+
       final isSelected = _selectedMember != null && DatabaseService.matchPhones(_selectedMember!.mobile, m.mobile);
       final updatedTime = _recentlyUpdatedMobiles[m.mobile];
       final isRecentlyUpdated = updatedTime != null && DateTime.now().difference(updatedTime).inSeconds < 15;
-      final isMoving = loc?.isMoving ?? false;
-      final relativeTime = loc != null && loc.timeStamp > 0
+      final isMoving = loc.isMoving;
+      final relativeTime = loc.timeStamp > 0
           ? _formatRelativeTime(loc.timeStamp)
-          : (loc?.date.isNotEmpty == true ? loc!.date : 'Recently');
+          : (loc.date.isNotEmpty ? loc.date : 'Recently');
 
-      return AdaptiveMapPoint(
-        id: m.mobile,
-        latitude: loc?.latitude ?? 0.0,
-        longitude: loc?.longitude ?? 0.0,
-        title: isSelected ? '⭐ ${m.name}' : m.name,
-        snippet: loc?.address ?? '',
-        pinColor: isSelected ? const Color(0xFFF59E0B) : MarkerGenerator.getMarkerColor(m.relationship),
-        isSelected: isSelected,
-        isMoving: isMoving,
-        isUpdating: isRecentlyUpdated,
-        lastUpdated: relativeTime,
-        batteryPercentage: loc?.batteryPercentage ?? 0,
-        photoFile: _memberPhotos[m.mobile],
-        localPhotoPath: _memberPhotos[m.mobile]?.path,
-        onTap: () => _focusMember(m),
+      points.add(
+        AdaptiveMapPoint(
+          id: m.mobile,
+          latitude: loc.latitude,
+          longitude: loc.longitude,
+          title: isSelected ? '⭐ ${m.name}' : m.name,
+          snippet: loc.address,
+          pinColor: isSelected ? const Color(0xFFF59E0B) : MarkerGenerator.getMarkerColor(m.relationship),
+          isSelected: isSelected,
+          isMoving: isMoving,
+          isUpdating: isRecentlyUpdated,
+          lastUpdated: relativeTime,
+          batteryPercentage: loc.batteryPercentage,
+          photoFile: _memberPhotos[m.mobile],
+          localPhotoPath: _memberPhotos[m.mobile]?.path,
+          onTap: () => _focusMember(m),
+        ),
       );
-    }).where((p) => p.latitude != 0.0 && p.longitude != 0.0).toList();
+    }
+
+    // Safe Places Markers on Web (when Safe Places Layer is toggled on)
+    if (_showPlacesLayer) {
+      for (final place in _familyPlaces) {
+        if (place.latitude == 0.0 && place.longitude == 0.0) continue;
+
+        points.add(
+          AdaptiveMapPoint(
+            id: 'place_${place.id}',
+            latitude: place.latitude,
+            longitude: place.longitude,
+            title: '${place.category.displayName}: ${place.name}',
+            snippet: '${place.isForAllMembers ? "For: All Family" : "For: ${place.targetMemberName}"} • Radius ${place.radiusMeters.round()}m',
+            pinColor: place.category.color,
+            isPlace: true,
+            placeIcon: place.category.icon,
+            onTap: () => _showPlaceDetailsSheet(place),
+          ),
+        );
+      }
+    }
+
+    return points;
   }
 
   @override
@@ -677,6 +974,8 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
     LatLng initialPos = const LatLng(17.3850, 78.4867);
     if (_markers.isNotEmpty) {
       initialPos = _markers.first.position;
+    } else if (_familyPlaces.isNotEmpty && _familyPlaces.first.latitude != 0.0) {
+      initialPos = LatLng(_familyPlaces.first.latitude, _familyPlaces.first.longitude);
     }
 
     final selectedLoc = _selectedMember != null
@@ -720,7 +1019,7 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text('${FamilyProvider.formatFamilyDisplayName(widget.familyName)} Live Map'),
+        title: Text('${FamilyProvider.formatFamilyDisplayName(_resolveFamilyName().isNotEmpty ? _resolveFamilyName() : widget.familyName)} Live Map'),
         actions: [
           PopupMenuButton<MapType>(
             icon: const Icon(Icons.layers_rounded),
@@ -761,7 +1060,7 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
                 context,
                 MaterialPageRoute(
                   builder: (context) => PlacesManagerScreen(
-                    familyName: widget.familyName,
+                    familyName: _resolveFamilyName(),
                     userPhone: userPhone,
                     initialLat: _selectedMember != null
                         ? (_liveLocations[_selectedMember!.mobile]?.latitude ?? initialPos.latitude)

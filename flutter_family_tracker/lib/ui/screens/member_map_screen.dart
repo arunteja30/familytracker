@@ -9,6 +9,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../constants/app_colors.dart';
 import '../../models/family_member_model.dart';
 import '../../models/location_details_model.dart';
+import '../../models/geofence_place_model.dart';
 import '../../providers/family_provider.dart';
 import '../../services/database_service.dart';
 import '../../services/geocoding_service.dart';
@@ -50,10 +51,41 @@ class _MemberMapScreenState extends State<MemberMapScreen> {
   final List<AdaptivePolyline> _adaptivePolylines = [];
   final Set<Marker> _markers = {};
   final List<AdaptiveMapPoint> _adaptivePoints = [];
+  final Set<Circle> _geofenceCircles = {};
+  bool _showPlaces = true;
   int _routingRequestId = 0;
   MapType _currentMapType = MapType.normal;
   bool _autoFollow = true;
   bool _isInitialPositionLoaded = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _buildMemberPlaces();
+  }
+
+  void _buildMemberPlaces() {
+    try {
+      final fp = context.read<FamilyProvider>();
+      final places = fp.familyPlaces.where((p) => p.appliesToMember(widget.member.mobile)).toList();
+      _geofenceCircles.clear();
+      for (final place in places) {
+        if (place.latitude == 0.0 && place.longitude == 0.0) continue;
+        final color = place.category.color;
+        _geofenceCircles.add(
+          Circle(
+            circleId: CircleId('geofence_${place.id}'),
+            center: LatLng(place.latitude, place.longitude),
+            radius: place.radiusMeters,
+            fillColor: color.withValues(alpha: 0.22),
+            strokeColor: color.withValues(alpha: 0.85),
+            strokeWidth: 2,
+          ),
+        );
+      }
+      _rebuildMapPointsAndMarkers();
+    } catch (_) {}
+  }
 
   @override
   void initState() {
@@ -297,6 +329,49 @@ class _MemberMapScreenState extends State<MemberMapScreen> {
         ),
       );
     }
+
+    // Append member's safe place markers and points
+    if (_showPlaces) {
+      try {
+        final fp = context.read<FamilyProvider>();
+        final places = fp.familyPlaces.where((p) => p.appliesToMember(widget.member.mobile));
+        for (final place in places) {
+          if (place.latitude == 0.0 && place.longitude == 0.0) continue;
+          _markers.add(
+            Marker(
+              markerId: MarkerId('place_${place.id}'),
+              position: LatLng(place.latitude, place.longitude),
+              icon: BitmapDescriptor.defaultMarkerWithHue(
+                place.category == PlaceCategory.home
+                    ? BitmapDescriptor.hueGreen
+                    : place.category == PlaceCategory.school
+                        ? BitmapDescriptor.hueAzure
+                        : place.category == PlaceCategory.work
+                            ? BitmapDescriptor.hueOrange
+                            : BitmapDescriptor.hueViolet,
+              ),
+              infoWindow: InfoWindow(
+                title: '${place.category.displayName}: ${place.name}',
+                snippet: 'Radius ${place.radiusMeters.round()}m',
+              ),
+            ),
+          );
+
+          _adaptivePoints.add(
+            AdaptiveMapPoint(
+              id: 'place_${place.id}',
+              latitude: place.latitude,
+              longitude: place.longitude,
+              title: '${place.category.displayName}: ${place.name}',
+              snippet: 'Radius ${place.radiusMeters.round()}m',
+              pinColor: place.category.color,
+              isPlace: true,
+              placeIcon: place.category.icon,
+            ),
+          );
+        }
+      } catch (_) {}
+    }
   }
 
   /// Generate smooth Catmull-Rom spline curves between discrete GPS update points
@@ -527,6 +602,17 @@ class _MemberMapScreenState extends State<MemberMapScreen> {
             ],
           ),
           IconButton(
+            icon: Icon(
+              _showPlaces ? Icons.shield_rounded : Icons.shield_outlined,
+              color: _showPlaces ? const Color(0xFF10B981) : null,
+            ),
+            tooltip: _showPlaces ? 'Hide Safe Places' : 'Show Safe Places',
+            onPressed: () => setState(() {
+              _showPlaces = !_showPlaces;
+              _rebuildMapPointsAndMarkers();
+            }),
+          ),
+          IconButton(
             icon: const Icon(Icons.history_rounded),
             tooltip: 'View Full History',
             onPressed: () {
@@ -553,6 +639,7 @@ class _MemberMapScreenState extends State<MemberMapScreen> {
             polylines: _adaptivePolylines,
             googleMarkers: Set<Marker>.from(_markers),
             googlePolylines: Set<Polyline>.from(_polylines),
+            googleCircles: _showPlaces ? _geofenceCircles : null,
             onGoogleMapCreated: (controller) {
               if (!_controller.isCompleted) {
                 _controller.complete(controller);

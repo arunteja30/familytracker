@@ -21,6 +21,8 @@ class AdaptiveMapPoint {
   final bool isUpdating;
   final String lastUpdated;
   final int batteryPercentage;
+  final bool isPlace;
+  final IconData? placeIcon;
 
   AdaptiveMapPoint({
     required this.id,
@@ -37,6 +39,8 @@ class AdaptiveMapPoint {
     this.isUpdating = false,
     this.lastUpdated = '',
     this.batteryPercentage = 0,
+    this.isPlace = false,
+    this.placeIcon,
   });
 }
 
@@ -231,33 +235,41 @@ class _AdaptiveMapViewState extends State<AdaptiveMapView>
                             ),
                           ],
                         ),
-                        child: ClipOval(
-                          child: !kIsWeb && validPhotoFile != null
-                              ? Image.file(
-                                  validPhotoFile,
-                                  width: avatarSize,
-                                  height: avatarSize,
-                                  fit: BoxFit.cover,
-                                )
-                              : Image.network(
-                                  'https://ui-avatars.com/api/?name=${Uri.encodeComponent(p.title.replaceAll(RegExp(r'[^a-zA-Z0-9 ]'), ''))}&background=${pinColor.toARGB32().toRadixString(16).padLeft(8, '0').substring(2)}&color=ffffff&size=128&bold=true',
-                                  width: avatarSize,
-                                  height: avatarSize,
-                                  fit: BoxFit.cover,
-                                  errorBuilder: (_, _, _) => Center(
-                                    child: Text(
-                                      p.title.isNotEmpty
-                                          ? p.title.replaceAll(RegExp(r'[^a-zA-Z]'), '')[0].toUpperCase()
-                                          : 'M',
-                                      style: TextStyle(
-                                        color: Colors.white,
-                                        fontSize: isSelected ? 18 : 14,
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                    ),
-                                  ),
+                        child: p.isPlace
+                            ? Center(
+                                child: Icon(
+                                  p.placeIcon ?? Icons.shield_rounded,
+                                  color: Colors.white,
+                                  size: avatarSize * 0.58,
                                 ),
-                        ),
+                              )
+                            : ClipOval(
+                                child: !kIsWeb && validPhotoFile != null
+                                    ? Image.file(
+                                        validPhotoFile,
+                                        width: avatarSize,
+                                        height: avatarSize,
+                                        fit: BoxFit.cover,
+                                      )
+                                    : Image.network(
+                                        'https://ui-avatars.com/api/?name=${Uri.encodeComponent(p.title.replaceAll(RegExp(r'[^a-zA-Z0-9 ]'), ''))}&background=${pinColor.toARGB32().toRadixString(16).padLeft(8, '0').substring(2)}&color=ffffff&size=128&bold=true',
+                                        width: avatarSize,
+                                        height: avatarSize,
+                                        fit: BoxFit.cover,
+                                        errorBuilder: (_, _, _) => Center(
+                                          child: Text(
+                                            p.title.isNotEmpty
+                                                ? p.title.replaceAll(RegExp(r'[^a-zA-Z]'), '')[0].toUpperCase()
+                                                : 'M',
+                                            style: TextStyle(
+                                              color: Colors.white,
+                                              fontSize: isSelected ? 18 : 14,
+                                              fontWeight: FontWeight.bold,
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                              ),
                       ),
                       if (p.isMoving)
                         Positioned(
