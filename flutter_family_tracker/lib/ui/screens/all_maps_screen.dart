@@ -76,6 +76,15 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
   final Map<String, DateTime> _recentlyUpdatedMobiles = {};
   final Map<String, Timer> _pulseResetTimers = {};
   final Set<Circle> _pulseCircles = {};
+  Timer? _radarPulseTimer;
+  double _pulsePhase = 0.0;
+
+  bool _hasAnyMovingMember() {
+    for (final loc in _liveLocations.values) {
+      if (loc.isMoving) return true;
+    }
+    return false;
+  }
 
   String _formatRelativeTime(int timestampMs) {
     if (timestampMs <= 0) return 'Recently';
@@ -96,6 +105,17 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
     _loadPhotosAndBuildMarkers();
     _subscribeToLiveMovements();
     _subscribeToPlaces();
+
+    // Continuous pulsing radar animation timer for Google Maps on mobile
+    _radarPulseTimer = Timer.periodic(const Duration(milliseconds: 900), (_) {
+      if (!mounted) return;
+      if (_recentlyUpdatedMobiles.isNotEmpty || _hasAnyMovingMember()) {
+        setState(() {
+          _pulsePhase = _pulsePhase == 0.0 ? 1.0 : 0.0;
+          _buildPulseCircles();
+        });
+      }
+    });
   }
 
   @override
@@ -132,6 +152,7 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
 
   @override
   void dispose() {
+    _radarPulseTimer?.cancel();
     for (var timer in _pulseResetTimers.values) {
       timer.cancel();
     }
@@ -429,12 +450,16 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
 
       if (isMoving || isRecentlyUpdated) {
         final alertColor = isMoving ? const Color(0xFF10B981) : const Color(0xFF3B82F6);
+        final baseRadius = isMoving ? 55.0 : 38.0;
+        final animatedRadius = baseRadius + (_pulsePhase * 20.0);
+        final animatedAlpha = (0.28 - (_pulsePhase * 0.14)).clamp(0.08, 0.35);
+
         circles.add(
           Circle(
             circleId: CircleId('pulse_${member.mobile}'),
             center: LatLng(loc.latitude, loc.longitude),
-            radius: isMoving ? 50.0 : 35.0,
-            fillColor: alertColor.withValues(alpha: 0.25),
+            radius: animatedRadius,
+            fillColor: alertColor.withValues(alpha: animatedAlpha),
             strokeColor: alertColor.withValues(alpha: 0.90),
             strokeWidth: 2,
           ),
@@ -533,6 +558,34 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
     _loadPhotosAndBuildMarkers();
 
     if (_markers.isEmpty) return;
+
+    // Move Web FlutterMap camera to fit all members
+    try {
+      if (_markers.length == 1) {
+        _flutterMapController.move(
+          ll.LatLng(_markers.first.position.latitude, _markers.first.position.longitude),
+          14.0,
+        );
+      } else if (_markers.length > 1) {
+        double minLat = _markers.first.position.latitude;
+        double maxLat = _markers.first.position.latitude;
+        double minLng = _markers.first.position.longitude;
+        double maxLng = _markers.first.position.longitude;
+
+        for (var marker in _markers) {
+          if (marker.position.latitude < minLat) minLat = marker.position.latitude;
+          if (marker.position.latitude > maxLat) maxLat = marker.position.latitude;
+          if (marker.position.longitude < minLng) minLng = marker.position.longitude;
+          if (marker.position.longitude > maxLng) maxLng = marker.position.longitude;
+        }
+
+        final centerLat = (minLat + maxLat) / 2;
+        final centerLng = (minLng + maxLng) / 2;
+        _flutterMapController.move(ll.LatLng(centerLat, centerLng), 13.0);
+      }
+    } catch (_) {}
+
+    // Animate Google Maps camera to fit all members on Mobile
     try {
       final GoogleMapController controller = await _controller.future;
 

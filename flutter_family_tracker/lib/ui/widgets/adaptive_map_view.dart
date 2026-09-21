@@ -325,22 +325,28 @@ class _AdaptiveMapViewState extends State<AdaptiveMapView>
                                       ],
                                     ),
                                     child: ClipOval(
-                                      child: validPhotoFile != null
+                                      child: !kIsWeb && validPhotoFile != null
                                           ? Image.file(
                                               validPhotoFile,
                                               width: avatarSize,
                                               height: avatarSize,
                                               fit: BoxFit.cover,
                                             )
-                                          : Center(
-                                              child: Text(
-                                                p.title.isNotEmpty
-                                                    ? p.title.replaceAll(RegExp(r'[^a-zA-Z]'), '')[0].toUpperCase()
-                                                    : 'M',
-                                                style: TextStyle(
-                                                  color: Colors.white,
-                                                  fontSize: isSelected ? 18 : 14,
-                                                  fontWeight: FontWeight.bold,
+                                          : Image.network(
+                                              'https://ui-avatars.com/api/?name=${Uri.encodeComponent(p.title.replaceAll(RegExp(r'[^a-zA-Z0-9 ]'), ''))}&background=${pinColor.toARGB32().toRadixString(16).padLeft(8, '0').substring(2)}&color=ffffff&size=128&bold=true',
+                                              width: avatarSize,
+                                              height: avatarSize,
+                                              fit: BoxFit.cover,
+                                              errorBuilder: (_, _, _) => Center(
+                                                child: Text(
+                                                  p.title.isNotEmpty
+                                                      ? p.title.replaceAll(RegExp(r'[^a-zA-Z]'), '')[0].toUpperCase()
+                                                      : 'M',
+                                                  style: TextStyle(
+                                                    color: Colors.white,
+                                                    fontSize: isSelected ? 18 : 14,
+                                                    fontWeight: FontWeight.bold,
+                                                  ),
                                                 ),
                                               ),
                                             ),
