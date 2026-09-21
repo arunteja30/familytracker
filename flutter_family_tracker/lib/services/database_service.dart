@@ -22,16 +22,29 @@ class DatabaseService {
   static final Map<String, String> _lastSavedHistoryKeys = {};
 
   // Helper: Normalize & Match Phone Numbers (e.g. +919876543210 vs 9876543210)
+  static final RegExp _nonDigitsRegex = RegExp(r'\D');
+  static final Map<String, String> _normalizedPhoneCache = {};
+
+  static String normalizePhone(String p) {
+    if (p.isEmpty) return '';
+    final cached = _normalizedPhoneCache[p];
+    if (cached != null) return cached;
+    final digits = p.replaceAll(_nonDigitsRegex, '');
+    final normalized = digits.length >= 10 ? digits.substring(digits.length - 10) : digits;
+    if (_normalizedPhoneCache.length > 500) {
+      _normalizedPhoneCache.clear();
+    }
+    _normalizedPhoneCache[p] = normalized;
+    return normalized;
+  }
+
   static bool matchPhones(String p1, String p2) {
     if (p1.isEmpty || p2.isEmpty) return false;
-    if (p1.trim() == p2.trim()) return true;
-    final d1 = p1.replaceAll(RegExp(r'\D'), '');
-    final d2 = p2.replaceAll(RegExp(r'\D'), '');
-    if (d1.isEmpty || d2.isEmpty) return false;
-    if (d1 == d2) return true;
-    final s1 = d1.length >= 10 ? d1.substring(d1.length - 10) : d1;
-    final s2 = d2.length >= 10 ? d2.substring(d2.length - 10) : d2;
-    return s1 == s2;
+    if (identical(p1, p2) || p1 == p2) return true;
+    final n1 = normalizePhone(p1);
+    final n2 = normalizePhone(p2);
+    if (n1.isEmpty || n2.isEmpty) return false;
+    return n1 == n2;
   }
 
   // Parse generic snapshot into list of FamilyMemberModel

@@ -1,4 +1,4 @@
-import 'dart:async';
+import 'dart:collection';
 import 'dart:io';
 import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart';
@@ -7,15 +7,23 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 import '../constants/app_colors.dart';
 
 class MarkerGenerator {
-  // In-memory cache for generated marker BitmapDescriptors
-  static final Map<String, BitmapDescriptor> _markerCache = {};
+  static const int _maxMarkerCacheSize = 80;
+
+  // LRU cache for generated marker BitmapDescriptors (LinkedHashMap preserves insertion/access order)
+  static final LinkedHashMap<String, BitmapDescriptor> _markerCache =
+      LinkedHashMap<String, BitmapDescriptor>();
+
+  // In-memory cache for decoded profile photos to prevent redundant disk I/O and GPU re-decoding
+  static final Map<String, ui.Image> _decodedImageCache = {};
 
   // Clear cache if needed (e.g., when profile photo is updated)
   static void clearCache([String? memberPhone]) {
     if (memberPhone != null) {
       _markerCache.removeWhere((key, _) => key.contains(memberPhone));
+      _decodedImageCache.removeWhere((key, _) => key.contains(memberPhone));
     } else {
       _markerCache.clear();
+      _decodedImageCache.clear();
     }
   }
 
@@ -35,7 +43,9 @@ class MarkerGenerator {
     // 0. Cache Check for instant 0ms retrieval
     final cacheKey = '${displayName}_${pinColor.toARGB32()}_${localPhotoPath ?? ''}_hl_${isHighlighted}_lu_${lastUpdated}_bat_${batteryPercentage}_mov_$isMoving';
     if (_markerCache.containsKey(cacheKey)) {
-      return _markerCache[cacheKey]!;
+      final cached = _markerCache.remove(cacheKey)!;
+      _markerCache[cacheKey] = cached; // Refresh LRU position
+      return cached;
     }
 
     const double markerWidth = 150;
@@ -107,21 +117,29 @@ class MarkerGenerator {
       innerRingPaint,
     );
 
-    // 2. Check if local photo exists
+    // 2. Check if local photo exists (using decoded image cache)
     bool photoDrawn = false;
     if (!kIsWeb && localPhotoPath != null && localPhotoPath.isNotEmpty) {
-      final file = File(localPhotoPath);
-      if (file.existsSync()) {
-        try {
-          final bytes = await file.readAsBytes();
-          final codec = await ui.instantiateImageCodec(
-            bytes,
-            targetWidth: (avatarRadius * 2).toInt(),
-            targetHeight: (avatarRadius * 2).toInt(),
-          );
-          final frameInfo = await codec.getNextFrame();
-          final img = frameInfo.image;
+      ui.Image? img = _decodedImageCache[localPhotoPath];
+      if (img == null) {
+        final file = File(localPhotoPath);
+        if (file.existsSync()) {
+          try {
+            final bytes = await file.readAsBytes();
+            final codec = await ui.instantiateImageCodec(
+              bytes,
+              targetWidth: (avatarRadius * 2).toInt(),
+              targetHeight: (avatarRadius * 2).toInt(),
+            );
+            final frameInfo = await codec.getNextFrame();
+            img = frameInfo.image;
+            _decodedImageCache[localPhotoPath] = img;
+          } catch (_) {}
+        }
+      }
 
+      if (img != null) {
+        try {
           canvas.save();
           final clipPath = Path()
             ..addOval(Rect.fromCircle(
@@ -316,6 +334,9 @@ class MarkerGenerator {
 
     final Uint8List uint8list = byteData.buffer.asUint8List();
     final descriptor = BitmapDescriptor.bytes(uint8list);
+    if (_markerCache.length >= _maxMarkerCacheSize) {
+      _markerCache.remove(_markerCache.keys.first);
+    }
     _markerCache[cacheKey] = descriptor;
     return descriptor;
   }

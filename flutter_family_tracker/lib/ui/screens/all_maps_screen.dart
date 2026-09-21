@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:flutter_map/flutter_map.dart' as fmap;
@@ -106,16 +107,18 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
     _subscribeToLiveMovements();
     _subscribeToPlaces();
 
-    // Continuous pulsing radar animation timer for Google Maps on mobile
-    _radarPulseTimer = Timer.periodic(const Duration(milliseconds: 900), (_) {
-      if (!mounted) return;
-      if (_recentlyUpdatedMobiles.isNotEmpty || _hasAnyMovingMember()) {
-        setState(() {
-          _pulsePhase = _pulsePhase == 0.0 ? 1.0 : 0.0;
-          _buildPulseCircles();
-        });
-      }
-    });
+    // Continuous pulsing radar animation timer for Google Maps on mobile only
+    if (!kIsWeb) {
+      _radarPulseTimer = Timer.periodic(const Duration(milliseconds: 900), (_) {
+        if (!mounted) return;
+        if (_recentlyUpdatedMobiles.isNotEmpty || _hasAnyMovingMember()) {
+          setState(() {
+            _pulsePhase = _pulsePhase == 0.0 ? 1.0 : 0.0;
+            _buildPulseCircles();
+          });
+        }
+      });
+    }
   }
 
   @override
@@ -265,25 +268,28 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
     }
   }
 
+  LocationDetailsModel? _getMemberLocation(String mobile) {
+    final direct = _liveLocations[mobile] ?? widget.locations[mobile];
+    if (direct != null && (direct.latitude != 0.0 || direct.longitude != 0.0)) {
+      return direct;
+    }
+    final normalized = DatabaseService.normalizePhone(mobile);
+    for (final entry in _liveLocations.entries) {
+      if (DatabaseService.normalizePhone(entry.key) == normalized) {
+        return entry.value;
+      }
+    }
+    for (final entry in widget.locations.entries) {
+      if (DatabaseService.normalizePhone(entry.key) == normalized) {
+        return entry.value;
+      }
+    }
+    return null;
+  }
+
   Future<Marker?> _buildMarkerForMember(
       FamilyMemberModel member, LocationDetailsModel? loc, int index) async {
-    LocationDetailsModel? effectiveLoc = loc;
-    if (effectiveLoc == null || (effectiveLoc.latitude == 0.0 && effectiveLoc.longitude == 0.0)) {
-      for (final entry in _liveLocations.entries) {
-        if (DatabaseService.matchPhones(entry.key, member.mobile)) {
-          effectiveLoc = entry.value;
-          break;
-        }
-      }
-    }
-    if (effectiveLoc == null || (effectiveLoc.latitude == 0.0 && effectiveLoc.longitude == 0.0)) {
-      for (final entry in widget.locations.entries) {
-        if (DatabaseService.matchPhones(entry.key, member.mobile)) {
-          effectiveLoc = entry.value;
-          break;
-        }
-      }
-    }
+    LocationDetailsModel? effectiveLoc = loc ?? _getMemberLocation(member.mobile);
     if (effectiveLoc == null || (effectiveLoc.latitude == 0.0 && effectiveLoc.longitude == 0.0)) {
       effectiveLoc = await _dbService.getLocationDetails(member.mobile);
       if (effectiveLoc != null && (effectiveLoc.latitude != 0.0 || effectiveLoc.longitude != 0.0)) {
@@ -490,34 +496,35 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
     }
   }
 
+  Future<void> _updateSingleMemberMarker(FamilyMemberModel targetMember) async {
+    final index = widget.members.indexWhere((m) => m.mobile == targetMember.mobile);
+    if (index < 0) return;
+    final loc = _getMemberLocation(targetMember.mobile);
+    final marker = await _buildMarkerForMember(targetMember, loc, index);
+    if (marker != null && mounted) {
+      setState(() {
+        _markers.removeWhere((m) => m.markerId.value == targetMember.mobile);
+        _markers.add(marker);
+      });
+    }
+  }
+
   Future<void> _focusMember(FamilyMemberModel member) async {
+    final previousSelected = _selectedMember;
     setState(() {
       _selectedMember = member;
       _showBottomCard = true;
       _updateActiveMovementPolylines();
     });
 
-    // Rebuild markers immediately so the selected member's marker is highlighted
-    _loadPhotosAndBuildMarkers();
+    // Selectively update only the affected member markers (0ms instantaneous highlight)
+    if (previousSelected != null && previousSelected.mobile != member.mobile) {
+      _updateSingleMemberMarker(previousSelected);
+    }
+    _updateSingleMemberMarker(member);
 
-    // Robust multi-tier location resolution (handles phone format variations e.g. +91 vs raw)
-    LocationDetailsModel? loc = _liveLocations[member.mobile] ?? widget.locations[member.mobile];
-    if (loc == null || (loc.latitude == 0.0 && loc.longitude == 0.0)) {
-      for (final entry in _liveLocations.entries) {
-        if (DatabaseService.matchPhones(entry.key, member.mobile)) {
-          loc = entry.value;
-          break;
-        }
-      }
-    }
-    if (loc == null || (loc.latitude == 0.0 && loc.longitude == 0.0)) {
-      for (final entry in widget.locations.entries) {
-        if (DatabaseService.matchPhones(entry.key, member.mobile)) {
-          loc = entry.value;
-          break;
-        }
-      }
-    }
+    // Robust multi-tier location resolution
+    LocationDetailsModel? loc = _getMemberLocation(member.mobile);
     if (loc == null || (loc.latitude == 0.0 && loc.longitude == 0.0)) {
       loc = await _dbService.getLocationDetails(member.mobile);
       if (loc != null && (loc.latitude != 0.0 || loc.longitude != 0.0)) {
@@ -548,14 +555,17 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
   }
 
   Future<void> _fitAllBounds() async {
+    final previousSelected = _selectedMember;
     setState(() {
       _selectedMember = null;
       _showBottomCard = false;
       _updateActiveMovementPolylines();
     });
 
-    // Reset marker highlights back to normal
-    _loadPhotosAndBuildMarkers();
+    // Reset marker highlights back to normal selectively
+    if (previousSelected != null) {
+      _updateSingleMemberMarker(previousSelected);
+    }
 
     if (_markers.isEmpty) return;
 
@@ -630,6 +640,36 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
     if (await canLaunchUrl(uri)) {
       await launchUrl(uri);
     }
+  }
+
+  List<AdaptiveMapPoint> _buildAdaptiveMapPoints() {
+    return widget.members.map((m) {
+      final loc = _getMemberLocation(m.mobile);
+      final isSelected = _selectedMember != null && DatabaseService.matchPhones(_selectedMember!.mobile, m.mobile);
+      final updatedTime = _recentlyUpdatedMobiles[m.mobile];
+      final isRecentlyUpdated = updatedTime != null && DateTime.now().difference(updatedTime).inSeconds < 15;
+      final isMoving = loc?.isMoving ?? false;
+      final relativeTime = loc != null && loc.timeStamp > 0
+          ? _formatRelativeTime(loc.timeStamp)
+          : (loc?.date.isNotEmpty == true ? loc!.date : 'Recently');
+
+      return AdaptiveMapPoint(
+        id: m.mobile,
+        latitude: loc?.latitude ?? 0.0,
+        longitude: loc?.longitude ?? 0.0,
+        title: isSelected ? '⭐ ${m.name}' : m.name,
+        snippet: loc?.address ?? '',
+        pinColor: isSelected ? const Color(0xFFF59E0B) : MarkerGenerator.getMarkerColor(m.relationship),
+        isSelected: isSelected,
+        isMoving: isMoving,
+        isUpdating: isRecentlyUpdated,
+        lastUpdated: relativeTime,
+        batteryPercentage: loc?.batteryPercentage ?? 0,
+        photoFile: _memberPhotos[m.mobile],
+        localPhotoPath: _memberPhotos[m.mobile]?.path,
+        onTap: () => _focusMember(m),
+      );
+    }).where((p) => p.latitude != 0.0 && p.longitude != 0.0).toList();
   }
 
   @override
@@ -750,55 +790,10 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
             initialZoom: 12,
             mapType: _currentMapType,
             flutterMapController: _flutterMapController,
-            points: widget.members.map((m) {
-              LocationDetailsModel? loc = _liveLocations[m.mobile] ?? widget.locations[m.mobile];
-              if (loc == null || (loc.latitude == 0.0 && loc.longitude == 0.0)) {
-                for (final entry in _liveLocations.entries) {
-                  if (DatabaseService.matchPhones(entry.key, m.mobile)) {
-                    loc = entry.value;
-                    break;
-                  }
-                }
-              }
-              if (loc == null || (loc.latitude == 0.0 && loc.longitude == 0.0)) {
-                for (final entry in widget.locations.entries) {
-                  if (DatabaseService.matchPhones(entry.key, m.mobile)) {
-                    loc = entry.value;
-                    break;
-                  }
-                }
-              }
-
-              final isSelected = _selectedMember != null && DatabaseService.matchPhones(_selectedMember!.mobile, m.mobile);
-              final updatedTime = _recentlyUpdatedMobiles[m.mobile];
-              final isRecentlyUpdated = updatedTime != null && DateTime.now().difference(updatedTime).inSeconds < 15;
-              final isMoving = loc?.isMoving ?? false;
-              final relativeTime = loc != null && loc.timeStamp > 0
-                  ? _formatRelativeTime(loc.timeStamp)
-                  : (loc?.date.isNotEmpty == true ? loc!.date : 'Recently');
-
-              return AdaptiveMapPoint(
-                id: m.mobile,
-                latitude: loc?.latitude ?? 0.0,
-                longitude: loc?.longitude ?? 0.0,
-                title: isSelected ? '⭐ ${m.name}' : m.name,
-                snippet: loc?.address ?? '',
-                pinColor: isSelected ? const Color(0xFFF59E0B) : MarkerGenerator.getMarkerColor(m.relationship),
-                isSelected: isSelected,
-                isMoving: isMoving,
-                isUpdating: isRecentlyUpdated,
-                lastUpdated: relativeTime,
-                batteryPercentage: loc?.batteryPercentage ?? 0,
-                photoFile: _memberPhotos[m.mobile],
-                localPhotoPath: _memberPhotos[m.mobile]?.path,
-                onTap: () {
-                  _focusMember(m);
-                },
-              );
-            }).where((p) => p.latitude != 0.0 && p.longitude != 0.0).toList(),
+            points: kIsWeb ? _buildAdaptiveMapPoints() : const [],
             googleMarkers: _showPlacesLayer
                 ? {..._markers, ..._placeMarkers}
-                : Set<Marker>.from(_markers),
+                : _markers,
             googlePolylines: _polylines,
             googleCircles: _showPlacesLayer
                 ? {..._geofenceCircles, ..._pulseCircles}

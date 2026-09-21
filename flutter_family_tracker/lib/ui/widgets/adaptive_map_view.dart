@@ -88,27 +88,29 @@ class AdaptiveMapView extends StatefulWidget {
 
 class _AdaptiveMapViewState extends State<AdaptiveMapView>
     with SingleTickerProviderStateMixin {
-  late final fmap.MapController _flutterMapController;
-  late final AnimationController _pulseController;
-  late final Animation<double> _pulseAnimation;
+  fmap.MapController? _flutterMapController;
+  AnimationController? _pulseController;
+  Animation<double>? _pulseAnimation;
 
   @override
   void initState() {
     super.initState();
-    _flutterMapController = widget.flutterMapController ?? fmap.MapController();
-    _pulseController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 1500),
-    )..repeat(reverse: true);
-    _pulseAnimation = CurvedAnimation(
-      parent: _pulseController,
-      curve: Curves.easeInOut,
-    );
+    if (kIsWeb) {
+      _flutterMapController = widget.flutterMapController ?? fmap.MapController();
+      _pulseController = AnimationController(
+        vsync: this,
+        duration: const Duration(milliseconds: 1500),
+      )..repeat(reverse: true);
+      _pulseAnimation = CurvedAnimation(
+        parent: _pulseController!,
+        curve: Curves.easeInOut,
+      );
+    }
   }
 
   @override
   void dispose() {
-    _pulseController.dispose();
+    _pulseController?.dispose();
     super.dispose();
   }
 
@@ -205,6 +207,75 @@ class _AdaptiveMapViewState extends State<AdaptiveMapView>
                     detailsText = p.snippet;
                   }
 
+                  final avatarCore = Stack(
+                    alignment: Alignment.center,
+                    clipBehavior: Clip.none,
+                    children: [
+                      Container(
+                        width: avatarSize,
+                        height: avatarSize,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: pinColor,
+                          border: Border.all(
+                            color: isSelected ? const Color(0xFFF59E0B) : Colors.white,
+                            width: isSelected ? 3.0 : 2.0,
+                          ),
+                          boxShadow: [
+                            BoxShadow(
+                              color: isSelected
+                                  ? const Color(0xFFF59E0B).withValues(alpha: 0.6)
+                                  : Colors.black.withValues(alpha: 0.35),
+                              blurRadius: isSelected ? 10 : 5,
+                              offset: const Offset(0, 3),
+                            ),
+                          ],
+                        ),
+                        child: ClipOval(
+                          child: !kIsWeb && validPhotoFile != null
+                              ? Image.file(
+                                  validPhotoFile,
+                                  width: avatarSize,
+                                  height: avatarSize,
+                                  fit: BoxFit.cover,
+                                )
+                              : Image.network(
+                                  'https://ui-avatars.com/api/?name=${Uri.encodeComponent(p.title.replaceAll(RegExp(r'[^a-zA-Z0-9 ]'), ''))}&background=${pinColor.toARGB32().toRadixString(16).padLeft(8, '0').substring(2)}&color=ffffff&size=128&bold=true',
+                                  width: avatarSize,
+                                  height: avatarSize,
+                                  fit: BoxFit.cover,
+                                  errorBuilder: (_, _, _) => Center(
+                                    child: Text(
+                                      p.title.isNotEmpty
+                                          ? p.title.replaceAll(RegExp(r'[^a-zA-Z]'), '')[0].toUpperCase()
+                                          : 'M',
+                                      style: TextStyle(
+                                        color: Colors.white,
+                                        fontSize: isSelected ? 18 : 14,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                        ),
+                      ),
+                      if (p.isMoving)
+                        Positioned(
+                          right: -2,
+                          bottom: -2,
+                          child: Container(
+                            width: 12,
+                            height: 12,
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF10B981),
+                              shape: BoxShape.circle,
+                              border: Border.all(color: Colors.white, width: 1.5),
+                            ),
+                          ),
+                        ),
+                    ],
+                  );
+
                   return fmap.Marker(
                     point: ll.LatLng(p.latitude, p.longitude),
                     width: isSelected ? 170 : 150,
@@ -278,19 +349,17 @@ class _AdaptiveMapViewState extends State<AdaptiveMapView>
                           ),
 
                           // 2. Avatar Head with Pulsing Radar Ring & Image
-                          AnimatedBuilder(
-                            animation: _pulseAnimation,
-                            builder: (context, child) {
-                              final isAlerting = p.isMoving || p.isUpdating;
-                              final pulseSpread = isAlerting ? (_pulseAnimation.value * 18.0) : 0.0;
-                              final pulseOpacity = isAlerting ? ((1.0 - _pulseAnimation.value) * 0.70) : 0.0;
+                          if (_pulseAnimation != null && (p.isMoving || p.isUpdating))
+                            AnimatedBuilder(
+                              animation: _pulseAnimation!,
+                              builder: (context, child) {
+                                final pulseSpread = _pulseAnimation!.value * 18.0;
+                                final pulseOpacity = (1.0 - _pulseAnimation!.value) * 0.70;
 
-                              return Stack(
-                                alignment: Alignment.center,
-                                clipBehavior: Clip.none,
-                                children: [
-                                  // Radar Pulsing Aura Ring
-                                  if (isAlerting)
+                                return Stack(
+                                  alignment: Alignment.center,
+                                  clipBehavior: Clip.none,
+                                  children: [
                                     Container(
                                       width: avatarSize + pulseSpread,
                                       height: avatarSize + pulseSpread,
@@ -302,76 +371,14 @@ class _AdaptiveMapViewState extends State<AdaptiveMapView>
                                             .withValues(alpha: pulseOpacity),
                                       ),
                                     ),
-
-                                  // Main Circular Avatar
-                                  Container(
-                                    width: avatarSize,
-                                    height: avatarSize,
-                                    decoration: BoxDecoration(
-                                      shape: BoxShape.circle,
-                                      color: pinColor,
-                                      border: Border.all(
-                                        color: isSelected ? const Color(0xFFF59E0B) : Colors.white,
-                                        width: isSelected ? 3.0 : 2.0,
-                                      ),
-                                      boxShadow: [
-                                        BoxShadow(
-                                          color: isSelected
-                                              ? const Color(0xFFF59E0B).withValues(alpha: 0.6)
-                                              : Colors.black.withValues(alpha: 0.35),
-                                          blurRadius: isSelected ? 10 : 5,
-                                          offset: const Offset(0, 3),
-                                        ),
-                                      ],
-                                    ),
-                                    child: ClipOval(
-                                      child: !kIsWeb && validPhotoFile != null
-                                          ? Image.file(
-                                              validPhotoFile,
-                                              width: avatarSize,
-                                              height: avatarSize,
-                                              fit: BoxFit.cover,
-                                            )
-                                          : Image.network(
-                                              'https://ui-avatars.com/api/?name=${Uri.encodeComponent(p.title.replaceAll(RegExp(r'[^a-zA-Z0-9 ]'), ''))}&background=${pinColor.toARGB32().toRadixString(16).padLeft(8, '0').substring(2)}&color=ffffff&size=128&bold=true',
-                                              width: avatarSize,
-                                              height: avatarSize,
-                                              fit: BoxFit.cover,
-                                              errorBuilder: (_, _, _) => Center(
-                                                child: Text(
-                                                  p.title.isNotEmpty
-                                                      ? p.title.replaceAll(RegExp(r'[^a-zA-Z]'), '')[0].toUpperCase()
-                                                      : 'M',
-                                                  style: TextStyle(
-                                                    color: Colors.white,
-                                                    fontSize: isSelected ? 18 : 14,
-                                                    fontWeight: FontWeight.bold,
-                                                  ),
-                                                ),
-                                              ),
-                                            ),
-                                    ),
-                                  ),
-
-                                  // Moving indicator badge
-                                  if (p.isMoving)
-                                    Positioned(
-                                      right: -2,
-                                      bottom: -2,
-                                      child: Container(
-                                        width: 12,
-                                        height: 12,
-                                        decoration: BoxDecoration(
-                                          color: const Color(0xFF10B981),
-                                          shape: BoxShape.circle,
-                                          border: Border.all(color: Colors.white, width: 1.5),
-                                        ),
-                                      ),
-                                    ),
-                                ],
-                              );
-                            },
-                          ),
+                                    child!,
+                                  ],
+                                );
+                              },
+                              child: avatarCore,
+                            )
+                          else
+                            avatarCore,
 
                           // 3. Pin Needle / Stick (Metallic Grey gradient pointing straight down)
                           Container(
@@ -458,11 +465,13 @@ class _AdaptiveMapViewState extends State<AdaptiveMapView>
                 backgroundColor: Colors.white,
                 foregroundColor: AppColors.primary,
                 onPressed: () {
-                  final zoom = _flutterMapController.camera.zoom + 1;
-                  _flutterMapController.move(
-                    _flutterMapController.camera.center,
-                    zoom,
-                  );
+                  if (_flutterMapController != null) {
+                    final zoom = _flutterMapController!.camera.zoom + 1;
+                    _flutterMapController!.move(
+                      _flutterMapController!.camera.center,
+                      zoom,
+                    );
+                  }
                 },
                 child: const Icon(Icons.add_rounded),
               ),
@@ -472,11 +481,13 @@ class _AdaptiveMapViewState extends State<AdaptiveMapView>
                 backgroundColor: Colors.white,
                 foregroundColor: AppColors.primary,
                 onPressed: () {
-                  final zoom = _flutterMapController.camera.zoom - 1;
-                  _flutterMapController.move(
-                    _flutterMapController.camera.center,
-                    zoom,
-                  );
+                  if (_flutterMapController != null) {
+                    final zoom = _flutterMapController!.camera.zoom - 1;
+                    _flutterMapController!.move(
+                      _flutterMapController!.camera.center,
+                      zoom,
+                    );
+                  }
                 },
                 child: const Icon(Icons.remove_rounded),
               ),
@@ -489,26 +500,29 @@ class _AdaptiveMapViewState extends State<AdaptiveMapView>
 
   // Google Maps for Android / iOS Native
   Widget _buildGoogleMap() {
-    final markers = (widget.googleMarkers != null && widget.googleMarkers!.isNotEmpty)
-        ? Set<gmaps.Marker>.from(widget.googleMarkers!)
-        : widget.points
-            .where((p) => p.latitude != 0.0 && p.longitude != 0.0)
-            .map((p) {
-              return gmaps.Marker(
-                markerId: gmaps.MarkerId(p.id),
-                position: gmaps.LatLng(p.latitude, p.longitude),
-                icon: gmaps.BitmapDescriptor.defaultMarkerWithHue(
-                  p.isSelected
-                      ? gmaps.BitmapDescriptor.hueOrange
-                      : gmaps.BitmapDescriptor.hueAzure,
-                ),
-                infoWindow: gmaps.InfoWindow(
-                  title: p.title,
-                  snippet: p.snippet,
-                ),
-                onTap: p.onTap,
-              );
-            }).toSet();
+    final Set<gmaps.Marker> markers;
+    if (widget.googleMarkers != null && widget.googleMarkers!.isNotEmpty) {
+      markers = widget.googleMarkers!;
+    } else {
+      markers = widget.points
+          .where((p) => p.latitude != 0.0 && p.longitude != 0.0)
+          .map((p) {
+            return gmaps.Marker(
+              markerId: gmaps.MarkerId(p.id),
+              position: gmaps.LatLng(p.latitude, p.longitude),
+              icon: gmaps.BitmapDescriptor.defaultMarkerWithHue(
+                p.isSelected
+                    ? gmaps.BitmapDescriptor.hueOrange
+                    : gmaps.BitmapDescriptor.hueAzure,
+              ),
+              infoWindow: gmaps.InfoWindow(
+                title: p.title,
+                snippet: p.snippet,
+              ),
+              onTap: p.onTap,
+            );
+          }).toSet();
+    }
 
     return gmaps.GoogleMap(
       mapType: widget.mapType,
@@ -517,12 +531,8 @@ class _AdaptiveMapViewState extends State<AdaptiveMapView>
         zoom: widget.initialZoom,
       ),
       markers: markers,
-      polylines: widget.googlePolylines != null
-          ? Set<gmaps.Polyline>.from(widget.googlePolylines!)
-          : {},
-      circles: widget.googleCircles != null
-          ? Set<gmaps.Circle>.from(widget.googleCircles!)
-          : {},
+      polylines: widget.googlePolylines ?? const <gmaps.Polyline>{},
+      circles: widget.googleCircles ?? const <gmaps.Circle>{},
       onMapCreated: widget.onGoogleMapCreated,
       myLocationEnabled: true,
       myLocationButtonEnabled: false,
