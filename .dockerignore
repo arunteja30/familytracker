@@ -1,9 +1,12 @@
 .git
 .gradle
 .idea
-**/build/
 **/.dart_tool/
 **/.gradle/
-**/android/.gradle/
-**/android/app/build/
+**/android/**/build/
+**/build/app/
+flutter_family_tracker/build/app/
 **/android/local.properties
+!flutter_family_tracker/build/
+!flutter_family_tracker/build/web/
+!flutter_family_tracker/build/web/**
