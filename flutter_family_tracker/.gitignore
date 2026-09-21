@@ -30,6 +30,7 @@ migrate_working_dir/
 .flutter-plugins-dependencies
 .pub-cache/
 .pub/
+scratch_server.js
 # Exclude all build dirs except web output needed for Render deployment
 /build/android/
 /build/ios/
