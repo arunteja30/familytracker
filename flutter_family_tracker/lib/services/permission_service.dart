@@ -70,6 +70,9 @@ class PermissionService {
   // Request SMS permission explicitly
   static Future<bool> requestSmsPermissionExplicitly(BuildContext? context) async {
     if (kIsWeb) return true;
+    if (defaultTargetPlatform == TargetPlatform.iOS) {
+      return true; // iOS does not use runtime SEND_SMS permission
+    }
     try {
       PermissionStatus status = await Permission.sms.status;
       if (!status.isGranted) {
@@ -88,6 +91,7 @@ class PermissionService {
   // Check if Call Log permission is granted
   static Future<bool> hasCallLogPermission() async {
     if (kIsWeb) return true;
+    if (defaultTargetPlatform == TargetPlatform.iOS) return false;
     try {
       final nativeGranted = await NativeService.hasCallLogPermission();
       if (nativeGranted) return true;
@@ -101,6 +105,9 @@ class PermissionService {
   // Request Call Log permission explicitly
   static Future<bool> requestCallLogPermissionExplicitly(BuildContext? context) async {
     if (kIsWeb) return true;
+    if (defaultTargetPlatform == TargetPlatform.iOS) {
+      return false; // Restricted by Apple iOS Sandbox
+    }
     try {
       if (await hasCallLogPermission()) return true;
       await NativeService.requestCallLogPermission();
@@ -120,6 +127,9 @@ class PermissionService {
     if (kIsWeb) return true;
     try {
       final contactsGranted = await requestContactsPermissionExplicitly(context);
+      if (defaultTargetPlatform == TargetPlatform.iOS) {
+        return contactsGranted;
+      }
       if (context != null && !context.mounted) return contactsGranted;
       final smsGranted = await requestSmsPermissionExplicitly(context);
       if (context != null && !context.mounted) return contactsGranted && smsGranted;

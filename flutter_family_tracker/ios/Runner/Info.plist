@@ -38,6 +38,8 @@
 	<string>FamilyTracker requires camera access to take profile photos for family members.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>FamilyTracker requires photo library access to choose profile photos for family members.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>FamilyTracker requires permission to save photos and intruder captures to your photo library.</string>
 	<key>LSApplicationQueriesSchemes</key>
 	<array>
 		<string>tel</string>
@@ -69,6 +71,7 @@
 		<string>fetch</string>
 		<string>remote-notification</string>
 		<string>processing</string>
+		<string>audio</string>
 	</array>
 	<key>UIApplicationSceneManifest</key>
 	<dict>

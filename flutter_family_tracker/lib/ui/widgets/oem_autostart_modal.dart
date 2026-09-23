@@ -20,7 +20,7 @@ class OemAutoStartModal extends StatefulWidget {
     Map<String, dynamic>? oemInfo,
     bool isManualTrigger = true,
   }) async {
-    if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) return;
+    if (kIsWeb) return;
     final resolvedOemInfo = oemInfo ?? await NativeService.getDeviceOemInfo();
     if (!context.mounted) return;
 
@@ -35,17 +35,18 @@ class OemAutoStartModal extends StatefulWidget {
     );
   }
 
-  /// Automatically show on Dashboard on first launch if device is an aggressive OEM
+  /// Automatically show on Dashboard on first launch if device is an aggressive OEM or iOS
   static Future<void> showIfNeeded(BuildContext context) async {
-    if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) return;
+    if (kIsWeb) return;
 
     final alreadyShown = PreferencesService.isAutostartGuidanceShown();
     if (alreadyShown) return;
 
+    final isIOS = defaultTargetPlatform == TargetPlatform.iOS;
     final oemInfo = await NativeService.getDeviceOemInfo();
-    final isStrictOem = oemInfo?['isStrictOem'] as bool? ?? false;
+    final isStrictOem = (oemInfo?['isStrictOem'] as bool?) ?? false;
 
-    if (isStrictOem && context.mounted) {
+    if ((isStrictOem || isIOS) && context.mounted) {
       await show(context, isManualTrigger: false);
     }
   }
@@ -67,7 +68,13 @@ class _OemAutoStartModalState extends State<OemAutoStartModal> {
     _model = (widget.oemInfo?['model'] as String? ?? '').trim();
   }
 
+  bool get _isApple =>
+      defaultTargetPlatform == TargetPlatform.iOS ||
+      _manufacturer.toLowerCase().contains('apple') ||
+      _brand.toLowerCase().contains('apple');
+
   String get _detectedBrandName {
+    if (_isApple) return 'Apple iOS (iPhone / iPad)';
     final lower = ('$_manufacturer $_brand').toLowerCase();
     if (lower.contains('xiaomi') || lower.contains('redmi') || lower.contains('poco')) {
       return 'Xiaomi / MIUI / HyperOS';
@@ -90,6 +97,7 @@ class _OemAutoStartModalState extends State<OemAutoStartModal> {
   }
 
   IconData get _brandIcon {
+    if (_isApple) return Icons.apple_rounded;
     final lower = ('$_manufacturer $_brand').toLowerCase();
     if (lower.contains('samsung')) return Icons.phone_android_rounded;
     if (lower.contains('xiaomi') || lower.contains('redmi') || lower.contains('poco')) return Icons.bolt_rounded;
@@ -100,6 +108,14 @@ class _OemAutoStartModalState extends State<OemAutoStartModal> {
   }
 
   List<String> get _instructions {
+    if (_isApple) {
+      return [
+        'Step 1: Set Location Access to "Always" so FamilyTracker can update your position in the background for family safety.',
+        'Step 2: Enable "Background App Refresh" switch for FamilyTracker so updates are received reliably.',
+        'Step 3: Keep Low Power Mode disabled during trips for continuous GPS telemetry.',
+      ];
+    }
+
     final lower = ('$_manufacturer $_brand').toLowerCase();
 
     if (lower.contains('xiaomi') || lower.contains('redmi') || lower.contains('poco')) {
@@ -227,9 +243,9 @@ class _OemAutoStartModalState extends State<OemAutoStartModal> {
               const SizedBox(height: 14),
 
               // Title
-              const Text(
-                'Background & Battery Setup',
-                style: TextStyle(
+              Text(
+                _isApple ? 'iOS Background & Location Setup' : 'Background & Battery Setup',
+                style: const TextStyle(
                   fontSize: 20,
                   fontWeight: FontWeight.bold,
                   color: AppColors.textPrimary,
@@ -238,9 +254,11 @@ class _OemAutoStartModalState extends State<OemAutoStartModal> {
               const SizedBox(height: 8),
 
               // Explanation
-              const Text(
-                'To ensure continuous family safety and instant SOS reception, your phone needs two quick permissions: Auto-Start on Boot and Battery "No Restrictions".',
-                style: TextStyle(
+              Text(
+                _isApple
+                    ? 'To ensure continuous real-time family location tracking and urgent SOS distress signals, iOS requires "Always" location access and "Background App Refresh".'
+                    : 'To ensure continuous family safety and instant SOS reception, your phone needs two quick permissions: Auto-Start on Boot and Battery "No Restrictions".',
+                style: const TextStyle(
                   fontSize: 13,
                   color: AppColors.textSecondary,
                   height: 1.4,
@@ -268,7 +286,7 @@ class _OemAutoStartModalState extends State<OemAutoStartModal> {
                         ),
                         const SizedBox(width: 8),
                         Text(
-                          '2-Step Setup for $brandTitle',
+                          _isApple ? 'Recommended iOS Settings' : 'Setup for $brandTitle',
                           style: const TextStyle(
                             fontSize: 14,
                             fontWeight: FontWeight.bold,
@@ -322,45 +340,64 @@ class _OemAutoStartModalState extends State<OemAutoStartModal> {
               ),
               const SizedBox(height: 20),
 
-              // Action Buttons: Step 1 & Step 2
-              // Step 1: Open Auto-Start
-              SizedBox(
-                width: double.infinity,
-                height: 48,
-                child: ElevatedButton.icon(
-                  onPressed: _handleOpenAutoStart,
-                  icon: const Icon(Icons.rocket_launch_rounded, size: 18),
-                  label: const Text('1. Open Auto-Start Settings'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.primary,
-                    foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(14),
+              // Action Buttons:
+              if (_isApple) ...[
+                // iOS: Single Direct Settings Button
+                SizedBox(
+                  width: double.infinity,
+                  height: 48,
+                  child: ElevatedButton.icon(
+                    onPressed: _handleOpenBatteryOptimization,
+                    icon: const Icon(Icons.settings_rounded, size: 18),
+                    label: const Text('Open iOS Settings (FamilyTracker)'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.primary,
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      elevation: 0,
                     ),
-                    elevation: 0,
                   ),
                 ),
-              ),
-              const SizedBox(height: 10),
-
-              // Step 2: Open Battery Saver / No Restrictions
-              SizedBox(
-                width: double.infinity,
-                height: 48,
-                child: ElevatedButton.icon(
-                  onPressed: _handleOpenBatteryOptimization,
-                  icon: const Icon(Icons.battery_charging_full_rounded, size: 18),
-                  label: const Text('2. Battery: Select "No Restrictions"'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.accent,
-                    foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(14),
+              ] else ...[
+                // Android: Step 1 & Step 2
+                SizedBox(
+                  width: double.infinity,
+                  height: 48,
+                  child: ElevatedButton.icon(
+                    onPressed: _handleOpenAutoStart,
+                    icon: const Icon(Icons.rocket_launch_rounded, size: 18),
+                    label: const Text('1. Open Auto-Start Settings'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.primary,
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      elevation: 0,
                     ),
-                    elevation: 0,
                   ),
                 ),
-              ),
+                const SizedBox(height: 10),
+                SizedBox(
+                  width: double.infinity,
+                  height: 48,
+                  child: ElevatedButton.icon(
+                    onPressed: _handleOpenBatteryOptimization,
+                    icon: const Icon(Icons.battery_charging_full_rounded, size: 18),
+                    label: const Text('2. Battery: Select "No Restrictions"'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.accent,
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      elevation: 0,
+                    ),
+                  ),
+                ),
+              ],
               const SizedBox(height: 16),
 
               // Done / Close Actions
@@ -395,7 +432,7 @@ class _OemAutoStartModalState extends State<OemAutoStartModal> {
                         padding: const EdgeInsets.symmetric(vertical: 14),
                         elevation: 0,
                       ),
-                      child: const Text('I\'ve Enabled Both'),
+                      child: const Text('I\'ve Configured It'),
                     ),
                   ),
                 ],

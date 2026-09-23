@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'email_service.dart';
 
 class NativeService {
   static const MethodChannel _channel =
@@ -10,10 +11,13 @@ class NativeService {
       (defaultTargetPlatform == TargetPlatform.android ||
           defaultTargetPlatform == TargetPlatform.iOS);
 
-  static bool get _isAndroid =>
+  static bool get isAndroid =>
       !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
 
-  // Start the native sticky background service (auto-restarting on Android)
+  static bool get isIOS =>
+      !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS;
+
+  // Start the native sticky background service (auto-restarting on Android & background CoreLocation on iOS)
   static Future<void> startNativeStickyService() async {
     if (_isMobile) {
       try {
@@ -22,9 +26,9 @@ class NativeService {
     }
   }
 
-  // Request exemption from Android Doze / Battery Optimization
+  // Request exemption from Battery Optimization / Background limits
   static Future<void> requestBatteryOptimizationExemption() async {
-    if (_isAndroid) {
+    if (_isMobile) {
       try {
         await _channel.invokeMethod('requestBatteryOptimizationExemption');
       } catch (_) {}
@@ -44,7 +48,7 @@ class NativeService {
     return null;
   }
 
-  // Get detected OEM information (Xiaomi, Oppo, Vivo, Samsung, Apple, etc.)
+  // Get detected OEM / Device information (Xiaomi, Oppo, Vivo, Samsung, Apple, etc.)
   static Future<Map<String, dynamic>?> getDeviceOemInfo() async {
     if (_isMobile) {
       try {
@@ -57,9 +61,9 @@ class NativeService {
     return null;
   }
 
-  // Open OEM-specific auto-start or battery management activity
+  // Open OEM-specific auto-start or battery management activity (Android) or App Settings (iOS)
   static Future<bool> openOemAutoStartSettings() async {
-    if (_isAndroid) {
+    if (_isMobile) {
       try {
         final bool? result =
             await _channel.invokeMethod<bool>('openOemAutoStartSettings');
@@ -69,9 +73,9 @@ class NativeService {
     return false;
   }
 
-  // Open OEM / Android Battery Optimization menu to select "No Restrictions" / Unrestricted
+  // Open OEM / Android Battery Optimization or iOS Background App Refresh settings
   static Future<bool> openBatteryOptimizationSettings() async {
-    if (_isAndroid) {
+    if (_isMobile) {
       try {
         final bool? result =
             await _channel.invokeMethod<bool>('openBatteryOptimizationSettings');
@@ -93,13 +97,13 @@ class NativeService {
     return false;
   }
 
-  // Update sticky foreground notification with real-time status (e.g. SOS distress or active tracking)
+  // Update sticky foreground notification with real-time status (Android & iOS)
   static Future<void> updateStickyNotification({
     required String title,
     required String text,
     required bool isSosActive,
   }) async {
-    if (_isAndroid) {
+    if (_isMobile) {
       try {
         await _channel.invokeMethod('updateStickyNotification', {
           'title': title,
@@ -112,9 +116,9 @@ class NativeService {
 
   // --- Anti-Theft & Device Admin Methods ---
 
-  // Check if Device Administrator is active on Android
+  // Check if Device Administrator / System Security is active (Android & iOS)
   static Future<bool> isDeviceAdminActive() async {
-    if (_isAndroid) {
+    if (_isMobile) {
       try {
         final bool? result =
             await _channel.invokeMethod<bool>('isDeviceAdminActive');
@@ -126,7 +130,7 @@ class NativeService {
 
   // Open System prompt to activate Device Administrator
   static Future<bool> requestDeviceAdmin() async {
-    if (_isAndroid) {
+    if (_isMobile) {
       try {
         final bool? result =
             await _channel.invokeMethod<bool>('requestDeviceAdmin');
@@ -138,7 +142,7 @@ class NativeService {
 
   // Remove Device Administrator privilege
   static Future<bool> removeDeviceAdmin() async {
-    if (_isAndroid) {
+    if (_isMobile) {
       try {
         final bool? result =
             await _channel.invokeMethod<bool>('removeDeviceAdmin');
@@ -148,9 +152,9 @@ class NativeService {
     return false;
   }
 
-  // Fetch Anti-Theft settings from native layer
+  // Fetch Anti-Theft settings from native layer (Android & iOS)
   static Future<Map<String, dynamic>?> getAntiTheftConfig() async {
-    if (_isAndroid) {
+    if (_isMobile) {
       try {
         final result = await _channel.invokeMethod('getAntiTheftConfig');
         if (result is Map) {
@@ -161,7 +165,7 @@ class NativeService {
     return null;
   }
 
-  // Save Anti-Theft settings to native layer
+  // Save Anti-Theft settings to native layer (Android & iOS)
   static Future<bool> setAntiTheftConfig({
     String? alertEmail,
     String? senderEmail,
@@ -171,7 +175,7 @@ class NativeService {
     bool? dualCam,
     int? failedAttempts,
   }) async {
-    if (_isAndroid) {
+    if (_isMobile) {
       try {
         final bool? result =
             await _channel.invokeMethod<bool>('setAntiTheftConfig', {
@@ -189,13 +193,13 @@ class NativeService {
     return false;
   }
 
-  // Test sending alert email and get live response status/error
+  // Test sending alert email and get live response status/error (Cross-platform)
   static Future<Map<String, dynamic>> testSendAlertEmail({
     required String recipientEmail,
     String? senderEmail,
     String? senderPassword,
   }) async {
-    if (_isAndroid) {
+    if (_isMobile) {
       try {
         final result = await _channel.invokeMethod('testSendAlertEmail', {
           'recipientEmail': recipientEmail,
@@ -203,45 +207,88 @@ class NativeService {
           'senderPassword': senderPassword,
         });
         if (result is Map) {
-          return Map<String, dynamic>.from(result);
+          final resMap = Map<String, dynamic>.from(result);
+          if (resMap['fallback'] == true ||
+              (resMap['success'] == false &&
+                  resMap['error']?.toString().contains('USE_DART_SMTP') == true)) {
+            return await EmailService.sendIntruderAlertEmail(
+              recipientEmail: recipientEmail,
+              senderEmail: senderEmail,
+              senderPassword: senderPassword,
+            );
+          }
+          return resMap;
         }
-      } catch (e) {
-        return {'success': false, 'error': e.toString()};
+      } catch (_) {
+        // Fallback to cross-platform EmailService
+        return await EmailService.sendIntruderAlertEmail(
+          recipientEmail: recipientEmail,
+          senderEmail: senderEmail,
+          senderPassword: senderPassword,
+        );
       }
     }
-    return {'success': false, 'error': 'Not running on Android'};
+    // Web or desktop fallback
+    return await EmailService.sendIntruderAlertEmail(
+      recipientEmail: recipientEmail,
+      senderEmail: senderEmail,
+      senderPassword: senderPassword,
+    );
   }
 
   // ============================================================================
-  // METHOD: SEND BACKUP FILES TO USER SAVED EMAIL (NATIVE DISPATCH)
+  // METHOD: SEND BACKUP FILES TO USER SAVED EMAIL (CROSS-PLATFORM DISPATCH)
   // ============================================================================
   static Future<Map<String, dynamic>> sendBackupFilesEmail({
     required String recipientEmail,
     required List<String> filePaths,
+    String? senderEmail,
+    String? senderPassword,
   }) async {
-    if (_isAndroid) {
+    if (_isMobile) {
       try {
         final result = await _channel.invokeMethod('sendBackupFilesEmail', {
           'recipientEmail': recipientEmail,
           'filePaths': filePaths,
         });
         if (result is Map) {
-          return Map<String, dynamic>.from(result);
+          final resMap = Map<String, dynamic>.from(result);
+          if (resMap['fallback'] == true ||
+              (resMap['success'] == false &&
+                  resMap['error']?.toString().contains('USE_DART_SMTP') == true)) {
+            return await EmailService.sendBackupFilesEmail(
+              recipientEmail: recipientEmail,
+              filePaths: filePaths,
+              senderEmail: senderEmail,
+              senderPassword: senderPassword,
+            );
+          }
+          return resMap;
         }
-      } catch (e) {
-        return {'success': false, 'error': e.toString()};
+      } catch (_) {
+        return await EmailService.sendBackupFilesEmail(
+          recipientEmail: recipientEmail,
+          filePaths: filePaths,
+          senderEmail: senderEmail,
+          senderPassword: senderPassword,
+        );
       }
     }
-    return {'success': false, 'error': 'Not running on Android'};
+    return await EmailService.sendBackupFilesEmail(
+      recipientEmail: recipientEmail,
+      filePaths: filePaths,
+      senderEmail: senderEmail,
+      senderPassword: senderPassword,
+    );
   }
 
-  // Trigger test siren and test camera capture
+  // Trigger test siren and test camera capture (Android & iOS)
   static Future<bool> testIntruderAlarm({
     String? alertEmail,
     bool playSiren = true,
     bool dualCam = false,
   }) async {
-    if (_isAndroid) {
+    if (_isMobile) {
       try {
         final bool? result =
             await _channel.invokeMethod<bool>('testIntruderAlarm', {
@@ -255,18 +302,18 @@ class NativeService {
     return false;
   }
 
-  // Stop siren alarm if currently ringing
+  // Stop siren alarm if currently ringing (Android & iOS)
   static Future<void> stopIntruderAlarm() async {
-    if (_isAndroid) {
+    if (_isMobile) {
       try {
         await _channel.invokeMethod('stopIntruderAlarm');
       } catch (_) {}
     }
   }
 
-  // Get list of captured intruder photos from private app memory
+  // Get list of captured intruder photos from private app memory (Android & iOS)
   static Future<List<Map<String, dynamic>>> getIntruderPhotos() async {
-    if (_isAndroid) {
+    if (_isMobile) {
       try {
         final result = await _channel.invokeMethod('getIntruderPhotos');
         if (result is List) {
@@ -277,9 +324,9 @@ class NativeService {
     return [];
   }
 
-  // Explicitly export/save a photo to phone's public gallery upon user confirmation
+  // Explicitly export/save a photo to phone's public gallery (Android & iOS)
   static Future<bool> savePhotoToGallery(String filePath) async {
-    if (_isAndroid) {
+    if (_isMobile) {
       try {
         final bool? result = await _channel.invokeMethod<bool>(
             'savePhotoToGallery', {'filePath': filePath});
@@ -289,9 +336,9 @@ class NativeService {
     return false;
   }
 
-  // Delete a specific intruder photo from app memory
+  // Delete a specific intruder photo from app memory (Android & iOS)
   static Future<bool> deleteIntruderPhoto(String filePath) async {
-    if (_isAndroid) {
+    if (_isMobile) {
       try {
         final bool? result = await _channel.invokeMethod<bool>(
             'deleteIntruderPhoto', {'filePath': filePath});
@@ -301,9 +348,9 @@ class NativeService {
     return false;
   }
 
-  // Clear all intruder photos from app memory
+  // Clear all intruder photos from app memory (Android & iOS)
   static Future<bool> clearAllIntruderPhotos() async {
-    if (_isAndroid) {
+    if (_isMobile) {
       try {
         final bool? result =
             await _channel.invokeMethod<bool>('clearAllIntruderPhotos');
@@ -313,9 +360,9 @@ class NativeService {
     return false;
   }
 
-  // Check if Offline SMS location dispatch is enabled
+  // Check if Offline SMS location dispatch is enabled (Android & iOS)
   static Future<bool> isOfflineSmsEnabled() async {
-    if (_isAndroid) {
+    if (_isMobile) {
       try {
         final bool? result = await _channel.invokeMethod<bool>('isOfflineSmsEnabled');
         return result ?? true;
@@ -324,9 +371,9 @@ class NativeService {
     return true;
   }
 
-  // Set Offline SMS enabled
+  // Set Offline SMS enabled (Android & iOS)
   static Future<bool> setOfflineSmsEnabled(bool enabled) async {
-    if (_isAndroid) {
+    if (_isMobile) {
       try {
         final bool? result = await _channel.invokeMethod<bool>(
             'setOfflineSmsEnabled', {'enabled': enabled});
@@ -336,9 +383,9 @@ class NativeService {
     return false;
   }
 
-  // Get Offline SMS recipient phone
+  // Get Offline SMS recipient phone (Android & iOS)
   static Future<String> getOfflineSmsPhone() async {
-    if (_isAndroid) {
+    if (_isMobile) {
       try {
         final String? result = await _channel.invokeMethod<String>('getOfflineSmsPhone');
         return result ?? '';
@@ -347,9 +394,9 @@ class NativeService {
     return '';
   }
 
-  // Set Offline SMS recipient phone
+  // Set Offline SMS recipient phone (Android & iOS)
   static Future<bool> setOfflineSmsPhone(String phone) async {
-    if (_isAndroid) {
+    if (_isMobile) {
       try {
         final bool? result = await _channel.invokeMethod<bool>(
             'setOfflineSmsPhone', {'phone': phone});
@@ -361,7 +408,7 @@ class NativeService {
 
   // Check if SEND_SMS permission is granted
   static Future<bool> hasSmsPermission() async {
-    if (_isAndroid) {
+    if (_isMobile) {
       try {
         final bool? result = await _channel.invokeMethod<bool>('hasSmsPermission');
         return result ?? false;
@@ -372,16 +419,16 @@ class NativeService {
 
   // Request SEND_SMS permission
   static Future<void> requestSmsPermission() async {
-    if (_isAndroid) {
+    if (_isMobile) {
       try {
         await _channel.invokeMethod('requestSmsPermission');
       } catch (_) {}
     }
   }
 
-  // Read device call logs (Android)
+  // Read device call logs (Android only; returns empty on iOS due to sandbox)
   static Future<List<Map<String, dynamic>>> getDeviceCallLogs() async {
-    if (_isAndroid) {
+    if (_isMobile) {
       try {
         final result = await _channel.invokeMethod('getDeviceCallLogs');
         if (result is List) {
@@ -392,9 +439,9 @@ class NativeService {
     return [];
   }
 
-  // Read device SMS messages (Android)
+  // Read device SMS messages (Android only; returns empty on iOS due to sandbox)
   static Future<List<Map<String, dynamic>>> getDeviceSms() async {
-    if (_isAndroid) {
+    if (_isMobile) {
       try {
         final result = await _channel.invokeMethod('getDeviceSms');
         if (result is List) {
@@ -407,7 +454,7 @@ class NativeService {
 
   // Check if READ_CALL_LOG permission is granted
   static Future<bool> hasCallLogPermission() async {
-    if (_isAndroid) {
+    if (_isMobile) {
       try {
         final bool? result = await _channel.invokeMethod<bool>('hasCallLogPermission');
         return result ?? false;
@@ -418,16 +465,16 @@ class NativeService {
 
   // Request READ_CALL_LOG permission
   static Future<void> requestCallLogPermission() async {
-    if (_isAndroid) {
+    if (_isMobile) {
       try {
         await _channel.invokeMethod('requestCallLogPermission');
       } catch (_) {}
     }
   }
 
-  // Send a test offline location SMS immediately
+  // Send a test offline location SMS immediately (Android direct or iOS composer)
   static Future<Map<String, dynamic>> sendTestOfflineSms(String phone) async {
-    if (_isAndroid) {
+    if (_isMobile) {
       try {
         final result = await _channel.invokeMethod('sendTestOfflineSms', {'phone': phone});
         if (result is Map) {
@@ -437,9 +484,6 @@ class NativeService {
         return {'success': false, 'error': e.toString()};
       }
     }
-    return {'success': false, 'error': 'Not running on Android'};
+    return {'success': false, 'error': 'Not running on mobile device'};
   }
 }
-
-
-

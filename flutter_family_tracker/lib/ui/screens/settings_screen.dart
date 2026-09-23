@@ -98,10 +98,12 @@ class _SettingsScreenState extends State<SettingsScreen> with WidgetsBindingObse
   }
 
   Future<void> _loadAntiTheftConfig() async {
-    final isAndroid = !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
+    final isMobile = !kIsWeb &&
+        (defaultTargetPlatform == TargetPlatform.android ||
+            defaultTargetPlatform == TargetPlatform.iOS);
     final userPhone = PreferencesService.getUserPhone() ?? '';
-    final config = isAndroid ? await NativeService.getAntiTheftConfig() : null;
-    final isAdmin = isAndroid ? await NativeService.isDeviceAdminActive() : false;
+    final config = isMobile ? await NativeService.getAntiTheftConfig() : null;
+    final isAdmin = isMobile ? await NativeService.isDeviceAdminActive() : false;
 
     // 1. Fetch user's alertEmail from RTDB profile
     String? rtdbUserAlertEmail;
@@ -113,8 +115,8 @@ class _SettingsScreenState extends State<SettingsScreen> with WidgetsBindingObse
     final rtdbServerConfig = await DatabaseService().getEmailConfig();
 
     // 3. Fetch Offline SMS configuration from native layer
-    final smsEnabled = isAndroid ? await NativeService.isOfflineSmsEnabled() : false;
-    final savedSmsPhone = isAndroid ? await NativeService.getOfflineSmsPhone() : '';
+    final smsEnabled = isMobile ? await NativeService.isOfflineSmsEnabled() : false;
+    final savedSmsPhone = isMobile ? await NativeService.getOfflineSmsPhone() : '';
 
     // 4. Fetch latest backup info
     final backupInfo = !kIsWeb ? await BackupService.getLatestBackupInfo() : null;
@@ -557,7 +559,10 @@ class _SettingsScreenState extends State<SettingsScreen> with WidgetsBindingObse
 
   @override
   Widget build(BuildContext context) {
-    final isAndroid = !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
+    final isMobile = !kIsWeb &&
+        (defaultTargetPlatform == TargetPlatform.android ||
+            defaultTargetPlatform == TargetPlatform.iOS);
+    final isIOS = !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS;
     final phone = PreferencesService.getUserPhone() ?? '';
     final familyName = PreferencesService.getUserFamilyName() ?? 'MyFamily';
 
@@ -613,17 +618,19 @@ class _SettingsScreenState extends State<SettingsScreen> with WidgetsBindingObse
             _buildVaultActionCard(),
             const SizedBox(height: 12),
 
-            // 5. Anti-Theft & Intruder Protection Section (Android only)
-            if (isAndroid) ...[
+            // 5. Anti-Theft & Intruder Protection Section
+            if (isMobile) ...[
               _buildExpandableSection(
                 sectionKey: 'anti_theft',
                 title: 'Anti-Theft & Intruder Defense',
-                subtitle: 'Wrong PIN alarm, secret camera capture & email alert',
+                subtitle: isIOS
+                    ? 'Siren alarm, secret camera capture & alert email'
+                    : 'Wrong PIN alarm, secret camera capture & email alert',
                 icon: Icons.security_rounded,
                 iconColor: const Color(0xFF6366F1),
                 iconBgColor: const Color(0xFFEEF2FF),
                 statusBadge: _buildStatusBadge(
-                  label: _isDeviceAdminActive ? 'Active' : 'Admin Off',
+                  label: _isDeviceAdminActive ? (isIOS ? 'Secured' : 'Active') : 'Admin Off',
                   isActive: _isDeviceAdminActive,
                 ),
                 child: _buildAntiTheftBody(),
@@ -631,12 +638,14 @@ class _SettingsScreenState extends State<SettingsScreen> with WidgetsBindingObse
               const SizedBox(height: 12),
             ],
 
-            // 6. Offline SMS Location Tracking Section (Android only)
-            if (isAndroid) ...[
+            // 6. Offline SMS Location Tracking Section
+            if (isMobile) ...[
               _buildExpandableSection(
                 sectionKey: 'offline_sms',
                 title: 'Offline SMS Location Tracking',
-                subtitle: '15-minute background SMS without internet',
+                subtitle: isIOS
+                    ? 'Emergency SOS SMS coordinates without internet'
+                    : '15-minute background SMS without internet',
                 icon: Icons.sms_rounded,
                 iconColor: const Color(0xFF0EA5E9),
                 iconBgColor: const Color(0xFFE0F2FE),
@@ -649,13 +658,17 @@ class _SettingsScreenState extends State<SettingsScreen> with WidgetsBindingObse
               const SizedBox(height: 12),
             ],
 
-            // 7. Background & OEM Battery Section (Android only)
-            if (isAndroid) ...[
+            // 7. Background & Battery Section
+            if (isMobile) ...[
               _buildExpandableSection(
                 sectionKey: 'battery_autostart',
-                title: 'Auto-Start & Battery Optimization',
-                subtitle: 'Prevent system killing FamilyTracker in background',
-                icon: Icons.battery_saver_rounded,
+                title: isIOS
+                    ? 'Background App Refresh & Location'
+                    : 'Auto-Start & Battery Optimization',
+                subtitle: isIOS
+                    ? 'Keep FamilyTracker active in background for live safety'
+                    : 'Prevent system killing FamilyTracker in background',
+                icon: isIOS ? Icons.autorenew_rounded : Icons.battery_saver_rounded,
                 iconColor: const Color(0xFFF59E0B),
                 iconBgColor: const Color(0xFFFEF3C7),
                 child: _buildBatteryBody(),
@@ -1220,10 +1233,11 @@ class _SettingsScreenState extends State<SettingsScreen> with WidgetsBindingObse
   // SECTION 1: ANTI-THEFT & INTRUDER DEFENSE BODY
   // --------------------------------------------------------------------------
   Widget _buildAntiTheftBody() {
+    final isIOS = !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // Admin Activation Action Tile
+        // Admin Activation / iOS Security Status Action Tile
         Container(
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
@@ -1240,18 +1254,22 @@ class _SettingsScreenState extends State<SettingsScreen> with WidgetsBindingObse
           child: Row(
             children: [
               Icon(
-                _isDeviceAdminActive
-                    ? Icons.admin_panel_settings_rounded
-                    : Icons.warning_amber_rounded,
+                isIOS
+                    ? Icons.verified_user_rounded
+                    : (_isDeviceAdminActive
+                        ? Icons.admin_panel_settings_rounded
+                        : Icons.warning_amber_rounded),
                 color: _isDeviceAdminActive ? AppColors.primary : Colors.orange,
                 size: 20,
               ),
               const SizedBox(width: 10),
               Expanded(
                 child: Text(
-                  _isDeviceAdminActive
-                      ? 'Device Administrator active. Lockscreen failed attempt detection is enabled.'
-                      : 'Device Admin required to detect failed lockscreen unlock attempts.',
+                  isIOS
+                      ? 'iOS Protected: Secured by Face ID / Touch ID & System Passcode. Siren alarm & camera defense active.'
+                      : (_isDeviceAdminActive
+                          ? 'Device Administrator active. Lockscreen failed attempt detection is enabled.'
+                          : 'Device Admin required to detect failed lockscreen unlock attempts.'),
                   style: const TextStyle(
                     fontSize: 11.5,
                     color: AppColors.textPrimary,
@@ -1259,27 +1277,29 @@ class _SettingsScreenState extends State<SettingsScreen> with WidgetsBindingObse
                   ),
                 ),
               ),
-              const SizedBox(width: 8),
-              ElevatedButton(
-                onPressed: _isLoadingAdmin ? null : _toggleDeviceAdmin,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: _isDeviceAdminActive
-                      ? AppColors.danger
-                      : AppColors.primary,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                  elevation: 0,
-                  minimumSize: Size.zero,
-                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              if (!isIOS) ...[
+                const SizedBox(width: 8),
+                ElevatedButton(
+                  onPressed: _isLoadingAdmin ? null : _toggleDeviceAdmin,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: _isDeviceAdminActive
+                        ? AppColors.danger
+                        : AppColors.primary,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    elevation: 0,
+                    minimumSize: Size.zero,
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  ),
+                  child: Text(
+                    _isLoadingAdmin
+                        ? '...'
+                        : (_isDeviceAdminActive ? 'Deactivate' : 'Enable'),
+                    style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold),
+                  ),
                 ),
-                child: Text(
-                  _isLoadingAdmin
-                      ? '...'
-                      : (_isDeviceAdminActive ? 'Deactivate' : 'Enable'),
-                  style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold),
-                ),
-              ),
+              ],
             ],
           ),
         ),
@@ -1615,17 +1635,22 @@ class _SettingsScreenState extends State<SettingsScreen> with WidgetsBindingObse
   // SECTION 4: BATTERY & AUTO-START BODY
   // --------------------------------------------------------------------------
   Widget _buildBatteryBody() {
+    final isIOS = !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
-          'Prevent OEM Background Termination',
-          style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
+        Text(
+          isIOS
+              ? 'Continuous iOS Background Telemetry'
+              : 'Prevent OEM Background Termination',
+          style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
         ),
         const SizedBox(height: 4),
-        const Text(
-          'Manufacturers (Xiaomi, Samsung, Oppo, Vivo, OnePlus) aggressively stop background services unless Auto-Start is granted and Battery is set to "No Restrictions".',
-          style: TextStyle(fontSize: 11.5, color: AppColors.textSecondary, height: 1.4),
+        Text(
+          isIOS
+              ? 'iOS requires Location Access set to "Always" and "Background App Refresh" enabled so your family circle receives live position updates without interruptions.'
+              : 'Manufacturers (Xiaomi, Samsung, Oppo, Vivo, OnePlus) aggressively stop background services unless Auto-Start is granted and Battery is set to "No Restrictions".',
+          style: const TextStyle(fontSize: 11.5, color: AppColors.textSecondary, height: 1.4),
         ),
         const SizedBox(height: 12),
         Row(
@@ -1633,8 +1658,8 @@ class _SettingsScreenState extends State<SettingsScreen> with WidgetsBindingObse
             Expanded(
               child: OutlinedButton.icon(
                 onPressed: () => OemAutoStartModal.show(context, isManualTrigger: true),
-                icon: const Icon(Icons.settings_suggest_rounded, size: 16),
-                label: const Text('Auto-Start Guide', style: TextStyle(fontSize: 12)),
+                icon: Icon(isIOS ? Icons.help_outline_rounded : Icons.settings_suggest_rounded, size: 16),
+                label: Text(isIOS ? 'iOS Guide' : 'Auto-Start Guide', style: const TextStyle(fontSize: 12)),
                 style: OutlinedButton.styleFrom(
                   foregroundColor: AppColors.primary,
                   side: const BorderSide(color: AppColors.primary),
@@ -1647,8 +1672,8 @@ class _SettingsScreenState extends State<SettingsScreen> with WidgetsBindingObse
             Expanded(
               child: ElevatedButton.icon(
                 onPressed: () => NativeService.openBatteryOptimizationSettings(),
-                icon: const Icon(Icons.battery_charging_full_rounded, size: 16),
-                label: const Text('Battery Menu', style: TextStyle(fontSize: 12)),
+                icon: Icon(isIOS ? Icons.settings_rounded : Icons.battery_charging_full_rounded, size: 16),
+                label: Text(isIOS ? 'iOS Settings' : 'Battery Menu', style: const TextStyle(fontSize: 12)),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: AppColors.accent,
                   foregroundColor: Colors.white,
