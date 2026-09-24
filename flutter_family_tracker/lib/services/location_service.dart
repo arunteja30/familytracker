@@ -62,12 +62,16 @@ class LocationService {
           } catch (_) {}
         }
 
-        // Try fresh location with short timeout
+        // Try fresh location (avoid timeLimit on web to prevent geolocator_web Bad state: Future already completed)
         try {
-          final fresh = await Geolocator.getCurrentPosition(
-            desiredAccuracy: LocationAccuracy.medium,
-            timeLimit: const Duration(seconds: 5),
-          );
+          final fresh = kIsWeb
+              ? await Geolocator.getCurrentPosition(
+                  desiredAccuracy: LocationAccuracy.medium,
+                )
+              : await Geolocator.getCurrentPosition(
+                  desiredAccuracy: LocationAccuracy.medium,
+                  timeLimit: const Duration(seconds: 5),
+                );
           if (fresh.latitude != 0.0 || fresh.longitude != 0.0) {
             position = fresh;
           }

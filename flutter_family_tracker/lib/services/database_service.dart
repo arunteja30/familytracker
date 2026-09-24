@@ -109,7 +109,7 @@ class DatabaseService {
 
     try {
       // 1. Check familyMembersList
-      final snap1 = await _db.ref(AppConstants.familyMemberList).get();
+      final snap1 = await _db.ref(AppConstants.familyMemberList).get().timeout(const Duration(seconds: 4));
       if (snap1.exists && snap1.value != null) {
         for (var m in parseMembersFromSnapshot(snap1.value)) {
           final key = '${m.mobile}_${m.familyName}';
@@ -121,7 +121,7 @@ class DatabaseService {
       }
 
       // 2. Check familyNames
-      final snap2 = await _db.ref(AppConstants.familyDbName).get();
+      final snap2 = await _db.ref(AppConstants.familyDbName).get().timeout(const Duration(seconds: 4));
       if (snap2.exists && snap2.value != null) {
         for (var m in parseMembersFromSnapshot(snap2.value)) {
           final key = '${m.mobile}_${m.familyName}';
@@ -133,7 +133,7 @@ class DatabaseService {
       }
 
       // 3. Check legacy FamilyDetails
-      final snap3 = await _db.ref(AppConstants.legacyFamilyDb).get();
+      final snap3 = await _db.ref(AppConstants.legacyFamilyDb).get().timeout(const Duration(seconds: 4));
       if (snap3.exists && snap3.value != null) {
         for (var m in parseMembersFromSnapshot(snap3.value)) {
           final key = '${m.mobile}_${m.familyName}';
@@ -173,7 +173,7 @@ class DatabaseService {
     // 1. Fast O(1) direct index lookup from user_families/{normalizedPhone}
     if (norm.isNotEmpty) {
       try {
-        final snap = await _db.ref('user_families').child(norm).get();
+        final snap = await _db.ref('user_families').child(norm).get().timeout(const Duration(seconds: 3));
         if (snap.exists && snap.value is Map) {
           (snap.value as Map).forEach((k, v) {
             if (k != null && k.toString().trim().isNotEmpty) {
@@ -208,7 +208,7 @@ class DatabaseService {
     // Check UserFamilyName node fallback
     if (groups.isEmpty) {
       try {
-        final snap = await _db.ref(AppConstants.userFamilyName).child(mobile).get();
+        final snap = await _db.ref(AppConstants.userFamilyName).child(mobile).get().timeout(const Duration(seconds: 3));
         if (snap.exists && snap.value != null) {
           final fam = snap.value.toString().trim();
           groups.add(fam);
@@ -1095,7 +1095,7 @@ class DatabaseService {
   /// Get app update metadata once from RTDB node 'UpdateData'
   Future<AppUpdateModel?> getAppUpdate() async {
     try {
-      final snapshot = await _db.ref(AppConstants.mandatoryData).get();
+      final snapshot = await _db.ref(AppConstants.mandatoryData).get().timeout(const Duration(seconds: 3));
       if (snapshot.exists && snapshot.value is Map) {
         return AppUpdateModel.fromMap(snapshot.value as Map);
       }
@@ -1219,6 +1219,9 @@ class DatabaseService {
       }
       places.sort((a, b) => b.createdAt.compareTo(a.createdAt));
       return places;
+    }).handleError((err) {
+      debugPrint('[DatabaseService] Places stream handled safely: $err');
+      return <GeofencePlaceModel>[];
     });
   }
 
@@ -1309,6 +1312,9 @@ class DatabaseService {
       }
       events.sort((a, b) => b.timestamp.compareTo(a.timestamp));
       return events;
+    }).handleError((err) {
+      debugPrint('[DatabaseService] PlaceEvents stream handled safely: $err');
+      return <PlaceEventModel>[];
     });
   }
 
@@ -1375,6 +1381,9 @@ class DatabaseService {
 
       validAlerts.sort((a, b) => b.timestamp.compareTo(a.timestamp));
       return validAlerts;
+    }).handleError((err) {
+      debugPrint('[DatabaseService] Alerts stream handled safely: $err');
+      return <AlertItemModel>[];
     });
   }
 

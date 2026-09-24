@@ -1,7 +1,9 @@
+import 'package:flutter/foundation.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
 class AuthService {
   final FirebaseAuth _auth = FirebaseAuth.instance;
+  ConfirmationResult? _webConfirmationResult;
 
   User? get currentUser => _auth.currentUser;
 
@@ -15,6 +17,22 @@ class AuthService {
     required Function(PhoneAuthCredential credential) onVerificationCompleted,
     int? resendToken,
   }) async {
+    // On Flutter Web, use signInWithPhoneNumber to properly initialize RecaptchaVerifier
+    if (kIsWeb) {
+      try {
+        _webConfirmationResult = await _auth.signInWithPhoneNumber(phoneNumber);
+        onCodeSent(_webConfirmationResult!.verificationId, resendToken);
+      } on FirebaseAuthException catch (e) {
+        onVerificationFailed(e);
+      } catch (e) {
+        onVerificationFailed(FirebaseAuthException(
+          code: 'web-phone-auth-error',
+          message: e.toString(),
+        ));
+      }
+      return;
+    }
+
     await _auth.verifyPhoneNumber(
       phoneNumber: phoneNumber,
       timeout: const Duration(seconds: 60),
@@ -31,6 +49,9 @@ class AuthService {
     required String verificationId,
     required String smsCode,
   }) async {
+    if (kIsWeb && _webConfirmationResult != null) {
+      return await _webConfirmationResult!.confirm(smsCode);
+    }
     final credential = PhoneAuthProvider.credential(
       verificationId: verificationId,
       smsCode: smsCode,

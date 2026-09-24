@@ -8,12 +8,10 @@ class ContactsService {
 
   // Load and cache all device contacts with bulletproof safety
   static Future<void> syncDeviceContacts() async {
+    if (kIsWeb) return;
     try {
       final status = await Permission.contacts.status;
-      if (!status.isGranted) {
-        final req = await Permission.contacts.request();
-        if (!req.isGranted) return;
-      }
+      if (!status.isGranted) return;
 
       final dynamic contacts = await NativeService.getDeviceContacts();
       if (contacts is Map) {

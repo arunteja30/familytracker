@@ -220,21 +220,34 @@ class FamilyProvider extends ChangeNotifier {
 
   // Initialize and Load Data
   Future<void> init(String userPhone) async {
+    if (_isLoading) return;
     _isLoading = true;
     _safeNotifyListeners();
+
+    // Safety fallback timer: guarantee that _isLoading is never stuck on true for more than 3.5 seconds
+    Timer(const Duration(milliseconds: 3500), () {
+      if (_isLoading) {
+        debugPrint('[FamilyTracker] Init safety timer triggered: releasing loading state');
+        _isLoading = false;
+        _safeNotifyListeners();
+      }
+    });
 
     try {
       debugPrint('[FamilyTracker] Initializing FamilyProvider for: $userPhone');
 
-      // 1. Sync device contacts safely
-      try {
-        await ContactsService.syncDeviceContacts();
-      } catch (e) {
-        debugPrint('[FamilyTracker] Contacts error: $e');
-      }
+      // 1. Sync device contacts in background without blocking UI
+      unawaited(ContactsService.syncDeviceContacts());
 
       // 2. Fetch all groups on Firebase that this phone is added to
-      _userFamilyGroups = await _dbService.getFamilyNamesForPhone(userPhone);
+      try {
+        _userFamilyGroups = await _dbService
+            .getFamilyNamesForPhone(userPhone)
+            .timeout(const Duration(seconds: 3), onTimeout: () => []);
+      } catch (e) {
+        debugPrint('[FamilyTracker] Fetch groups error: $e');
+        _userFamilyGroups = [];
+      }
       debugPrint('[FamilyTracker] Detected groups for user: $_userFamilyGroups');
 
       // 3. Determine best family group to load
@@ -257,8 +270,14 @@ class FamilyProvider extends ChangeNotifier {
       debugPrint('[FamilyTracker] Selected active group: $_currentFamilyName');
 
       // 4. Fetch initial snapshot directly and enrich with contacts
-      final initialMembers = await _dbService.getFamilyMembers(_currentFamilyName);
-      _familyMembers = _enrichWithContactNames(initialMembers);
+      try {
+        final initialMembers = await _dbService
+            .getFamilyMembers(_currentFamilyName)
+            .timeout(const Duration(seconds: 3), onTimeout: () => []);
+        _familyMembers = _enrichWithContactNames(initialMembers);
+      } catch (e) {
+        debugPrint('[FamilyTracker] Initial members error: $e');
+      }
       debugPrint('[FamilyTracker] Initial snapshot loaded: ${_familyMembers.length} members');
 
       // 5. Subscribe to real-time updates for the active family group
@@ -269,11 +288,13 @@ class FamilyProvider extends ChangeNotifier {
       _subscribeToAlerts(_currentFamilyName);
 
       // 6. Start continuous background location tracking
-      try {
-        _locationService.startContinuousBackgroundLocationTracking(userPhone);
-        await NativeService.startNativeStickyService();
-      } catch (e) {
-        debugPrint('[FamilyTracker] Location start error: $e');
+      if (userPhone.isNotEmpty) {
+        try {
+          _locationService.startContinuousBackgroundLocationTracking(userPhone);
+          NativeService.startNativeStickyService().catchError((_) => false);
+        } catch (e) {
+          debugPrint('[FamilyTracker] Location start error: $e');
+        }
       }
     } catch (e) {
       _errorMessage = e.toString();

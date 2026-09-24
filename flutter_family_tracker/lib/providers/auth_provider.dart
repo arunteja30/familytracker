@@ -54,8 +54,8 @@ class AppAuthProvider extends ChangeNotifier {
           setLoading(false);
           debugPrint('[FamilyTracker-Auth] Phone verification failed: code=${e.code}, message=${e.message}');
           String message = e.message ?? 'Phone verification failed';
-          if (e.code == 'captcha-check-failed' || e.message?.toLowerCase().contains('recaptcha') == true) {
-            message = 'reCAPTCHA verification failed. Please check internet connection or add SHA-256 fingerprint in Firebase Console.';
+          if (e.code == 'captcha-check-failed' || e.code == 'invalid-app-credential' || e.message?.toLowerCase().contains('recaptcha') == true) {
+            message = 'Verification failed (invalid-app-credential). Please ensure SHA-256 fingerprint is added to Firebase Console (or Authorized Domains for Web).';
           } else if (e.code == 'app-not-authorized' || e.code == 'missing-client-identifier') {
             message = 'App not authorized. Please verify SHA-1 & SHA-256 certificates in Firebase Console.';
           } else if (e.code == 'too-many-requests') {

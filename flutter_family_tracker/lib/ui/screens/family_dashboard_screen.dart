@@ -105,6 +105,11 @@ class _FamilyDashboardScreenState extends State<FamilyDashboardScreen> with Widg
   Future<void> _loadData() async {
     if (!mounted) return;
     _userPhone = PreferencesService.getUserPhone() ?? '';
+
+    // Initialize family data immediately so dashboard never gets stuck in loading state
+    final familyProvider = Provider.of<FamilyProvider>(context, listen: false);
+    unawaited(familyProvider.init(_userPhone));
+
     final hasPerm = await PermissionService.hasLocationPermission();
 
     if (!hasPerm && mounted) {
@@ -113,24 +118,12 @@ class _FamilyDashboardScreenState extends State<FamilyDashboardScreen> with Widg
         onProceed: () async {
           await PermissionService.requestEssentialPermissions(context);
           if (mounted) {
-            final familyProvider =
-                Provider.of<FamilyProvider>(context, listen: false);
-            await familyProvider.init(_userPhone);
-            if (mounted) {
-              await OemAutoStartModal.showIfNeeded(context);
-            }
+            await OemAutoStartModal.showIfNeeded(context);
           }
         },
       );
-    } else {
-      if (mounted) {
-        final familyProvider =
-            Provider.of<FamilyProvider>(context, listen: false);
-        await familyProvider.init(_userPhone);
-        if (mounted) {
-          await OemAutoStartModal.showIfNeeded(context);
-        }
-      }
+    } else if (mounted) {
+      await OemAutoStartModal.showIfNeeded(context);
     }
   }
 

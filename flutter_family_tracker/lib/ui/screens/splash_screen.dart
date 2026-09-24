@@ -27,8 +27,9 @@ class _SplashScreenState extends State<SplashScreen> {
     await Future.delayed(const Duration(milliseconds: 800));
     if (!mounted) return;
 
-    // Check RTDB 'UpdateData' for mandatory or available app update
-    final isMandatoryBlocked = await AppUpdateService.checkAndPromptUpdate(context);
+    // Check RTDB 'UpdateData' for mandatory or available app update with safety timeout
+    final isMandatoryBlocked = await AppUpdateService.checkAndPromptUpdate(context)
+        .timeout(const Duration(seconds: 3), onTimeout: () => false);
     if (isMandatoryBlocked) {
       // Mandatory update is open and blocks further app access
       return;
