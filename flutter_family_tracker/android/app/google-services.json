@@ -15,14 +15,6 @@
       },
       "oauth_client": [
         {
-          "client_id": "133174163927-onbpksd6k69h26585hvh8p1954t93g63.apps.googleusercontent.com",
-          "client_type": 1,
-          "android_info": {
-            "package_name": "com.mat.familytrack",
-            "certificate_hash": "f9ceb5bf68393acd9d47f97b6d6c92707c3cb56d"
-          }
-        },
-        {
           "client_id": "133174163927-9gvi45kfmbnbqv8hg5ut652kvcuosifk.apps.googleusercontent.com",
           "client_type": 3
         }

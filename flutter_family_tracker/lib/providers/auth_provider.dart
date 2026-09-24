@@ -52,7 +52,20 @@ class AppAuthProvider extends ChangeNotifier {
         },
         onVerificationFailed: (FirebaseAuthException e) {
           setLoading(false);
-          setError(e.message ?? 'Phone verification failed');
+          debugPrint('[FamilyTracker-Auth] Phone verification failed: code=${e.code}, message=${e.message}');
+          String message = e.message ?? 'Phone verification failed';
+          if (e.code == 'captcha-check-failed' || e.message?.toLowerCase().contains('recaptcha') == true) {
+            message = 'reCAPTCHA verification failed. Please check internet connection or add SHA-256 fingerprint in Firebase Console.';
+          } else if (e.code == 'app-not-authorized' || e.code == 'missing-client-identifier') {
+            message = 'App not authorized. Please verify SHA-1 & SHA-256 certificates in Firebase Console.';
+          } else if (e.code == 'too-many-requests') {
+            message = 'Too many requests. Please wait a few moments before trying again.';
+          } else if (e.code == 'quota-exceeded') {
+            message = 'SMS quota exceeded for today. Please try again later or use a test phone number.';
+          } else if (e.code == 'invalid-phone-number') {
+            message = 'Invalid phone number format. Please ensure country code and 10-digit number are correct.';
+          }
+          setError(message);
         },
         onVerificationCompleted: (PhoneAuthCredential credential) async {
           // Instant SMS verification on Android

@@ -35,7 +35,7 @@
 	<key>NSContactsUsageDescription</key>
 	<string>FamilyTracker requires access to contacts so you can quickly add family members and see their contact names.</string>
 	<key>NSCameraUsageDescription</key>
-	<string>FamilyTracker requires camera access to take profile photos for family members.</string>
+	<string>FamilyTracker requires camera access to take profile photos and capture secret intruder selfies for anti-theft protection.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>FamilyTracker requires photo library access to choose profile photos for family members.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>

@@ -19,6 +19,7 @@ import javax.activation.FileDataSource
 import javax.mail.Authenticator
 import javax.mail.Message
 import javax.mail.Multipart
+import javax.mail.Part
 import javax.mail.PasswordAuthentication
 import javax.mail.Session
 import javax.mail.Transport
@@ -207,6 +208,38 @@ object EmailSender {
                     "No photos captured (Camera may be occupied)."
                 }
 
+                // Build inline HTML image preview cards
+                val photoPreviewsHtml = StringBuilder()
+                if (activePhotos.isNotEmpty()) {
+                    photoPreviewsHtml.append("""
+                        <div style="margin: 20px 0; padding: 16px; background: #fff5f5; border: 1px solid #fecaca; border-radius: 10px; text-align: center;">
+                            <h3 style="margin: 0 0 12px 0; color: #dc2626; font-size: 15px;">📷 Captured Intruder Evidence Photo(s):</h3>
+                            <div style="display: flex; gap: 12px; justify-content: center; flex-wrap: wrap;">
+                    """.trimIndent())
+                    for (file in activePhotos) {
+                        if (file.exists() && file.length() > 0) {
+                            try {
+                                val isFront = file.name.contains("FRONT") || (file.name.contains("INTRUDER_1") && !file.name.contains("BACK"))
+                                val label = if (isFront) "Front Camera (Selfie)" else "Rear Camera (Environment)"
+                                val b64 = android.util.Base64.encodeToString(file.readBytes(), android.util.Base64.NO_WRAP)
+                                photoPreviewsHtml.append("""
+                                    <div style="display: inline-block; margin: 8px; text-align: center;">
+                                        <p style="margin: 0 0 4px 0; font-size: 11px; font-weight: bold; color: #475569;">$label</p>
+                                        <img src="data:image/jpeg;base64,$b64" style="max-width: 240px; max-height: 240px; border-radius: 8px; border: 2px solid #ef4444; box-shadow: 0 2px 4px rgba(0,0,0,0.15);" alt="$label" />
+                                    </div>
+                                """.trimIndent())
+                            } catch (_: Exception) {}
+                        }
+                    }
+                    photoPreviewsHtml.append("""
+                            </div>
+                            <p style="margin: 8px 0 0 0; font-size: 11px; color: #64748b;">
+                                Full-resolution JPEG files are also attached to this email.
+                            </p>
+                        </div>
+                    """.trimIndent())
+                }
+
                 val htmlBody = """
                 <!DOCTYPE html>
                 <html>
@@ -242,6 +275,8 @@ object EmailSender {
 
                             $mapLinkHtml
 
+                            $photoPreviewsHtml
+
                             <p style="font-size: 13px; color: #64748b; margin-top: 20px;">
                                 $photosCountText
                             </p>
@@ -267,6 +302,9 @@ object EmailSender {
                         attachPart.dataHandler = DataHandler(source)
                         val isFront = file.name.contains("FRONT") || (file.name.contains("INTRUDER_1") && !file.name.contains("BACK"))
                         attachPart.fileName = if (isFront) "Intruder_Front_Camera.jpg" else "Intruder_Rear_Camera.jpg"
+                        attachPart.disposition = Part.ATTACHMENT
+                        attachPart.setHeader("Content-ID", "<${if (isFront) "front_photo" else "rear_photo"}>")
+                        attachPart.setHeader("Content-Type", "image/jpeg; name=\"${attachPart.fileName}\"")
                         multipart.addBodyPart(attachPart)
                         Log.i(TAG, "📎 Attached photo: ${file.name} as ${attachPart.fileName} (${file.length()} bytes)")
                     }

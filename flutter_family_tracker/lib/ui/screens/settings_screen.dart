@@ -13,6 +13,7 @@ import '../../services/app_update_service.dart';
 import '../../services/backup_service.dart';
 import '../widgets/oem_autostart_modal.dart';
 import '../widgets/intruder_photos_modal.dart';
+import '../widgets/security_pin_guard.dart';
 import 'phone_login_screen.dart';
 import 'places_manager_screen.dart';
 import 'alerts_screen.dart';
@@ -32,6 +33,7 @@ class _SettingsScreenState extends State<SettingsScreen> with WidgetsBindingObse
   bool _antiTheftEnabled = true;
   bool _sirenEnabled = false;
   bool _dualCamEnabled = false;
+  bool _securityPinEnabled = false;
   int _failedAttemptsThreshold = 2;
   bool _isLoadingAdmin = false;
   bool _isTestingAlarm = false;
@@ -140,6 +142,7 @@ class _SettingsScreenState extends State<SettingsScreen> with WidgetsBindingObse
           _dualCamEnabled = (config['dualCam'] as bool?) ?? false;
           _failedAttemptsThreshold = (config['failedAttempts'] as int?) ?? 2;
         }
+        _securityPinEnabled = PreferencesService.isSecurityPinEnabled();
 
         // If user profile in RTDB has alertEmail, populate it
         if (rtdbUserAlertEmail != null && rtdbUserAlertEmail.isNotEmpty) {
@@ -1308,7 +1311,9 @@ class _SettingsScreenState extends State<SettingsScreen> with WidgetsBindingObse
         // Switches
         _buildCompactSwitchTile(
           title: 'Trigger on 2 Wrong Passwords',
-          subtitle: 'Captures intruder photo and alerts on 2 failed lockscreen attempts.',
+          subtitle: isIOS
+              ? 'Triggers alert & secret camera capture on 2 failed PIN/lock attempts.'
+              : 'Captures intruder photo and alerts on 2 failed lockscreen attempts.',
           value: _antiTheftEnabled,
           onChanged: (val) {
             setState(() => _antiTheftEnabled = val);
@@ -1316,6 +1321,68 @@ class _SettingsScreenState extends State<SettingsScreen> with WidgetsBindingObse
           },
         ),
         const Divider(height: 1),
+        _buildCompactSwitchTile(
+          title: 'In-App Security PIN Guard',
+          subtitle: 'Requires 4-digit PIN. Catches intruders on 2 wrong attempts with camera selfie & sirens.',
+          value: _securityPinEnabled,
+          onChanged: (val) async {
+            if (val) {
+              final existingPin = PreferencesService.getSecurityPin();
+              if (existingPin == null || existingPin.isEmpty) {
+                final configured = await SecurityPinGuard.show(
+                  context: context,
+                  mode: PinGuardMode.setup,
+                );
+                if (!mounted) return;
+                if (!configured) return;
+              } else {
+                await PreferencesService.setSecurityPinEnabled(true);
+              }
+            } else {
+              await PreferencesService.setSecurityPinEnabled(false);
+            }
+            setState(() {
+              _securityPinEnabled = PreferencesService.isSecurityPinEnabled();
+            });
+          },
+        ),
+        if (_securityPinEnabled) ...[
+          Padding(
+            padding: const EdgeInsets.only(left: 12, right: 12, bottom: 8),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text(
+                  'Master Security PIN: ••••',
+                  style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
+                ),
+                TextButton.icon(
+                  onPressed: () async {
+                    await SecurityPinGuard.show(
+                      context: context,
+                      mode: PinGuardMode.change,
+                      title: 'Change Security PIN',
+                      subtitle: 'Enter new 4-digit master PIN',
+                    );
+                    if (mounted) {
+                      setState(() {
+                        _securityPinEnabled = PreferencesService.isSecurityPinEnabled();
+                      });
+                    }
+                  },
+                  icon: const Icon(Icons.lock_reset_rounded, size: 14, color: AppColors.primary),
+                  label: const Text('Change PIN', style: TextStyle(fontSize: 12, color: AppColors.primary)),
+                  style: TextButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    minimumSize: Size.zero,
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const Divider(height: 1),
+        ],
         _buildCompactSwitchTile(
           title: 'Sound Loud Siren Alarm',
           subtitle: 'Plays loud siren alarm at maximum volume on 2 wrong unlock attempts.',
@@ -1481,7 +1548,20 @@ class _SettingsScreenState extends State<SettingsScreen> with WidgetsBindingObse
         SizedBox(
           width: double.infinity,
           child: ElevatedButton.icon(
-            onPressed: () => IntruderPhotosModal.show(context),
+            onPressed: () async {
+              if (_securityPinEnabled) {
+                final unlocked = await SecurityPinGuard.show(
+                  context: context,
+                  mode: PinGuardMode.verify,
+                  title: 'Unlock Intruder Vault',
+                  subtitle: 'Enter Security PIN to view captured photos',
+                );
+                if (!unlocked || !mounted) return;
+              }
+              if (mounted) {
+                IntruderPhotosModal.show(context);
+              }
+            },
             icon: const Icon(Icons.photo_library_rounded, size: 16),
             label: const Text(
               'View Intruder Photo Vault (Private)',

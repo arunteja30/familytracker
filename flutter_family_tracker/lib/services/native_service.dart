@@ -17,8 +17,38 @@ class NativeService {
   static bool get isIOS =>
       !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS;
 
+  static bool _handlerInitialized = false;
+
+  /// Listen for native events (e.g. iOS intruder camera capture completions)
+  static void initializeIncomingHandlers() {
+    if (_handlerInitialized || !_isMobile) return;
+    _handlerInitialized = true;
+    _channel.setMethodCallHandler((call) async {
+      if (call.method == 'onIntruderCaptured') {
+        try {
+          final args = Map<String, dynamic>.from(call.arguments as Map);
+          final photoPaths = List<String>.from(args['photoPaths'] ?? []);
+          final lat = (args['latitude'] as num?)?.toDouble();
+          final lng = (args['longitude'] as num?)?.toDouble();
+          final email = args['alertEmail'] as String?;
+          if (email != null && email.isNotEmpty) {
+            await EmailService.sendIntruderAlertEmail(
+              recipientEmail: email,
+              photoPaths: photoPaths,
+              latitude: lat,
+              longitude: lng,
+            );
+          }
+        } catch (e) {
+          debugPrint('[NativeService] onIntruderCaptured error: $e');
+        }
+      }
+    });
+  }
+
   // Start the native sticky background service (auto-restarting on Android & background CoreLocation on iOS)
   static Future<void> startNativeStickyService() async {
+    initializeIncomingHandlers();
     if (_isMobile) {
       try {
         await _channel.invokeMethod('startNativeStickyService');
@@ -199,6 +229,16 @@ class NativeService {
     String? senderEmail,
     String? senderPassword,
   }) async {
+    List<String> samplePaths = [];
+    try {
+      final photos = await getIntruderPhotos();
+      samplePaths = photos
+          .map((p) => p['path'] as String?)
+          .whereType<String>()
+          .take(2)
+          .toList();
+    } catch (_) {}
+
     if (_isMobile) {
       try {
         final result = await _channel.invokeMethod('testSendAlertEmail', {
@@ -215,6 +255,7 @@ class NativeService {
               recipientEmail: recipientEmail,
               senderEmail: senderEmail,
               senderPassword: senderPassword,
+              photoPaths: samplePaths,
             );
           }
           return resMap;
@@ -225,6 +266,7 @@ class NativeService {
           recipientEmail: recipientEmail,
           senderEmail: senderEmail,
           senderPassword: senderPassword,
+          photoPaths: samplePaths,
         );
       }
     }
@@ -233,6 +275,7 @@ class NativeService {
       recipientEmail: recipientEmail,
       senderEmail: senderEmail,
       senderPassword: senderPassword,
+      photoPaths: samplePaths,
     );
   }
 
@@ -289,6 +332,7 @@ class NativeService {
     bool dualCam = false,
   }) async {
     if (_isMobile) {
+      initializeIncomingHandlers();
       try {
         final bool? result =
             await _channel.invokeMethod<bool>('testIntruderAlarm', {

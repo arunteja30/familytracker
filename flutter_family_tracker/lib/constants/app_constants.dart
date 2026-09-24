@@ -17,6 +17,9 @@ class AppConstants {
   static const String prefFcmToken = 'fcm_token';
   static const String prefIsLoggedIn = 'is_logged_in';
   static const String prefAutostartGuidanceShown = 'autostart_guidance_shown';
+  static const String prefSecurityPin = 'security_pin';
+  static const String prefSecurityPinEnabled = 'security_pin_enabled';
+  static const String prefFailedPinAttempts = 'failed_pin_attempts';
 
   static const String appVersionName = '2.0.1';
   static const int appVersionCode = 3;

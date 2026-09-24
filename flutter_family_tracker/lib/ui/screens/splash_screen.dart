@@ -5,6 +5,7 @@ import '../../services/geocoding_service.dart';
 import '../../services/preferences_service.dart';
 import 'phone_login_screen.dart';
 import 'main_navigation_screen.dart';
+import '../widgets/security_pin_guard.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -34,14 +35,25 @@ class _SplashScreenState extends State<SplashScreen> {
     }
 
     if (!mounted) return;
-    _checkAuth();
+    await _checkAuth();
   }
 
-  void _checkAuth() {
+  Future<void> _checkAuth() async {
     final isLoggedIn = PreferencesService.isLoggedIn();
     final phone = PreferencesService.getUserPhone();
 
     if (isLoggedIn && phone != null && phone.isNotEmpty) {
+      if (PreferencesService.isSecurityPinEnabled() &&
+          PreferencesService.getSecurityPin() != null) {
+        final unlocked = await SecurityPinGuard.show(
+          context: context,
+          mode: PinGuardMode.verify,
+          title: 'FamilyTracker Security Guard',
+          subtitle: 'Enter 4-digit PIN to authenticate',
+        );
+        if (!unlocked || !mounted) return;
+      }
+      if (!mounted) return;
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(builder: (_) => const MainNavigationScreen()),

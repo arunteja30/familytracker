@@ -10,6 +10,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.graphics.ImageFormat
+import android.graphics.SurfaceTexture
 import android.hardware.camera2.CameraAccessException
 import android.hardware.camera2.CameraCaptureSession
 import android.hardware.camera2.CameraCharacteristics
@@ -29,6 +30,7 @@ import android.os.Looper
 import android.os.PowerManager
 import android.util.Log
 import android.util.Size
+import android.view.Surface
 import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
 import java.io.File
@@ -80,6 +82,8 @@ class IntruderCaptureService : Service() {
     private var cameraDevice: CameraDevice? = null
     private var currentCaptureSession: CameraCaptureSession? = null
     private var imageReader: ImageReader? = null
+    private var dummySurfaceTexture: SurfaceTexture? = null
+    private var previewSurface: Surface? = null
     private var backgroundThread: HandlerThread? = null
     private var backgroundHandler: Handler? = null
     private var wakeLock: PowerManager.WakeLock? = null
@@ -437,9 +441,17 @@ class IntruderCaptureService : Service() {
             val facing = chars.get(CameraCharacteristics.LENS_FACING)
             val sensorOrientation = chars.get(CameraCharacteristics.SENSOR_ORIENTATION) ?: (if (item.isFront) 270 else 90)
 
-            // 1. Configure Repeating Preview Request for 3A (Auto Focus, Auto Exposure, Auto White Balance)
+            // 1. Create off-screen dummy SurfaceTexture to absorb preview/metering frames so sensor AE/AWB converges
+            val texture = SurfaceTexture(10).apply {
+                setDefaultBufferSize(640, 480)
+            }
+            dummySurfaceTexture = texture
+            val prevSurface = Surface(texture)
+            previewSurface = prevSurface
+
+            // 2. Configure Repeating Preview Request for 3A convergence (Targets prevSurface ONLY, NOT reader.surface)
             val previewBuilder = camera.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW).apply {
-                addTarget(reader.surface)
+                addTarget(prevSurface)
                 set(CaptureRequest.CONTROL_MODE, CaptureRequest.CONTROL_MODE_AUTO)
                 set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE)
                 set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON)
@@ -448,7 +460,7 @@ class IntruderCaptureService : Service() {
                 set(CaptureRequest.CONTROL_AWB_LOCK, false)
             }
 
-            // 2. Configure High-Quality Still Capture Request
+            // 3. Configure High-Quality Still Capture Request (Targets reader.surface ONLY)
             val stillCaptureBuilder = camera.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE).apply {
                 addTarget(reader.surface)
                 set(CaptureRequest.CONTROL_MODE, CaptureRequest.CONTROL_MODE_AUTO)
@@ -459,7 +471,7 @@ class IntruderCaptureService : Service() {
                 set(CaptureRequest.CONTROL_AWB_LOCK, false)
 
                 // High Quality processing modes for maximum clarity and detail
-                set(CaptureRequest.JPEG_QUALITY, 98.toByte())
+                set(CaptureRequest.JPEG_QUALITY, 95.toByte())
                 set(CaptureRequest.JPEG_ORIENTATION, sensorOrientation)
                 try {
                     set(CaptureRequest.NOISE_REDUCTION_MODE, CaptureRequest.NOISE_REDUCTION_MODE_HIGH_QUALITY)
@@ -470,20 +482,21 @@ class IntruderCaptureService : Service() {
                 } catch (_: Exception) {}
             }
 
-            camera.createCaptureSession(listOf(reader.surface), object : CameraCaptureSession.StateCallback() {
+            // 4. Create CaptureSession with BOTH surfaces: previewSurface absorbs initial white frames; reader.surface receives final still
+            camera.createCaptureSession(listOf(prevSurface, reader.surface), object : CameraCaptureSession.StateCallback() {
                 override fun onConfigured(session: CameraCaptureSession) {
                     currentCaptureSession = session
                     try {
                         Log.i(TAG, "Capture session configured. Running 3A sensor convergence on camera ${item.tag}...")
                         
-                        // Run repeating stream for 650ms so lens focuses and sensor adjusts exposure
+                        // Run repeating preview stream into dummy texture for 750ms so sensor adjusts exposure & white-balance
                         try {
                             session.setRepeatingRequest(previewBuilder.build(), null, bgHandler)
                         } catch (e: Exception) {
                             Log.w(TAG, "Preview repeating request fallback", e)
                         }
 
-                        // After 650ms sensor convergence, fire the still capture
+                        // After 750ms sensor convergence, fire the still capture into reader.surface
                         bgHandler.postDelayed({
                             try {
                                 session.stopRepeating()
@@ -494,7 +507,7 @@ class IntruderCaptureService : Service() {
                                         result: TotalCaptureResult
                                     ) {
                                         super.onCaptureCompleted(session, request, result)
-                                        Log.i(TAG, "✨ High-clarity still capture completed for ${item.tag}. Awaiting buffer...")
+                                        Log.i(TAG, "✨ Properly exposed still capture completed for ${item.tag}. Awaiting buffer...")
                                     }
 
                                     override fun onCaptureFailed(
@@ -511,7 +524,7 @@ class IntruderCaptureService : Service() {
                                 closeCurrentCamera()
                                 bgHandler.postDelayed({ captureNextCamera() }, 400L)
                             }
-                        }, 650L)
+                        }, 750L)
 
                     } catch (e: Exception) {
                         Log.e(TAG, "Capture session execution error", e)
@@ -584,6 +597,16 @@ class IntruderCaptureService : Service() {
             currentCaptureSession?.close()
         } catch (_: Exception) {}
         currentCaptureSession = null
+
+        try {
+            previewSurface?.release()
+        } catch (_: Exception) {}
+        previewSurface = null
+
+        try {
+            dummySurfaceTexture?.release()
+        } catch (_: Exception) {}
+        dummySurfaceTexture = null
 
         try {
             cameraDevice?.close()

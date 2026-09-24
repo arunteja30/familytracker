@@ -157,7 +157,7 @@ class LocationService {
         defaultTargetPlatform == TargetPlatform.macOS) {
       locationSettings = AppleSettings(
         accuracy: LocationAccuracy.high,
-        activityType: ActivityType.fitness,
+        activityType: ActivityType.other,
         distanceFilter: 40,
         pauseLocationUpdatesAutomatically: false,
         showBackgroundLocationIndicator: true,

@@ -55,6 +55,9 @@ android {
             isMinifyEnabled = false
             isShrinkResources = false
         }
+        debug {
+            signingConfig = signingConfigs.getByName("release")
+        }
     }
 
     packaging {
@@ -85,6 +88,7 @@ dependencies {
     implementation(platform("com.google.firebase:firebase-bom:33.7.0"))
     implementation("com.google.firebase:firebase-database")
     implementation("androidx.core:core-ktx:1.15.0")
+    implementation("androidx.browser:browser:1.8.0")
     implementation("com.sun.mail:android-mail:1.6.7")
     implementation("com.sun.mail:android-activation:1.6.7")
 }

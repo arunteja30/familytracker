@@ -4,6 +4,7 @@ import '../../constants/app_colors.dart';
 import '../../providers/family_provider.dart';
 import '../../services/preferences_service.dart';
 import '../widgets/buzzing_dot.dart';
+import '../widgets/security_pin_guard.dart';
 import 'family_dashboard_screen.dart';
 import 'all_maps_screen.dart';
 import 'family_chat_screen.dart';
@@ -22,13 +23,44 @@ class MainNavigationScreen extends StatefulWidget {
   State<MainNavigationScreen> createState() => _MainNavigationScreenState();
 }
 
-class _MainNavigationScreenState extends State<MainNavigationScreen> {
+class _MainNavigationScreenState extends State<MainNavigationScreen>
+    with WidgetsBindingObserver {
   late int _currentIndex;
+  bool _isPinPromptShowing = false;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _currentIndex = widget.initialIndex;
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _checkPinOnResume();
+    }
+  }
+
+  Future<void> _checkPinOnResume() async {
+    if (_isPinPromptShowing || !mounted) return;
+    if (PreferencesService.isSecurityPinEnabled() &&
+        PreferencesService.getSecurityPin() != null) {
+      _isPinPromptShowing = true;
+      await SecurityPinGuard.show(
+        context: context,
+        mode: PinGuardMode.verify,
+        title: 'FamilyTracker Security Guard',
+        subtitle: 'Enter 4-digit PIN to unlock',
+      );
+      _isPinPromptShowing = false;
+    }
   }
 
   void _onTabTapped(int index) {

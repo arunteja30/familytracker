@@ -137,5 +137,14 @@
             <action android:name="android.intent.action.SENDTO" />
             <data android:scheme="sms" />
         </intent>
+        <!-- Firebase Phone Auth Custom Tabs & reCAPTCHA verification queries -->
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <category android:name="android.intent.category.BROWSABLE" />
+            <data android:scheme="https" />
+        </intent>
+        <intent>
+            <action android:name="android.support.customtabs.action.CustomTabsService" />
+        </intent>
     </queries>
 </manifest>

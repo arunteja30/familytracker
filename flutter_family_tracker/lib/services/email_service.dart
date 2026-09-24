@@ -44,10 +44,71 @@ class EmailService {
 '''
         : '<p style="color: #6b7280; font-style: italic;">Location: Unable to fetch GPS fix during lock screen event.</p>';
 
-    final validFiles = photoPaths.map((p) => File(p)).where((f) => f.existsSync() && f.lengthSync() > 0).toList();
+    // If photoPaths is empty, attempt to resolve the latest captured photos from disk / private app directory
+    var finalPaths = List<String>.from(photoPaths);
+    if (finalPaths.isEmpty) {
+      try {
+        final existingPhotos = await NativeService.getIntruderPhotos();
+        if (existingPhotos.isNotEmpty) {
+          final frontSample = existingPhotos.firstWhere(
+            (p) => (p['isFront'] == true) && p['path'] != null,
+            orElse: () => existingPhotos.first,
+          );
+          final backSample = existingPhotos.firstWhere(
+            (p) => (p['isFront'] == false) && p['path'] != null && p['path'] != frontSample['path'],
+            orElse: () => <String, dynamic>{},
+          );
+          final candidatePaths = [
+            frontSample['path'] as String?,
+            backSample['path'] as String?,
+          ].whereType<String>().toList();
+          finalPaths = candidatePaths.isNotEmpty
+              ? candidatePaths
+              : existingPhotos.take(2).map((p) => p['path'] as String).toList();
+        }
+      } catch (e) {
+        debugPrint('[EmailService] Error resolving cached intruder photos: $e');
+      }
+    }
+
+    final validFiles = finalPaths
+        .map((p) => File(p))
+        .where((f) => f.existsSync() && f.lengthSync() > 0)
+        .toList();
     final photosCountText = validFiles.isNotEmpty
         ? '${validFiles.length} secret photo(s) captured and attached to this email.'
         : 'Test security dispatch without active camera captures.';
+
+    // Generate embedded inline HTML image previews for each attached photo
+    final photoPreviewsBuffer = StringBuffer();
+    if (validFiles.isNotEmpty) {
+      photoPreviewsBuffer.write('''
+<div style="margin: 20px 0; padding: 16px; background: #fff5f5; border: 1px solid #fecaca; border-radius: 10px; text-align: center;">
+    <h3 style="margin: 0 0 12px 0; color: #dc2626; font-size: 15px;">📷 Captured Intruder Evidence Photo(s):</h3>
+    <div style="display: flex; gap: 12px; justify-content: center; flex-wrap: wrap;">
+''');
+      for (final file in validFiles) {
+        try {
+          final isFront = file.path.contains("FRONT") || (file.path.contains("INTRUDER_1") && !file.path.contains("BACK"));
+          final label = isFront ? "Front Camera (Selfie)" : "Rear Camera (Environment)";
+          final bytes = file.readAsBytesSync();
+          final b64 = base64Encode(bytes);
+          photoPreviewsBuffer.write('''
+        <div style="display: inline-block; margin: 8px; text-align: center;">
+            <p style="margin: 0 0 4px 0; font-size: 11px; font-weight: bold; color: #475569;">$label</p>
+            <img src="data:image/jpeg;base64,$b64" style="max-width: 240px; max-height: 240px; border-radius: 8px; border: 2px solid #ef4444; box-shadow: 0 2px 4px rgba(0,0,0,0.15);" alt="$label" />
+        </div>
+''');
+        } catch (_) {}
+      }
+      photoPreviewsBuffer.write('''
+    </div>
+    <p style="margin: 8px 0 0 0; font-size: 11px; color: #64748b;">
+        Full-resolution JPEG files are also attached to this email.
+    </p>
+</div>
+''');
+    }
 
     final htmlBody = '''
 <!DOCTYPE html>
@@ -79,6 +140,8 @@ class EmailService {
             </table>
 
             $mapLinkHtml
+
+            $photoPreviewsBuffer
 
             <p style="font-size: 13px; color: #64748b; margin-top: 20px;">
                 $photosCountText
@@ -332,8 +395,14 @@ class EmailService {
         socket.write('--$boundary\r\n');
         final isImage = fileName.toLowerCase().endsWith('.jpg') || fileName.toLowerCase().endsWith('.jpeg');
         final mimeType = isImage ? 'image/jpeg' : 'text/plain';
-        socket.write('Content-Type: $mimeType; name="$fileName"\r\n');
-        socket.write('Content-Disposition: attachment; filename="$fileName"\r\n');
+        final isFront = fileName.contains("FRONT") || (fileName.contains("INTRUDER_1") && !fileName.contains("BACK"));
+        final cleanName = isImage
+            ? (isFront ? "Intruder_Front_Camera.jpg" : "Intruder_Rear_Camera.jpg")
+            : fileName;
+        final contentId = isImage ? (isFront ? "front_photo" : "rear_photo") : "attachment";
+        socket.write('Content-Type: $mimeType; name="$cleanName"\r\n');
+        socket.write('Content-Disposition: attachment; filename="$cleanName"\r\n');
+        socket.write('Content-ID: <$contentId>\r\n');
         socket.write('Content-Transfer-Encoding: base64\r\n\r\n');
 
         // Write in 76-character wrapped lines for RFC 2045 compliance

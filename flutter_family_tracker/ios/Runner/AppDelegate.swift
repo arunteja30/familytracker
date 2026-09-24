@@ -11,9 +11,11 @@ import AudioToolbox
 @objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate, CLLocationManagerDelegate {
 
   private let CHANNEL = "com.mat.familytrack/background_service"
+  private var backgroundChannel: FlutterMethodChannel?
   private var locationManager: CLLocationManager?
   private var sirenPlayer: AVAudioPlayer?
   private var vibrationTimer: Timer?
+  private var sirenAutoStopTimer: Timer?
 
   override func application(
     _ application: UIApplication,
@@ -37,6 +39,7 @@ import AudioToolbox
 
     let controller : FlutterViewController = window?.rootViewController as! FlutterViewController
     let backgroundChannel = FlutterMethodChannel(name: CHANNEL, binaryMessenger: controller.binaryMessenger)
+    self.backgroundChannel = backgroundChannel
 
     backgroundChannel.setMethodCallHandler({ [weak self] (call: FlutterMethodCall, result: @escaping FlutterResult) -> Void in
       guard let self = self else { return }
@@ -128,11 +131,30 @@ import AudioToolbox
         }
         result(true)
 
-      // 6. Emergency Siren Alarm
+      // 6. Emergency Siren Alarm & Intruder Capture
       case "testIntruderAlarm":
         let playSiren = call.argument<Bool>("playSiren") ?? true
+        let dualCam = call.argument<Bool>("dualCam") ?? false
+        let email = call.argument<String>("alertEmail") ?? UserDefaults.standard.string(forKey: "anti_theft_alert_email") ?? ""
+
         if playSiren {
-          self.startIntruderSirenAlert()
+          self.startIntruderSirenAlert(autoStopSeconds: 6.0)
+        }
+
+        let dir = self.getIntruderCapturesDirectory()
+        let coord = self.locationManager?.location?.coordinate
+        IntruderPhotoManager.shared.captureIntruder(
+          dualCam: dualCam,
+          capturesDir: dir,
+          coordinate: coord
+        ) { [weak self] paths in
+          guard let self = self else { return }
+          self.backgroundChannel?.invokeMethod("onIntruderCaptured", arguments: [
+            "photoPaths": paths,
+            "latitude": coord?.latitude ?? 0.0,
+            "longitude": coord?.longitude ?? 0.0,
+            "alertEmail": email
+          ])
         }
         result(true)
 
@@ -241,7 +263,7 @@ import AudioToolbox
   }
 
   // MARK: - Emergency Siren Alert & Audio Playback
-  private func startIntruderSirenAlert() {
+  private func startIntruderSirenAlert(autoStopSeconds: Double = 6.0) {
     stopIntruderSirenAlert()
 
     do {
@@ -277,6 +299,13 @@ import AudioToolbox
         AudioServicesPlaySystemSound(kSystemSoundID_Vibrate)
       }
       AudioServicesPlaySystemSound(kSystemSoundID_Vibrate)
+
+      // Auto-stop siren timer (matching Android 6-second burst)
+      if autoStopSeconds > 0 {
+        sirenAutoStopTimer = Timer.scheduledTimer(withTimeInterval: autoStopSeconds, repeats: false) { [weak self] _ in
+          self?.stopIntruderSirenAlert()
+        }
+      }
     } catch {
       NSLog("[FamilyTracker-iOS] Failed to start siren audio: \(error.localizedDescription)")
       AudioServicesPlayAlertSound(1005)
@@ -284,6 +313,8 @@ import AudioToolbox
   }
 
   private func stopIntruderSirenAlert() {
+    sirenAutoStopTimer?.invalidate()
+    sirenAutoStopTimer = nil
     sirenPlayer?.stop()
     sirenPlayer = nil
     vibrationTimer?.invalidate()
@@ -533,3 +564,169 @@ private extension UInt32 {
     return Data(bytes: &v, count: 4)
   }
 }
+
+// MARK: - Intruder Camera Capture Engine for iOS
+class IntruderPhotoManager: NSObject, AVCapturePhotoCaptureDelegate {
+  static let shared = IntruderPhotoManager()
+
+  private var captureSession: AVCaptureSession?
+  private var photoOutput: AVCapturePhotoOutput?
+  private var completion: (([String]) -> Void)?
+  private var capturedPaths: [String] = []
+  private var isDualCam: Bool = false
+  private var isFront: Bool = true
+  private var capturesDir: URL?
+  private var coordinate: CLLocationCoordinate2D?
+
+  func captureIntruder(
+    dualCam: Bool,
+    capturesDir: URL,
+    coordinate: CLLocationCoordinate2D?,
+    completion: @escaping ([String]) -> Void
+  ) {
+    self.isDualCam = dualCam
+    self.capturesDir = capturesDir
+    self.coordinate = coordinate
+    self.completion = completion
+    self.capturedPaths = []
+    self.isFront = true
+
+    let status = AVCaptureDevice.authorizationStatus(for: .video)
+    if status == .authorized {
+      self.captureForPosition(position: .front)
+    } else if status == .notDetermined {
+      AVCaptureDevice.requestAccess(for: .video) { [weak self] granted in
+        if granted {
+          DispatchQueue.main.async {
+            self?.captureForPosition(position: .front)
+          }
+        } else {
+          completion([])
+        }
+      }
+    } else {
+      NSLog("[FamilyTracker-iOS] Camera permission not granted for intruder capture")
+      completion([])
+    }
+  }
+
+  private func captureForPosition(position: AVCaptureDevice.Position) {
+    DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+      guard let self = self else { return }
+
+      let session = AVCaptureSession()
+      session.sessionPreset = .photo
+
+      let discovery = AVCaptureDevice.DiscoverySession(
+        deviceTypes: [.builtInWideAngleCamera],
+        mediaType: .video,
+        position: position
+      )
+
+      guard let camera = discovery.devices.first,
+            let input = try? AVCaptureDeviceInput(device: camera) else {
+        DispatchQueue.main.async {
+          if self.isFront && self.isDualCam {
+            self.isFront = false
+            self.captureForPosition(position: .back)
+          } else {
+            self.completion?(self.capturedPaths)
+          }
+        }
+        return
+      }
+
+      if session.canAddInput(input) {
+        session.addInput(input)
+      }
+
+      // Configure hardware sensor for continuous auto-exposure, white balance & focus
+      do {
+        try camera.lockForConfiguration()
+        if camera.isExposureModeSupported(.continuousAutoExposure) {
+          camera.exposureMode = .continuousAutoExposure
+        }
+        if camera.isWhiteBalanceModeSupported(.continuousAutoWhiteBalance) {
+          camera.whiteBalanceMode = .continuousAutoWhiteBalance
+        }
+        if camera.isFocusModeSupported(.continuousAutoFocus) {
+          camera.focusMode = .continuousAutoFocus
+        }
+        camera.unlockForConfiguration()
+      } catch {
+        NSLog("[FamilyTracker-iOS] Camera lockForConfiguration error: \(error.localizedDescription)")
+      }
+
+      let output = AVCapturePhotoOutput()
+      if session.canAddOutput(output) {
+        session.addOutput(output)
+      }
+
+      self.captureSession = session
+      self.photoOutput = output
+
+      session.startRunning()
+
+      // Allow 750ms for Apple ISP hardware to meter scene lux and converge auto-exposure & white-balance
+      // Prevents initial white washed-out / overexposed frames when starting from dormant state
+      Thread.sleep(forTimeInterval: 0.75)
+
+      let settings = AVCapturePhotoSettings()
+      if output.supportedFlashModes.contains(.off) {
+        settings.flashMode = .off
+      }
+      if output.isHighResolutionCaptureEnabled {
+        settings.isHighResolutionPhotoEnabled = true
+      }
+
+      output.capturePhoto(with: settings, delegate: self)
+    }
+  }
+
+  func photoOutput(_ output: AVCapturePhotoOutput, didFinishProcessingPhoto photo: AVCapturePhoto, error: Error?) {
+    defer {
+      captureSession?.stopRunning()
+      captureSession = nil
+      photoOutput = nil
+    }
+
+    if let error = error {
+      NSLog("[FamilyTracker-iOS] Photo capture error: \(error.localizedDescription)")
+    } else if let data = photo.fileDataRepresentation(), let dir = self.capturesDir {
+      let timestamp = Int64(Date().timeIntervalSince1970 * 1000)
+      let label = isFront ? "INTRUDER_FRONT" : "INTRUDER_BACK"
+      let photoName = "\(label)_\(timestamp).jpg"
+      let jsonName = "\(label)_\(timestamp).json"
+
+      let photoUrl = dir.appendingPathComponent(photoName)
+      let jsonUrl = dir.appendingPathComponent(jsonName)
+
+      try? data.write(to: photoUrl)
+
+      let meta: [String: Any] = [
+        "timestamp": timestamp,
+        "isFront": isFront,
+        "latitude": coordinate?.latitude ?? 0.0,
+        "longitude": coordinate?.longitude ?? 0.0,
+        "fileName": photoName
+      ]
+      if let jsonData = try? JSONSerialization.data(withJSONObject: meta, options: .prettyPrinted) {
+        try? jsonData.write(to: jsonUrl)
+      }
+
+      capturedPaths.append(photoUrl.path)
+      NSLog("[FamilyTracker-iOS] Captured intruder photo: \(photoName)")
+    }
+
+    DispatchQueue.main.async { [weak self] in
+      guard let self = self else { return }
+      if self.isFront && self.isDualCam {
+        self.isFront = false
+        self.captureForPosition(position: .back)
+      } else {
+        self.completion?(self.capturedPaths)
+      }
+    }
+  }
+}
+

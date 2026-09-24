@@ -48,6 +48,36 @@ class PreferencesService {
     return _prefs?.getBool(AppConstants.prefAutostartGuidanceShown) ?? false;
   }
 
+  static Future<void> saveSecurityPin(String pin) async {
+    await _prefs?.setString(AppConstants.prefSecurityPin, pin.trim());
+  }
+
+  static String? getSecurityPin() {
+    return _prefs?.getString(AppConstants.prefSecurityPin);
+  }
+
+  static Future<void> setSecurityPinEnabled(bool enabled) async {
+    await _prefs?.setBool(AppConstants.prefSecurityPinEnabled, enabled);
+  }
+
+  static bool isSecurityPinEnabled() {
+    return _prefs?.getBool(AppConstants.prefSecurityPinEnabled) ?? false;
+  }
+
+  static int getFailedPinAttempts() {
+    return _prefs?.getInt(AppConstants.prefFailedPinAttempts) ?? 0;
+  }
+
+  static Future<int> incrementFailedPinAttempts() async {
+    final current = getFailedPinAttempts() + 1;
+    await _prefs?.setInt(AppConstants.prefFailedPinAttempts, current);
+    return current;
+  }
+
+  static Future<void> resetFailedPinAttempts() async {
+    await _prefs?.setInt(AppConstants.prefFailedPinAttempts, 0);
+  }
+
   static Future<void> clearSession() async {
     await _prefs?.clear();
   }
