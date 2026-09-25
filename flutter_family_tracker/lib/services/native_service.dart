@@ -56,6 +56,15 @@ class NativeService {
     }
   }
 
+  // Stop the native sticky background service (Android & iOS)
+  static Future<void> stopNativeStickyService() async {
+    if (_isMobile) {
+      try {
+        await _channel.invokeMethod('stopNativeStickyService');
+      } catch (_) {}
+    }
+  }
+
   // Request exemption from Battery Optimization / Background limits
   static Future<void> requestBatteryOptimizationExemption() async {
     if (_isMobile) {

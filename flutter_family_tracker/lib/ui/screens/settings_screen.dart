@@ -552,6 +552,8 @@ class _SettingsScreenState extends State<SettingsScreen> with WidgetsBindingObse
     if (confirmed == true && mounted) {
       final nav = Navigator.of(context);
       final authProvider = Provider.of<AppAuthProvider>(context, listen: false);
+      final familyProvider = Provider.of<FamilyProvider>(context, listen: false);
+      await familyProvider.stopTrackingAndClearOnLogout();
       await authProvider.signOut();
       nav.pushAndRemoveUntil(
         MaterialPageRoute(builder: (_) => const PhoneLoginScreen()),

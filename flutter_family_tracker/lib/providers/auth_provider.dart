@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import '../services/auth_service.dart';
 import '../services/database_service.dart';
 import '../services/preferences_service.dart';
+import '../services/native_service.dart';
 import '../models/registration_model.dart';
 
 class AppAuthProvider extends ChangeNotifier {
@@ -152,6 +153,8 @@ class AppAuthProvider extends ChangeNotifier {
   // Sign Out
   Future<void> signOut() async {
     await _authService.signOut();
+    await NativeService.stopNativeStickyService();
+    await NativeService.removeDeviceAdmin();
     await PreferencesService.clearSession();
     notifyListeners();
   }

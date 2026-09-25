@@ -994,6 +994,32 @@ class FamilyProvider extends ChangeNotifier {
     }
   }
 
+  // Clean up all background tracking, sticky notification, device admin, and listeners on user logout
+  Future<void> stopTrackingAndClearOnLogout() async {
+    _notifyDebounceTimer?.cancel();
+    _locationService.stopContinuousTracking();
+    _membersSubscription?.cancel();
+    _emergencySubscription?.cancel();
+    _chatSubscription?.cancel();
+    _placesSubscription?.cancel();
+    _alertsSubscription?.cancel();
+    for (var sub in _locationSubscriptions.values) {
+      sub.cancel();
+    }
+    _locationSubscriptions.clear();
+    _familyMembers.clear();
+    _memberLocations.clear();
+    _familyPlaces.clear();
+    _familyAlerts.clear();
+    _chatMessages.clear();
+    _currentFamilyName = '';
+    _userFamilyGroups.clear();
+
+    await NativeService.stopNativeStickyService();
+    await NativeService.removeDeviceAdmin();
+    _safeNotifyListeners();
+  }
+
   @override
   void dispose() {
     _notifyDebounceTimer?.cancel();

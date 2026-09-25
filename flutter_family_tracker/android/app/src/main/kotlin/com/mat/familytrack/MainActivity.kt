@@ -33,6 +33,10 @@ class MainActivity : FlutterActivity() {
                     startNativeTrackerService()
                     result.success(true)
                 }
+                "stopNativeStickyService" -> {
+                    StickyTrackerService.stopStickyTrackerService(this)
+                    result.success(true)
+                }
                 "requestBatteryOptimizationExemption" -> {
                     requestBatteryOptimizationExemption()
                     result.success(true)

@@ -67,6 +67,18 @@ class StickyTrackerService : Service(), LocationListener {
                 Log.w("StickyTrackerService", "Failed to send update intent to StickyTrackerService: ${e.message}")
             }
         }
+
+        fun stopStickyTrackerService(context: Context) {
+            try {
+                val serviceIntent = Intent(context, StickyTrackerService::class.java)
+                context.stopService(serviceIntent)
+                val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+                notificationManager?.cancel(1001)
+                Log.d("StickyTrackerService", "StickyTrackerService explicitly stopped and notification cancelled.")
+            } catch (e: Exception) {
+                Log.e("StickyTrackerService", "Error stopping StickyTrackerService: ${e.message}")
+            }
+        }
     }
 
     private var offlineCheckHandler: android.os.Handler? = null
@@ -493,6 +505,25 @@ class StickyTrackerService : Service(), LocationListener {
     override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) {}
 
     override fun onTaskRemoved(rootIntent: Intent?) {
+        val prefs = getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
+        val isLoggedIn = prefs.getBoolean("flutter.is_logged_in", false)
+        val phone = prefs.getString("flutter.user_phone", null)
+        if (!isLoggedIn || phone.isNullOrEmpty()) {
+            Log.d(TAG, "User is logged out - skipping auto-revive onTaskRemoved")
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                    stopForeground(STOP_FOREGROUND_REMOVE)
+                } else {
+                    @Suppress("DEPRECATION")
+                    stopForeground(true)
+                }
+                val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+                notificationManager?.cancel(NOTIFICATION_ID)
+            } catch (_: Exception) {}
+            super.onTaskRemoved(rootIntent)
+            return
+        }
+
         Log.d(TAG, "App task removed (force killed) - scheduling auto-revive")
         val restartServiceIntent = Intent(applicationContext, StickyTrackerService::class.java).apply {
             setPackage(packageName)
@@ -514,13 +545,28 @@ class StickyTrackerService : Service(), LocationListener {
 
     override fun onDestroy() {
         offlineCheckHandler?.removeCallbacks(offlineSmsCheckRunnable)
-        locationManager?.removeUpdates(this)
+        try {
+            locationManager?.removeUpdates(this)
+        } catch (_: Exception) {}
         gpsStateReceiver?.let {
             try {
                 unregisterReceiver(it)
             } catch (_: Exception) {}
             gpsStateReceiver = null
         }
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                stopForeground(STOP_FOREGROUND_REMOVE)
+            } else {
+                @Suppress("DEPRECATION")
+                stopForeground(true)
+            }
+        } catch (_: Exception) {}
+        try {
+            val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+            notificationManager?.cancel(NOTIFICATION_ID)
+        } catch (_: Exception) {}
+        Log.d(TAG, "StickyTrackerService onDestroy complete - notification dismissed.")
         super.onDestroy()
     }
 }
