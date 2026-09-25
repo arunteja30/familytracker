@@ -10,6 +10,8 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.Manifest
+import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.location.Location
 import android.location.LocationListener
@@ -248,15 +250,29 @@ class StickyTrackerService : Service(), LocationListener {
 
     private fun promoteToForeground(statusText: String) {
         val notification = buildForegroundNotification(statusText)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            ServiceCompat.startForeground(
-                this,
-                NOTIFICATION_ID,
-                notification,
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
-            )
-        } else {
-            startForeground(NOTIFICATION_ID, notification)
+        val hasFine = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        val hasCoarse = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        val hasLocationPermission = hasFine || hasCoarse
+
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && hasLocationPermission) {
+                ServiceCompat.startForeground(
+                    this,
+                    NOTIFICATION_ID,
+                    notification,
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
+                )
+            } else {
+                startForeground(NOTIFICATION_ID, notification)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "promoteToForeground with location type failed: ${e.message}", e)
+            try {
+                // Fallback to standard foreground service
+                startForeground(NOTIFICATION_ID, notification)
+            } catch (ex: Exception) {
+                Log.e(TAG, "Fallback startForeground failed: ${ex.message}", ex)
+            }
         }
     }
 
@@ -366,6 +382,13 @@ class StickyTrackerService : Service(), LocationListener {
     }
 
     private fun restartLocationUpdates() {
+        val hasFine = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        val hasCoarse = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        if (!hasFine && !hasCoarse) {
+            Log.w(TAG, "Location permissions not granted yet, skipping location updates")
+            return
+        }
+
         locationManager = getSystemService(Context.LOCATION_SERVICE) as? LocationManager
 
         try {

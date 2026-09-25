@@ -116,13 +116,21 @@ class _FamilyDashboardScreenState extends State<FamilyDashboardScreen> with Widg
       await PermissionService.showPermissionRequestDialog(
         context: context,
         onProceed: () async {
-          await PermissionService.requestEssentialPermissions(context);
-          if (mounted) {
+          final granted = await PermissionService.requestEssentialPermissions(context);
+          if (granted && mounted) {
+            final phone = PreferencesService.getUserPhone() ?? '';
+            if (phone.isNotEmpty) {
+              familyProvider.startLocationServicesAfterPermission(phone);
+            }
             await OemAutoStartModal.showIfNeeded(context);
           }
         },
       );
     } else if (mounted) {
+      final phone = PreferencesService.getUserPhone() ?? '';
+      if (phone.isNotEmpty) {
+        familyProvider.startLocationServicesAfterPermission(phone);
+      }
       await OemAutoStartModal.showIfNeeded(context);
     }
   }

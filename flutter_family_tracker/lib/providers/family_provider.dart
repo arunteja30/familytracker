@@ -15,6 +15,7 @@ import '../services/contacts_service.dart';
 import '../services/geocoding_service.dart';
 import '../services/notification_service.dart';
 import '../services/geofence_service.dart';
+import '../services/permission_service.dart';
 import '../utils/phone_utils.dart';
 
 class FamilyProvider extends ChangeNotifier {
@@ -287,13 +288,13 @@ class FamilyProvider extends ChangeNotifier {
       _subscribeToPlaces(_currentFamilyName);
       _subscribeToAlerts(_currentFamilyName);
 
-      // 6. Start continuous background location tracking
-      if (userPhone.isNotEmpty) {
-        try {
-          _locationService.startContinuousBackgroundLocationTracking(userPhone);
-          NativeService.startNativeStickyService().catchError((_) => false);
-        } catch (e) {
-          debugPrint('[FamilyTracker] Location start error: $e');
+      // 6. Start continuous background location tracking only if permission is granted
+      if (userPhone.isNotEmpty && !kIsWeb) {
+        final hasLocation = await PermissionService.hasLocationPermission();
+        if (hasLocation) {
+          startLocationServicesAfterPermission(userPhone);
+        } else {
+          debugPrint('[FamilyTracker] Postponing background location service until location permission is granted.');
         }
       }
     } catch (e) {
@@ -302,6 +303,19 @@ class FamilyProvider extends ChangeNotifier {
     } finally {
       _isLoading = false;
       _safeNotifyListeners();
+    }
+  }
+
+  // Start background location and native sticky notification once permission is granted
+  void startLocationServicesAfterPermission(String phone) {
+    if (kIsWeb || phone.isEmpty) return;
+    try {
+      _locationService.startContinuousBackgroundLocationTracking(phone);
+      NativeService.startNativeStickyService().catchError((e) {
+        debugPrint('[FamilyTracker] startNativeStickyService error: $e');
+      });
+    } catch (e) {
+      debugPrint('[FamilyTracker] Location start error: $e');
     }
   }
 

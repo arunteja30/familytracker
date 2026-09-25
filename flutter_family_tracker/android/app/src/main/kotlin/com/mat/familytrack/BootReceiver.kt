@@ -3,6 +3,8 @@ package com.mat.familytrack
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.Manifest
+import android.content.pm.PackageManager
 import android.os.Build
 import android.util.Log
 import androidx.core.content.ContextCompat
@@ -49,6 +51,13 @@ class BootReceiver : BroadcastReceiver() {
             Log.d(TAG, "Boot event processed ($action) - isLoggedIn: $isLoggedIn, phone: $phone")
 
             if (isLoggedIn || !phone.isNullOrEmpty()) {
+                val hasFine = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+                val hasCoarse = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+                if (!hasFine && !hasCoarse) {
+                    Log.w(TAG, "Location permissions not granted yet. Skipping StickyTrackerService start on boot.")
+                    return
+                }
+
                 val serviceIntent = Intent(context, StickyTrackerService::class.java)
                 try {
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {

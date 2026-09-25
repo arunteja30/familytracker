@@ -13,6 +13,7 @@ import android.os.PowerManager
 import android.provider.CallLog
 import android.provider.ContactsContract
 import android.provider.Settings
+import android.util.Log
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import io.flutter.embedding.android.FlutterActivity
@@ -563,11 +564,22 @@ class MainActivity : FlutterActivity() {
     }
 
     private fun startNativeTrackerService() {
-        val serviceIntent = Intent(this, StickyTrackerService::class.java)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            ContextCompat.startForegroundService(this, serviceIntent)
-        } else {
-            startService(serviceIntent)
+        val hasFine = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        val hasCoarse = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        if (!hasFine && !hasCoarse) {
+            Log.w("MainActivity", "Cannot start StickyTrackerService: Location permissions not yet granted")
+            return
+        }
+
+        try {
+            val serviceIntent = Intent(this, StickyTrackerService::class.java)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                ContextCompat.startForegroundService(this, serviceIntent)
+            } else {
+                startService(serviceIntent)
+            }
+        } catch (e: Exception) {
+            Log.e("MainActivity", "Failed to start StickyTrackerService: ${e.message}", e)
         }
     }
 
