@@ -216,10 +216,13 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
                         ),
                         const SizedBox(height: 24),
 
-                        // Pinput 6-digit box
+                        // Pinput 6-digit box with SMS Auto-Detection & Auto-Fill
                         Pinput(
                           length: 6,
                           controller: _pinController,
+                          autofocus: true,
+                          keyboardType: TextInputType.number,
+                          autofillHints: const [AutofillHints.oneTimeCode],
                           defaultPinTheme: defaultPinTheme,
                           focusedPinTheme: focusedPinTheme,
                           onCompleted: (pin) => _verifyOtp(pin),
