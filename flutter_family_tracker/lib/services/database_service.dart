@@ -11,6 +11,7 @@ import '../models/app_update_model.dart';
 import '../models/geofence_place_model.dart';
 import '../models/place_event_model.dart';
 import '../models/alert_item_model.dart';
+import '../models/family_group_summary.dart';
 import '../utils/phone_utils.dart';
 import 'geocoding_service.dart';
 
@@ -20,6 +21,26 @@ class DatabaseService {
   // Cache of last saved history point per mobile to avoid redundant DB reads
   static final Map<String, LocationDetailsModel> _lastSavedHistoryPoints = {};
   static final Map<String, String> _lastSavedHistoryKeys = {};
+
+  // High-performance in-memory cache for family & members (15s TTL)
+  static List<FamilyMemberModel>? _cachedAllMembers;
+  static int _allMembersCacheTimestamp = 0;
+  static const int _membersCacheTtlMs = 15000;
+
+  static final Map<String, List<FamilyGroupSummary>> _userSummariesCache = {};
+  static final Map<String, int> _userSummariesCacheTimestamp = {};
+
+  static void invalidateMembersCache([String? normalizedPhone]) {
+    _cachedAllMembers = null;
+    _allMembersCacheTimestamp = 0;
+    if (normalizedPhone != null) {
+      _userSummariesCache.remove(normalizedPhone);
+      _userSummariesCacheTimestamp.remove(normalizedPhone);
+    } else {
+      _userSummariesCache.clear();
+      _userSummariesCacheTimestamp.clear();
+    }
+  }
 
   // Helper: Normalize & Match Phone Numbers (e.g. +919876543210 vs 9876543210)
   static final RegExp _nonDigitsRegex = RegExp(r'\D');
@@ -102,47 +123,38 @@ class DatabaseService {
     });
   }
 
-  // Get All Members Across All Known DB Nodes
-  Future<List<FamilyMemberModel>> getAllDatabaseMembers() async {
+  // Get All Members Across All Known DB Nodes (Parallelized & TTL Cached)
+  Future<List<FamilyMemberModel>> getAllDatabaseMembers({bool forceRefresh = false}) async {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    if (!forceRefresh && _cachedAllMembers != null && (now - _allMembersCacheTimestamp) < _membersCacheTtlMs) {
+      return _cachedAllMembers!;
+    }
+
     final List<FamilyMemberModel> all = [];
     final seen = <String>{};
 
     try {
-      // 1. Check familyMembersList
-      final snap1 = await _db.ref(AppConstants.familyMemberList).get().timeout(const Duration(seconds: 4));
-      if (snap1.exists && snap1.value != null) {
-        for (var m in parseMembersFromSnapshot(snap1.value)) {
-          final key = '${m.mobile}_${m.familyName}';
-          if (!seen.contains(key) && m.mobile.isNotEmpty) {
-            seen.add(key);
-            all.add(m);
+      // Execute all 3 DB queries in parallel instead of sequentially
+      final snaps = await Future.wait([
+        _db.ref(AppConstants.familyMemberList).get().timeout(const Duration(seconds: 3)).catchError((_) => null as dynamic),
+        _db.ref(AppConstants.familyDbName).get().timeout(const Duration(seconds: 3)).catchError((_) => null as dynamic),
+        _db.ref(AppConstants.legacyFamilyDb).get().timeout(const Duration(seconds: 3)).catchError((_) => null as dynamic),
+      ]);
+
+      for (final snap in snaps) {
+        if (snap.exists && snap.value != null) {
+          for (var m in parseMembersFromSnapshot(snap.value)) {
+            final key = '${m.mobile}_${m.familyName}';
+            if (m.mobile.isNotEmpty && seen.add(key)) {
+              all.add(m);
+            }
           }
         }
       }
 
-      // 2. Check familyNames
-      final snap2 = await _db.ref(AppConstants.familyDbName).get().timeout(const Duration(seconds: 4));
-      if (snap2.exists && snap2.value != null) {
-        for (var m in parseMembersFromSnapshot(snap2.value)) {
-          final key = '${m.mobile}_${m.familyName}';
-          if (!seen.contains(key) && m.mobile.isNotEmpty) {
-            seen.add(key);
-            all.add(m);
-          }
-        }
-      }
-
-      // 3. Check legacy FamilyDetails
-      final snap3 = await _db.ref(AppConstants.legacyFamilyDb).get().timeout(const Duration(seconds: 4));
-      if (snap3.exists && snap3.value != null) {
-        for (var m in parseMembersFromSnapshot(snap3.value)) {
-          final key = '${m.mobile}_${m.familyName}';
-          if (!seen.contains(key) && m.mobile.isNotEmpty) {
-            seen.add(key);
-            all.add(m);
-          }
-        }
-      }
+      // Update cache
+      _cachedAllMembers = all;
+      _allMembersCacheTimestamp = now;
     } catch (e) {
       debugPrint('[FamilyTracker] Error fetching all members: $e');
     }
@@ -235,6 +247,221 @@ class DatabaseService {
 
     debugPrint('[FamilyTracker] Groups found for $mobile: $groups');
     return groups.toList();
+  }
+
+  // Get Only The Logged-in User's Family Summaries (Strict Privacy & TTL Cached)
+  Future<List<FamilyGroupSummary>> getUserFamilySummaries(String userPhone) async {
+    final normUserPhone = PhoneUtils.normalize(userPhone);
+    if (userPhone.trim().isEmpty) return [];
+
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final cached = _userSummariesCache[normUserPhone];
+    final cachedTime = _userSummariesCacheTimestamp[normUserPhone] ?? 0;
+    if (cached != null && (now - cachedTime) < _membersCacheTtlMs) {
+      return cached;
+    }
+
+    // 1. Fetch all members across database nodes (parallel & cached)
+    final allMembers = await getAllDatabaseMembers();
+    final Set<String> groupSet = {};
+
+    // 2. Single-pass discovery of user's groups from members
+    for (var m in allMembers) {
+      if (PhoneUtils.isSame(m.mobile, userPhone) && m.familyName.trim().isNotEmpty) {
+        groupSet.add(m.familyName.trim());
+      }
+    }
+
+    // 3. Fast check of user_families index
+    if (normUserPhone.isNotEmpty) {
+      try {
+        final snap = await _db.ref('user_families').child(normUserPhone).get().timeout(const Duration(seconds: 2));
+        if (snap.exists && snap.value is Map) {
+          (snap.value as Map).forEach((k, v) {
+            final fam = k?.toString().trim() ?? '';
+            if (fam.isNotEmpty) groupSet.add(fam);
+          });
+        }
+      } catch (_) {}
+    }
+
+    // 4. Group only the members that belong to the user's groups
+    final Map<String, List<FamilyMemberModel>> grouped = {};
+    for (var fam in groupSet) {
+      grouped[fam] = [];
+    }
+
+    for (var m in allMembers) {
+      final fam = m.familyName.trim();
+      if (fam.isNotEmpty && groupSet.contains(fam)) {
+        grouped[fam]!.add(m);
+      }
+    }
+
+    final List<FamilyGroupSummary> summaries = [];
+    grouped.forEach((fam, members) {
+      bool isUserAdmin = false;
+      String? adminName;
+      final Set<String> memberNames = {};
+
+      for (var m in members) {
+        if (m.name.isNotEmpty) memberNames.add(m.name);
+        if (m.isAdmin || (adminName == null && m.adminName != null && m.adminName!.isNotEmpty)) {
+          adminName ??= m.adminName ?? m.name;
+        }
+        if (PhoneUtils.isSame(m.mobile, userPhone) && m.isAdmin) {
+          isUserAdmin = true;
+        }
+      }
+
+      if (fam.contains('_') && normUserPhone.isNotEmpty && fam.endsWith(normUserPhone)) {
+        isUserAdmin = true;
+      }
+
+      final cleanDisplay = fam.replaceFirst(RegExp(r'_\d+.*$'), '');
+      final displayName = cleanDisplay.isNotEmpty ? cleanDisplay : fam;
+
+      summaries.add(FamilyGroupSummary(
+        familyName: fam,
+        displayName: displayName,
+        memberCount: members.length,
+        adminName: adminName ?? (members.isNotEmpty ? members.first.name : null),
+        isUserMember: true,
+        isUserAdmin: isUserAdmin,
+        memberNames: memberNames.toList(),
+      ));
+    });
+
+    summaries.sort((a, b) {
+      if (a.memberCount != b.memberCount) {
+        return b.memberCount.compareTo(a.memberCount);
+      }
+      return a.displayName.toLowerCase().compareTo(b.displayName.toLowerCase());
+    });
+
+    // Update in-memory cache
+    _userSummariesCache[normUserPhone] = summaries;
+    _userSummariesCacheTimestamp[normUserPhone] = now;
+
+    return summaries;
+  }
+
+  // Get All Family Summaries for Family Search and Switching
+  Future<List<FamilyGroupSummary>> getAllFamilySummaries(String userPhone) async {
+    final Map<String, List<FamilyMemberModel>> grouped = {};
+    final normUserPhone = PhoneUtils.normalize(userPhone);
+
+    // 1. Group all database members by familyName
+    final allMembers = await getAllDatabaseMembers();
+    for (var m in allMembers) {
+      final fam = m.familyName.trim();
+      if (fam.isNotEmpty) {
+        grouped.putIfAbsent(fam, () => []).add(m);
+      }
+    }
+
+    // 2. Add families listed in familyList
+    try {
+      final snap = await _db.ref(AppConstants.familyList).get().timeout(const Duration(seconds: 3));
+      if (snap.exists && snap.value is Map) {
+        (snap.value as Map).forEach((k, v) {
+          final fam = k?.toString().trim() ?? '';
+          if (fam.isNotEmpty) {
+            grouped.putIfAbsent(fam, () => []);
+          }
+        });
+      }
+    } catch (_) {}
+
+    // 3. Add families listed in familyNames node keys
+    try {
+      final snap = await _db.ref(AppConstants.familyDbName).get().timeout(const Duration(seconds: 3));
+      if (snap.exists && snap.value is Map) {
+        (snap.value as Map).forEach((k, v) {
+          final fam = k?.toString().trim() ?? '';
+          if (fam.isNotEmpty) {
+            grouped.putIfAbsent(fam, () => []);
+          }
+        });
+      }
+    } catch (_) {}
+
+    // 4. Add user's own indexed families
+    if (normUserPhone.isNotEmpty) {
+      try {
+        final snap = await _db.ref('user_families').child(normUserPhone).get().timeout(const Duration(seconds: 3));
+        if (snap.exists && snap.value is Map) {
+          (snap.value as Map).forEach((k, v) {
+            final fam = k?.toString().trim() ?? '';
+            if (fam.isNotEmpty) {
+              grouped.putIfAbsent(fam, () => []);
+            }
+          });
+        }
+      } catch (_) {}
+    }
+
+    final List<FamilyGroupSummary> summaries = [];
+    grouped.forEach((fam, members) {
+      bool isUserMember = false;
+      bool isUserAdmin = false;
+      String? adminName;
+      final Set<String> memberNames = {};
+
+      for (var m in members) {
+        if (m.name.isNotEmpty) memberNames.add(m.name);
+        if (m.isAdmin || (adminName == null && m.adminName != null && m.adminName!.isNotEmpty)) {
+          adminName ??= m.adminName ?? m.name;
+        }
+        if (PhoneUtils.isSame(m.mobile, userPhone)) {
+          isUserMember = true;
+          if (m.isAdmin) isUserAdmin = true;
+        }
+      }
+
+      // If user phone matches family name suffix e.g. MyFamily_9876543210
+      if (fam.contains('_') && normUserPhone.isNotEmpty && fam.endsWith(normUserPhone)) {
+        isUserMember = true;
+        isUserAdmin = true;
+      }
+
+      // Clean display name
+      final cleanDisplay = fam.replaceFirst(RegExp(r'_\d+.*$'), '');
+      final displayName = cleanDisplay.isNotEmpty ? cleanDisplay : fam;
+
+      summaries.add(FamilyGroupSummary(
+        familyName: fam,
+        displayName: displayName,
+        memberCount: members.length,
+        adminName: adminName ?? (members.isNotEmpty ? members.first.name : null),
+        isUserMember: isUserMember,
+        isUserAdmin: isUserAdmin,
+        memberNames: memberNames.toList(),
+      ));
+    });
+
+    // Sort: User's joined families first, then by member count descending, then alphabetical
+    summaries.sort((a, b) {
+      if (a.isUserMember != b.isUserMember) {
+        return a.isUserMember ? -1 : 1;
+      }
+      if (a.memberCount != b.memberCount) {
+        return b.memberCount.compareTo(a.memberCount);
+      }
+      return a.displayName.toLowerCase().compareTo(b.displayName.toLowerCase());
+    });
+
+    return summaries;
+  }
+
+  // Index family to user_families and familyList
+  Future<void> indexUserFamily(String normalizedPhone, String familyName) async {
+    if (normalizedPhone.isNotEmpty && familyName.isNotEmpty) {
+      try {
+        await _db.ref('user_families').child(normalizedPhone).child(familyName).set(true);
+        await _db.ref(AppConstants.familyList).child(familyName).set(familyName);
+      } catch (_) {}
+    }
   }
 
   // Stream of Real-time Location for a Specific Mobile Number (Multi-format broadcast stream)
@@ -823,6 +1050,124 @@ class DatabaseService {
     } catch (e) {
       rethrow;
     }
+  }
+
+  // Update Family Member Admin Role (Make as Admin / Remove as Admin)
+  Future<void> updateMemberAdminRole({
+    required String familyName,
+    required String memberId,
+    required String mobile,
+    required bool makeAdmin,
+  }) async {
+    final newRelationship = makeAdmin ? 'Admin' : 'Member';
+    final updates = <String, dynamic>{
+      'relationship': newRelationship,
+    };
+    if (!makeAdmin) {
+      updates['adminName'] = '';
+    }
+
+    final norm = PhoneUtils.normalize(mobile);
+
+    // 1. Direct update by memberId if known
+    if (memberId.isNotEmpty) {
+      try {
+        await _db
+            .ref(AppConstants.familyMemberList)
+            .child(memberId)
+            .update(updates);
+      } catch (e) {
+        debugPrint('[DatabaseService] Error updating familyMemberList for $memberId: $e');
+      }
+    }
+
+    // 2. Scan and update all entries in familyMemberList matching this mobile
+    if (norm.isNotEmpty) {
+      try {
+        final snap = await _db
+            .ref(AppConstants.familyMemberList)
+            .get()
+            .timeout(const Duration(seconds: 4));
+        if (snap.exists && snap.value is Map) {
+          final map = snap.value as Map;
+          for (final entry in map.entries) {
+            if (entry.value is Map) {
+              final mMobile = entry.value['mobile']?.toString() ??
+                  entry.value['mobileNo']?.toString() ??
+                  entry.value['phone']?.toString() ??
+                  '';
+              final mFamily = entry.value['familyName']?.toString() ??
+                  entry.value['family']?.toString() ??
+                  '';
+              if (PhoneUtils.isSame(mMobile, mobile) &&
+                  (familyName.isEmpty ||
+                      mFamily.isEmpty ||
+                      mFamily.toLowerCase() == familyName.toLowerCase())) {
+                await _db
+                    .ref(AppConstants.familyMemberList)
+                    .child(entry.key.toString())
+                    .update(updates);
+              }
+            }
+          }
+        }
+      } catch (e) {
+        debugPrint('[DatabaseService] Error querying familyMemberList: $e');
+      }
+    }
+
+    // 3. Update familyNames node
+    if (familyName.isNotEmpty) {
+      final cleanFamily = familyName.trim();
+      try {
+        if (memberId.isNotEmpty) {
+          await _db
+              .ref(AppConstants.familyDbName)
+              .child(cleanFamily)
+              .child(memberId)
+              .update(updates);
+        }
+        final familySnap = await _db
+            .ref(AppConstants.familyDbName)
+            .child(cleanFamily)
+            .get()
+            .timeout(const Duration(seconds: 4));
+        if (familySnap.exists && familySnap.value is Map) {
+          final fMap = familySnap.value as Map;
+          for (final entry in fMap.entries) {
+            if (entry.value is Map) {
+              final mMobile = entry.value['mobile']?.toString() ??
+                  entry.value['mobileNo']?.toString() ??
+                  entry.value['phone']?.toString() ??
+                  '';
+              if (PhoneUtils.isSame(mMobile, mobile)) {
+                await _db
+                    .ref(AppConstants.familyDbName)
+                    .child(cleanFamily)
+                    .child(entry.key.toString())
+                    .update(updates);
+              }
+            }
+          }
+        }
+      } catch (e) {
+        debugPrint('[DatabaseService] Error updating familyNames: $e');
+      }
+
+      // 4. Update family_members/{familyName}/{norm}
+      if (norm.isNotEmpty) {
+        try {
+          await _db
+              .ref('family_members')
+              .child(cleanFamily)
+              .child(norm)
+              .update(updates);
+        } catch (_) {}
+      }
+    }
+
+    // Invalidate caches to ensure consistency
+    invalidateMembersCache(norm);
   }
 
   // Clear Location History for a Member (Specific Date or All History)

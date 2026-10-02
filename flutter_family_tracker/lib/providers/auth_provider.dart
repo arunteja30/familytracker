@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../services/auth_service.dart';
@@ -41,24 +42,36 @@ class AppAuthProvider extends ChangeNotifier {
     setError(null);
     _currentPhoneNumber = phoneNumber;
 
+    Timer? failsafeTimer;
+    failsafeTimer = Timer(const Duration(seconds: 90), () {
+      if (_isLoading) {
+        setLoading(false);
+        setError('Verification request timed out. Please check your network connection and verify SHA fingerprints in Firebase Console.');
+      }
+    });
+
     try {
+      debugPrint('[FamilyTracker-Auth] Requesting OTP verification for: $phoneNumber');
       await _authService.verifyPhoneNumber(
         phoneNumber: phoneNumber,
         resendToken: _resendToken,
         onCodeSent: (String verId, int? token) {
+          failsafeTimer?.cancel();
+          debugPrint('[FamilyTracker-Auth] OTP code sent successfully. verificationId=$verId');
           _verificationId = verId;
           _resendToken = token;
           setLoading(false);
           onCodeSent();
         },
         onVerificationFailed: (FirebaseAuthException e) {
+          failsafeTimer?.cancel();
           setLoading(false);
           debugPrint('[FamilyTracker-Auth] Phone verification failed: code=${e.code}, message=${e.message}');
           String message = e.message ?? 'Phone verification failed';
           if (e.code == 'captcha-check-failed' || e.code == 'invalid-app-credential' || e.message?.toLowerCase().contains('recaptcha') == true) {
-            message = 'Verification failed (invalid-app-credential). Please ensure SHA-256 fingerprint is added to Firebase Console (or Authorized Domains for Web).';
+            message = 'Verification failed (${e.code}): ${e.message ?? "Invalid app credential. Check SHA-256, Play Integrity API, or use a test phone number in Firebase Console."}';
           } else if (e.code == 'app-not-authorized' || e.code == 'missing-client-identifier') {
-            message = 'App not authorized. Please verify SHA-1 & SHA-256 certificates in Firebase Console.';
+            message = 'App not authorized (${e.code}): Please verify SHA-1 & SHA-256 in Firebase Console.';
           } else if (e.code == 'too-many-requests') {
             message = 'Too many requests. Please wait a few moments before trying again.';
           } else if (e.code == 'quota-exceeded') {
@@ -69,6 +82,8 @@ class AppAuthProvider extends ChangeNotifier {
           setError(message);
         },
         onVerificationCompleted: (PhoneAuthCredential credential) async {
+          failsafeTimer?.cancel();
+          debugPrint('[FamilyTracker-Auth] Instant SMS verification completed');
           // Instant SMS verification on Android
           try {
             final userCredential = await _authService.signInWithCredential(credential);
@@ -92,9 +107,14 @@ class AppAuthProvider extends ChangeNotifier {
             setError(e.toString());
           }
         },
+        onCodeAutoRetrievalTimeout: (String verId) {
+          debugPrint('[FamilyTracker-Auth] SMS auto-retrieval window ended for verId=$verId. Manual OTP entry available.');
+          _verificationId = verId;
+        },
       );
       return true;
     } catch (e) {
+      failsafeTimer.cancel();
       setLoading(false);
       setError(e.toString());
       return false;

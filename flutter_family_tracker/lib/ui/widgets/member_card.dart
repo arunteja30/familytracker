@@ -22,6 +22,7 @@ class MemberCard extends StatefulWidget {
   final VoidCallback onTrackOnMap;
   final VoidCallback onHistory;
   final VoidCallback? onDelete;
+  final void Function(bool makeAdmin)? onToggleAdmin;
 
   const MemberCard({
     super.key,
@@ -30,6 +31,7 @@ class MemberCard extends StatefulWidget {
     required this.onTrackOnMap,
     required this.onHistory,
     this.onDelete,
+    this.onToggleAdmin,
   });
 
   @override
@@ -159,13 +161,18 @@ class _MemberCardState extends State<MemberCard> {
   }
 
   void _showMemberActionSheet(BuildContext context, bool hasUnread) {
+    final familyProvider = context.read<FamilyProvider>();
+    final isMemberAdmin =
+        familyProvider.isMemberAdmin(widget.member) || widget.member.isAdmin;
+
     showModalBottomSheet(
       context: context,
+      isScrollControlled: true,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
       builder: (ctx) => SafeArea(
-        child: Padding(
+        child: SingleChildScrollView(
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 20),
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -298,7 +305,69 @@ class _MemberCardState extends State<MemberCard> {
                 },
               ),
 
-              // Action 6: Remove Member
+              // Action 6: Make as Admin / Remove as Admin (3-Dots Option for Admins)
+              if (widget.onToggleAdmin != null)
+                isMemberAdmin
+                    ? ListTile(
+                        leading: Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: Colors.amber.shade50,
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(
+                            Icons.remove_moderator_rounded,
+                            color: Color(0xFFD97706),
+                            size: 20,
+                          ),
+                        ),
+                        title: const Text(
+                          'Remove as Admin',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w600,
+                            color: Color(0xFFD97706),
+                          ),
+                        ),
+                        subtitle: const Text(
+                          'Demote to regular family circle member',
+                          style: TextStyle(fontSize: 12),
+                        ),
+                        onTap: () {
+                          Navigator.pop(ctx);
+                          widget.onToggleAdmin!(false);
+                        },
+                      )
+                    : ListTile(
+                        leading: Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFEEF2FF),
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(
+                            Icons.admin_panel_settings_rounded,
+                            color: Color(0xFF4F46E5),
+                            size: 20,
+                          ),
+                        ),
+                        title: const Text(
+                          'Make as Admin',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w600,
+                            color: Color(0xFF4F46E5),
+                          ),
+                        ),
+                        subtitle: const Text(
+                          'Grant admin management for this circle',
+                          style: TextStyle(fontSize: 12),
+                        ),
+                        onTap: () {
+                          Navigator.pop(ctx);
+                          widget.onToggleAdmin!(true);
+                        },
+                      ),
+
+              // Action 7: Remove Member
               if (widget.onDelete != null)
                 ListTile(
                   leading: Container(

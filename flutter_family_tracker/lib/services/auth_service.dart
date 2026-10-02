@@ -9,14 +9,16 @@ class AuthService {
 
   Stream<User?> get authStateChanges => _auth.authStateChanges();
 
-  // Send Verification Code to Phone Number
   Future<void> verifyPhoneNumber({
     required String phoneNumber,
     required Function(String verificationId, int? resendToken) onCodeSent,
     required Function(FirebaseAuthException e) onVerificationFailed,
     required Function(PhoneAuthCredential credential) onVerificationCompleted,
+    Function(String verificationId)? onCodeAutoRetrievalTimeout,
     int? resendToken,
   }) async {
+    debugPrint('[FamilyTracker-Auth] verifyPhoneNumber called. Running on: ${kIsWeb ? "WEB" : defaultTargetPlatform.name}');
+
     // On Flutter Web, use signInWithPhoneNumber to properly initialize RecaptchaVerifier
     if (kIsWeb) {
       try {
@@ -35,11 +37,11 @@ class AuthService {
 
     await _auth.verifyPhoneNumber(
       phoneNumber: phoneNumber,
-      timeout: const Duration(seconds: 60),
+      timeout: const Duration(seconds: 90),
       verificationCompleted: onVerificationCompleted,
       verificationFailed: onVerificationFailed,
       codeSent: onCodeSent,
-      codeAutoRetrievalTimeout: (String verificationId) {},
+      codeAutoRetrievalTimeout: onCodeAutoRetrievalTimeout ?? (String verificationId) {},
       forceResendingToken: resendToken,
     );
   }

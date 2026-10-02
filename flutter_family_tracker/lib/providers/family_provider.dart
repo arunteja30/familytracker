@@ -7,6 +7,7 @@ import '../models/location_details_model.dart';
 import '../models/chat_message_model.dart';
 import '../models/geofence_place_model.dart';
 import '../models/alert_item_model.dart';
+import '../models/family_group_summary.dart';
 import '../services/database_service.dart';
 import '../services/preferences_service.dart';
 import '../services/location_service.dart';
@@ -141,9 +142,12 @@ class FamilyProvider extends ChangeNotifier {
 
   /// Checks if any specific member is an Admin of the current group
   bool isMemberAdmin(FamilyMemberModel member) {
-    if (member.isAdmin) return true;
+    final rel = member.relationship.trim().toLowerCase();
+    if (rel == 'admin' || rel == 'creator' || rel == 'owner' || rel == 'head') {
+      return true;
+    }
 
-    // 1. If group name suffix is member's phone number
+    // 1. If group name suffix is member's phone number (group creator/owner)
     if (_currentFamilyName.contains('_')) {
       final parts = _currentFamilyName.split('_');
       if (parts.length >= 2) {
@@ -152,6 +156,11 @@ class FamilyProvider extends ChangeNotifier {
           return true;
         }
       }
+    }
+
+    // If explicitly marked as regular member and not circle owner, return false
+    if (rel == 'member') {
+      return false;
     }
 
     // 2. If member's adminName matches their own mobile or name
@@ -820,25 +829,61 @@ class FamilyProvider extends ChangeNotifier {
     _safeNotifyListeners();
   }
 
+  // Fetch Logged-in User's Family Groups (strictly restricted to groups the user belongs to)
+  Future<List<FamilyGroupSummary>> fetchAvailableFamilies([String? userPhone]) async {
+    final phone = userPhone ?? PreferencesService.getUserPhone() ?? '';
+    try {
+      final list = await _dbService.getUserFamilySummaries(phone);
+      // Update local cache of user family groups
+      for (final s in list) {
+        if (!_userFamilyGroups.contains(s.familyName)) {
+          _userFamilyGroups.add(s.familyName);
+        }
+      }
+      return list;
+    } catch (e) {
+      debugPrint('[FamilyTracker] Fetch user families error: $e');
+      return [];
+    }
+  }
+
   // Switch Family Group
   Future<void> switchFamilyGroup(String newFamilyName) async {
-    _currentFamilyName = newFamilyName;
+    final clean = newFamilyName.trim();
+    if (clean.isEmpty) return;
+
+    // Fast-path: if already on this family and members are loaded, skip redundant reload
+    if (_currentFamilyName.toLowerCase() == clean.toLowerCase() && _familyMembers.isNotEmpty) {
+      return;
+    }
+
+    _currentFamilyName = clean;
+    if (!_userFamilyGroups.contains(clean)) {
+      _userFamilyGroups.add(clean);
+    }
+
     _unreadChatCount = 0;
     _unreadMemberPhones.clear();
     _processedChatMessageIds.clear();
     _hasInitialChatLoaded = false;
     _processedAlertIds.clear();
     _hasInitialAlertsLoaded = false;
-    await PreferencesService.saveUserFamilyName(newFamilyName);
+    await PreferencesService.saveUserFamilyName(clean);
+
+    final userPhone = PreferencesService.getUserPhone() ?? '';
+    final normPhone = PhoneUtils.normalize(userPhone);
+    if (normPhone.isNotEmpty) {
+      _dbService.indexUserFamily(normPhone, clean).catchError((_) {});
+    }
 
     try {
-      final members = await _dbService.getFamilyMembers(newFamilyName);
+      final members = await _dbService.getFamilyMembers(clean);
       _familyMembers = _enrichWithContactNames(members);
-      _subscribeToMembers(newFamilyName);
-      _subscribeToEmergencyAlerts(newFamilyName);
-      _subscribeToChat(newFamilyName);
-      _subscribeToPlaces(newFamilyName);
-      _subscribeToAlerts(newFamilyName);
+      _subscribeToMembers(clean);
+      _subscribeToEmergencyAlerts(clean);
+      _subscribeToChat(clean);
+      _subscribeToPlaces(clean);
+      _subscribeToAlerts(clean);
       _subscribeToLocations(members);
     } catch (e) {
       debugPrint('[FamilyTracker] Switch group error: $e');
@@ -863,6 +908,54 @@ class FamilyProvider extends ChangeNotifier {
       await refresh(PreferencesService.getUserPhone() ?? '');
     } catch (e) {
       debugPrint('[FamilyTracker] Delete member error: $e');
+    }
+  }
+
+  // Toggle Member Admin Status (Make as Admin / Remove as Admin)
+  Future<bool> toggleMemberAdmin(FamilyMemberModel member, bool makeAdmin) async {
+    try {
+      // Safety check: Cannot demote circle creator if phone number in circle name
+      if (!makeAdmin && _currentFamilyName.contains('_')) {
+        final parts = _currentFamilyName.split('_');
+        if (parts.length >= 2) {
+          final phonePart = parts.sublist(1).join('_');
+          if (DatabaseService.matchPhones(phonePart, member.mobile)) {
+            debugPrint('[FamilyTracker] Cannot remove circle creator as admin');
+            return false;
+          }
+        }
+      }
+
+      await _dbService.updateMemberAdminRole(
+        familyName: _currentFamilyName,
+        memberId: member.memberId,
+        mobile: member.mobile,
+        makeAdmin: makeAdmin,
+      );
+
+      // Immediately update local state in-memory for instant UI feedback
+      member.relationship = makeAdmin ? 'Admin' : 'Member';
+      if (!makeAdmin) {
+        member.adminName = '';
+      }
+
+      for (var m in _familyMembers) {
+        if (PhoneUtils.isSame(m.mobile, member.mobile)) {
+          m.relationship = makeAdmin ? 'Admin' : 'Member';
+          if (!makeAdmin) {
+            m.adminName = '';
+          }
+        }
+      }
+
+      _safeNotifyListeners();
+
+      final myPhone = PreferencesService.getUserPhone() ?? '';
+      await refresh(myPhone);
+      return true;
+    } catch (e) {
+      debugPrint('[FamilyTracker] Toggle member admin error: $e');
+      return false;
     }
   }
 

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:geolocator/geolocator.dart';
 import '../../constants/app_colors.dart';
+import '../../models/family_member_model.dart';
 import '../../providers/family_provider.dart';
 import '../../services/preferences_service.dart';
 import '../../services/permission_service.dart';
@@ -188,6 +189,84 @@ class _FamilyDashboardScreenState extends State<FamilyDashboardScreen> with Widg
               backgroundColor: AppColors.danger,
             ),
             child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _confirmToggleAdmin(FamilyMemberModel member, bool makeAdmin) {
+    final familyProvider = Provider.of<FamilyProvider>(context, listen: false);
+    final groupName = familyProvider.displayFamilyName;
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: [
+            Icon(
+              makeAdmin
+                  ? Icons.admin_panel_settings_rounded
+                  : Icons.remove_moderator_rounded,
+              color: makeAdmin ? const Color(0xFF4F46E5) : const Color(0xFFD97706),
+              size: 26,
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                makeAdmin ? 'Make as Admin' : 'Remove as Admin',
+                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+              ),
+            ),
+          ],
+        ),
+        content: Text(
+          makeAdmin
+              ? 'Are you sure you want to promote "${member.name}" to Admin of $groupName?\n\nThey will have full permissions to manage circle members.'
+              : 'Are you sure you want to remove "${member.name}" as Admin of $groupName?\n\nThey will remain a regular circle member.',
+          style: const TextStyle(fontSize: 14, color: AppColors.textPrimary, height: 1.4),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              Navigator.pop(ctx);
+              final success = await familyProvider.toggleMemberAdmin(member, makeAdmin);
+              if (!mounted) return;
+              if (success) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      makeAdmin
+                          ? '${member.name} is now an Admin of $groupName'
+                          : '${member.name} is no longer an Admin',
+                    ),
+                    backgroundColor:
+                        makeAdmin ? AppColors.success : const Color(0xFFD97706),
+                  ),
+                );
+              } else {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text(
+                      'Cannot change admin status for the circle creator.',
+                    ),
+                    backgroundColor: AppColors.danger,
+                  ),
+                );
+              }
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor:
+                  makeAdmin ? const Color(0xFF4F46E5) : const Color(0xFFD97706),
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            ),
+            child: Text(makeAdmin ? 'Make Admin' : 'Remove Admin'),
           ),
         ],
       ),
@@ -936,6 +1015,10 @@ class _FamilyDashboardScreenState extends State<FamilyDashboardScreen> with Widg
                                   ),
                                 );
                               },
+                              onToggleAdmin: isCurrentUserAdmin && !isSelf
+                                  ? (makeAdmin) =>
+                                      _confirmToggleAdmin(member, makeAdmin)
+                                  : null,
                               onDelete: isCurrentUserAdmin && !isSelf
                                   ? () => _confirmDeleteMember(
                                         member.memberId,

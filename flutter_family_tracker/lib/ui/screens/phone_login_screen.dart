@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../constants/app_colors.dart';
 import '../../providers/auth_provider.dart';
+import '../../services/preferences_service.dart';
 import 'otp_verification_screen.dart';
+import 'main_navigation_screen.dart';
 
 class PhoneLoginScreen extends StatefulWidget {
   const PhoneLoginScreen({super.key});
@@ -24,15 +26,28 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
   }
 
   void _onContinue() {
-    final phone = _phoneController.text.trim();
-    if (phone.isEmpty || phone.length < 6) {
+    String phone = _phoneController.text.trim().replaceAll(RegExp(r'[\s\-\(\)]'), '');
+    if (phone.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Please enter a valid mobile number')),
       );
       return;
     }
 
-    final fullPhoneNumber = '$_selectedCountryCode$phone';
+    final String fullPhoneNumber;
+    if (phone.startsWith('+')) {
+      fullPhoneNumber = phone;
+    } else {
+      fullPhoneNumber = '$_selectedCountryCode$phone';
+    }
+
+    if (fullPhoneNumber.length < 8) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter a valid 10-digit mobile number')),
+      );
+      return;
+    }
+
     final authProvider = Provider.of<AppAuthProvider>(context, listen: false);
 
     authProvider.sendOtp(
@@ -53,6 +68,19 @@ class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
   @override
   Widget build(BuildContext context) {
     final authProvider = context.watch<AppAuthProvider>();
+
+    // Instant auto-verification redirect to Dashboard
+    if (authProvider.currentUser != null && PreferencesService.isLoggedIn()) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          Navigator.pushAndRemoveUntil(
+            context,
+            MaterialPageRoute(builder: (_) => const MainNavigationScreen()),
+            (route) => false,
+          );
+        }
+      });
+    }
 
     return Scaffold(
       body: SingleChildScrollView(
