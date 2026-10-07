@@ -1,11 +1,11 @@
 {
-    "name": "flutter_family_tracker",
-    "short_name": "flutter_family_tracker",
+    "name": "FamilyTracker",
+    "short_name": "FamilyTracker",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#0175C2",
-    "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "background_color": "#121826",
+    "theme_color": "#121826",
+    "description": "Real-time Family Location Tracker and Safety Platform.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

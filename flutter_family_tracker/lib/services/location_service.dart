@@ -16,9 +16,11 @@ class LocationService {
 
   // Check and Request Location Permissions
   Future<bool> checkPermission() async {
-    bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
-    if (!serviceEnabled) {
-      return false;
+    if (!kIsWeb) {
+      bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) {
+        return false;
+      }
     }
 
     LocationPermission permission = await Geolocator.checkPermission();
@@ -39,9 +41,11 @@ class LocationService {
   // Get Current Location & Battery Info (With IP Fallback when GPS is OFF)
   Future<LocationDetailsModel?> getCurrentLocationDetails() async {
     int batteryLevel = 100;
-    try {
-      batteryLevel = await _battery.batteryLevel;
-    } catch (_) {}
+    if (!kIsWeb) {
+      try {
+        batteryLevel = await _battery.batteryLevel;
+      } catch (_) {}
+    }
 
     final now = DateTime.now();
     final dateStr = DateFormat('yyyy-MM-dd').format(now);
@@ -62,20 +66,18 @@ class LocationService {
           } catch (_) {}
         }
 
-        // Try fresh location (avoid timeLimit on web to prevent geolocator_web Bad state: Future already completed)
+        // Try fresh location with safe timeout
         try {
-          final fresh = kIsWeb
-              ? await Geolocator.getCurrentPosition(
-                  desiredAccuracy: LocationAccuracy.medium,
-                )
-              : await Geolocator.getCurrentPosition(
-                  desiredAccuracy: LocationAccuracy.medium,
-                  timeLimit: const Duration(seconds: 5),
-                );
+          final fresh = await Geolocator.getCurrentPosition(
+            desiredAccuracy: LocationAccuracy.medium,
+            timeLimit: const Duration(seconds: 6),
+          );
           if (fresh.latitude != 0.0 || fresh.longitude != 0.0) {
             position = fresh;
           }
-        } catch (_) {}
+        } catch (e) {
+          debugPrint('[FamilyTracker] getCurrentPosition notice: $e');
+        }
 
         if (position != null && (position.latitude != 0.0 || position.longitude != 0.0)) {
           String address = '';
@@ -146,6 +148,11 @@ class LocationService {
     // 1. Immediately fetch & push location on launch so Firebase is updated without waiting for movement
     updateAndPushLocation(mobile);
 
+    // Continuous native background streams (like AppleSettings with background location modes)
+    // are strictly for mobile OS services. Browsers (especially iOS Safari) forbid background location
+    // and suspend or crash the tab if a stream remains open when the page is backgrounded or bookmarked.
+    if (kIsWeb) return;
+
     _positionStreamSubscription?.cancel();
 
     late LocationSettings locationSettings;
@@ -207,6 +214,8 @@ class LocationService {
       } catch (e) {
         debugPrint('[FamilyTracker] Background tracking error: $e');
       }
+    }, onError: (err) {
+      debugPrint('[FamilyTracker] Location stream error: $err');
     });
 
     if (!kIsWeb) {

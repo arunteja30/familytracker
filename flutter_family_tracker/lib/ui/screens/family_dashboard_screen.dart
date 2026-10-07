@@ -92,6 +92,14 @@ class _FamilyDashboardScreenState extends State<FamilyDashboardScreen> with Widg
   }
 
   Future<void> _checkGpsStatus() async {
+    if (kIsWeb) {
+      if (mounted) {
+        setState(() {
+          _isGpsEnabled = true;
+        });
+      }
+      return;
+    }
     try {
       final enabled = await Geolocator.isLocationServiceEnabled();
       if (mounted) {
