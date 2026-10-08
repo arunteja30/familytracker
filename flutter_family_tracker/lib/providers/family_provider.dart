@@ -904,7 +904,7 @@ class FamilyProvider extends ChangeNotifier {
   // Delete Member
   Future<void> deleteMember(String memberId, String mobile) async {
     try {
-      await _dbService.deleteFamilyMember(memberId, mobile);
+      await _dbService.deleteFamilyMember(memberId, mobile, _currentFamilyName);
       await refresh(PreferencesService.getUserPhone() ?? '');
     } catch (e) {
       debugPrint('[FamilyTracker] Delete member error: $e');

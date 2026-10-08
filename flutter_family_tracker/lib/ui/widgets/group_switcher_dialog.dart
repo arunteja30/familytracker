@@ -34,6 +34,19 @@ class _GroupSwitcherDialogState extends State<GroupSwitcherDialog> {
   void initState() {
     super.initState();
     _searchController.addListener(_onSearchChanged);
+    // Instantly seed with availableGroups without showing loading indicator
+    if (widget.availableGroups.isNotEmpty) {
+      _isLoading = false;
+      _allFamilies = widget.availableGroups.map((g) {
+        return FamilyGroupSummary(
+          familyName: g,
+          displayName: FamilyProvider.formatFamilyDisplayName(g),
+          memberCount: 1,
+          isUserMember: true,
+        );
+      }).toList();
+      _recomputeFiltered();
+    }
     _loadFamilySummaries();
   }
 
@@ -69,22 +82,11 @@ class _GroupSwitcherDialogState extends State<GroupSwitcherDialog> {
   }
 
   Future<void> _loadFamilySummaries() async {
-    // 1. Instantly seed with availableGroups while network request runs
-    if (widget.availableGroups.isNotEmpty) {
-      _allFamilies = widget.availableGroups.map((g) {
-        return FamilyGroupSummary(
-          familyName: g,
-          displayName: FamilyProvider.formatFamilyDisplayName(g),
-          memberCount: 1,
-          isUserMember: true,
-        );
-      }).toList();
-      _recomputeFiltered();
-    }
-
     try {
       final familyProvider = Provider.of<FamilyProvider>(context, listen: false);
-      final list = await familyProvider.fetchAvailableFamilies();
+      final list = await familyProvider
+          .fetchAvailableFamilies()
+          .timeout(const Duration(seconds: 4), onTimeout: () => []);
       if (mounted) {
         setState(() {
           if (list.isNotEmpty) {
@@ -105,9 +107,10 @@ class _GroupSwitcherDialogState extends State<GroupSwitcherDialog> {
     final clean = familyName.trim();
     if (clean.isEmpty) return;
 
-    widget.onSwitch(clean);
+    final messenger = ScaffoldMessenger.of(context);
     Navigator.pop(context);
-    ScaffoldMessenger.of(context).showSnackBar(
+    widget.onSwitch(clean);
+    messenger.showSnackBar(
       SnackBar(
         content: Row(
           children: [

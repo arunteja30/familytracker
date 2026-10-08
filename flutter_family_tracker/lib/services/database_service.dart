@@ -14,6 +14,7 @@ import '../models/alert_item_model.dart';
 import '../models/family_group_summary.dart';
 import '../utils/phone_utils.dart';
 import 'geocoding_service.dart';
+import 'preferences_service.dart';
 
 class DatabaseService {
   final FirebaseDatabase _db = FirebaseDatabase.instance;
@@ -107,19 +108,46 @@ class DatabaseService {
     return result;
   }
 
-  // Stream of Family Members for a given Group Name (listening to multiple nodes)
+  // Stream of Family Members for a given Group Name (targeted family node to avoid whole-DB thrashing)
   Stream<List<FamilyMemberModel>> streamFamilyMembers(String familyName) {
-    return _db.ref(AppConstants.familyMemberList).onValue.map((event) {
-      final members = parseMembersFromSnapshot(event.snapshot.value, familyName);
-      final target = familyName.trim().toLowerCase();
+    final clean = familyName.trim();
+    if (clean.isEmpty) return const Stream.empty();
 
-      final filtered = members.where((m) {
-        if (target.isEmpty) return true;
-        return m.familyName.trim().toLowerCase() == target;
-      }).toList();
+    return _db.ref(AppConstants.familyDbName).child(clean).onValue.asyncMap((event) async {
+      var members = parseMembersFromSnapshot(event.snapshot.value, clean);
+      if (members.isNotEmpty) {
+        debugPrint('[FamilyTracker] Streamed ${members.length} members for $clean from familyNames');
+        return members;
+      }
 
-      debugPrint('[FamilyTracker] Streamed ${filtered.length} members for $familyName');
-      return filtered;
+      // Check family_members node as secondary fallback
+      try {
+        final snap = await _db
+            .ref('family_members')
+            .child(clean)
+            .get()
+            .timeout(const Duration(seconds: 2));
+        if (snap.exists && snap.value != null) {
+          members = parseMembersFromSnapshot(snap.value, clean);
+          if (members.isNotEmpty) return members;
+        }
+      } catch (_) {}
+
+      // Secondary fallback: query familyMemberList filtered by child
+      try {
+        final snap = await _db
+            .ref(AppConstants.familyMemberList)
+            .orderByChild('familyName')
+            .equalTo(clean)
+            .get()
+            .timeout(const Duration(seconds: 2));
+        if (snap.exists && snap.value != null) {
+          members = parseMembersFromSnapshot(snap.value, clean);
+        }
+      } catch (_) {}
+
+      debugPrint('[FamilyTracker] Streamed ${members.length} fallback members for $clean');
+      return members;
     });
   }
 
@@ -162,19 +190,53 @@ class DatabaseService {
     return all;
   }
 
-  // Get Family Members for a Specific Group
+  // Get Family Members for a Specific Group (Targeted Fast Node Query)
   Future<List<FamilyMemberModel>> getFamilyMembers(String familyName) async {
-    final allMembers = await getAllDatabaseMembers();
-    final target = familyName.trim().toLowerCase();
+    final clean = familyName.trim();
+    if (clean.isEmpty) return [];
 
-    if (target.isEmpty) return allMembers;
+    final target = clean.toLowerCase();
+    final List<FamilyMemberModel> members = [];
+    final Set<String> seen = {};
 
-    final filtered = allMembers.where((m) {
-      return m.familyName.trim().toLowerCase() == target;
-    }).toList();
+    try {
+      // 1. Direct fetch from family group node (familyNames/{clean}, family_members/{clean}, FamilyDetails/{clean})
+      final snaps = await Future.wait<DataSnapshot?>([
+        _db.ref(AppConstants.familyDbName).child(clean).get().timeout(const Duration(seconds: 2)).catchError((_) => null as dynamic),
+        _db.ref('family_members').child(clean).get().timeout(const Duration(seconds: 2)).catchError((_) => null as dynamic),
+        _db.ref(AppConstants.legacyFamilyDb).child(clean).get().timeout(const Duration(seconds: 2)).catchError((_) => null as dynamic),
+      ]);
 
-    debugPrint('[FamilyTracker] Found ${filtered.length} members for family $familyName');
-    return filtered;
+      for (final snap in snaps) {
+        if (snap != null && snap.exists && snap.value != null) {
+          for (var m in parseMembersFromSnapshot(snap.value, clean)) {
+            final key = '${m.mobile}_${m.name}';
+            if (m.mobile.isNotEmpty && seen.add(key)) {
+              members.add(m);
+            }
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('[FamilyTracker] Direct family fetch error: $e');
+    }
+
+    if (members.isNotEmpty) {
+      debugPrint('[FamilyTracker] ⚡ Fast direct fetch found ${members.length} members for family $clean');
+      return members;
+    }
+
+    // 2. Fallback: only if direct nodes are empty, query all members with cache & timeout
+    try {
+      final allMembers = await getAllDatabaseMembers().timeout(const Duration(seconds: 3), onTimeout: () => []);
+      final filtered = allMembers.where((m) {
+        return m.familyName.trim().toLowerCase() == target;
+      }).toList();
+      debugPrint('[FamilyTracker] Fallback found ${filtered.length} members for family $clean');
+      return filtered;
+    } catch (_) {
+      return [];
+    }
   }
 
   // Find all Family Groups associated with a Phone Number (Fast O(1) Index Lookup with Legacy Fallback)
@@ -185,7 +247,7 @@ class DatabaseService {
     // 1. Fast O(1) direct index lookup from user_families/{normalizedPhone}
     if (norm.isNotEmpty) {
       try {
-        final snap = await _db.ref('user_families').child(norm).get().timeout(const Duration(seconds: 3));
+        final snap = await _db.ref('user_families').child(norm).get().timeout(const Duration(seconds: 2));
         if (snap.exists && snap.value is Map) {
           (snap.value as Map).forEach((k, v) {
             if (k != null && k.toString().trim().isNotEmpty) {
@@ -202,39 +264,44 @@ class DatabaseService {
       }
     }
 
-    // 2. Fallback: Search all members for legacy backwards-compatibility
-    final allMembers = await getAllDatabaseMembers();
-    debugPrint('[FamilyTracker] Searching groups for phone: $mobile among ${allMembers.length} members');
-
-    for (var member in allMembers) {
-      if (PhoneUtils.isSame(member.mobile, mobile) && member.familyName.trim().isNotEmpty) {
-        final fam = member.familyName.trim();
-        groups.add(fam);
-        // Auto-index into user_families for future instant lookups
-        if (norm.isNotEmpty) {
-          _db.ref('user_families').child(norm).child(fam).set(true).catchError((_) {});
-        }
-      }
-    }
-
-    // Check UserFamilyName node fallback
-    if (groups.isEmpty) {
+    // 2. Check UserFamilyName node fallback before expensive global search
+    if (mobile.isNotEmpty) {
       try {
-        final snap = await _db.ref(AppConstants.userFamilyName).child(mobile).get().timeout(const Duration(seconds: 3));
+        final snap = await _db.ref(AppConstants.userFamilyName).child(mobile).get().timeout(const Duration(seconds: 2));
         if (snap.exists && snap.value != null) {
           final fam = snap.value.toString().trim();
-          groups.add(fam);
-          if (norm.isNotEmpty) {
-            _db.ref('user_families').child(norm).child(fam).set(true).catchError((_) {});
+          if (fam.isNotEmpty) {
+            groups.add(fam);
+            if (norm.isNotEmpty) {
+              _db.ref('user_families').child(norm).child(fam).set(true).catchError((_) {});
+            }
+            return groups.toList();
           }
         }
       } catch (_) {}
     }
 
+    // 3. Fallback: Search all members for legacy backwards-compatibility
+    try {
+      final allMembers = await getAllDatabaseMembers().timeout(const Duration(seconds: 3), onTimeout: () => []);
+      debugPrint('[FamilyTracker] Searching groups for phone: $mobile among ${allMembers.length} members');
+
+      for (var member in allMembers) {
+        if (PhoneUtils.isSame(member.mobile, mobile) && member.familyName.trim().isNotEmpty) {
+          final fam = member.familyName.trim();
+          groups.add(fam);
+          // Auto-index into user_families for future instant lookups
+          if (norm.isNotEmpty) {
+            _db.ref('user_families').child(norm).child(fam).set(true).catchError((_) {});
+          }
+        }
+      }
+    } catch (_) {}
+
     // Check all group names in familyList / familyNames
     if (groups.isEmpty) {
       try {
-        final snap = await _db.ref(AppConstants.familyList).get().timeout(const Duration(seconds: 3));
+        final snap = await _db.ref(AppConstants.familyList).get().timeout(const Duration(seconds: 2));
         if (snap.exists && snap.value is Map) {
           (snap.value as Map).forEach((k, v) {
             if (k != null && k.toString().trim().isNotEmpty) {
@@ -249,7 +316,7 @@ class DatabaseService {
     return groups.toList();
   }
 
-  // Get Only The Logged-in User's Family Summaries (Strict Privacy & TTL Cached)
+  // Get Only The Logged-in User's Family Summaries (Strict Privacy & TTL Cached, Zero UI Freeze)
   Future<List<FamilyGroupSummary>> getUserFamilySummaries(String userPhone) async {
     final normUserPhone = PhoneUtils.normalize(userPhone);
     if (userPhone.trim().isEmpty) return [];
@@ -257,22 +324,14 @@ class DatabaseService {
     final now = DateTime.now().millisecondsSinceEpoch;
     final cached = _userSummariesCache[normUserPhone];
     final cachedTime = _userSummariesCacheTimestamp[normUserPhone] ?? 0;
-    if (cached != null && (now - cachedTime) < _membersCacheTtlMs) {
+    // 60-second TTL cache for summaries to prevent spamming on rapid dialog opens
+    if (cached != null && (now - cachedTime) < 60000) {
       return cached;
     }
 
-    // 1. Fetch all members across database nodes (parallel & cached)
-    final allMembers = await getAllDatabaseMembers();
     final Set<String> groupSet = {};
 
-    // 2. Single-pass discovery of user's groups from members
-    for (var m in allMembers) {
-      if (PhoneUtils.isSame(m.mobile, userPhone) && m.familyName.trim().isNotEmpty) {
-        groupSet.add(m.familyName.trim());
-      }
-    }
-
-    // 3. Fast check of user_families index
+    // 1. Fast direct lookup from user_families index
     if (normUserPhone.isNotEmpty) {
       try {
         final snap = await _db.ref('user_families').child(normUserPhone).get().timeout(const Duration(seconds: 2));
@@ -285,21 +344,39 @@ class DatabaseService {
       } catch (_) {}
     }
 
-    // 4. Group only the members that belong to the user's groups
-    final Map<String, List<FamilyMemberModel>> grouped = {};
-    for (var fam in groupSet) {
-      grouped[fam] = [];
+    // 2. Check UserFamilyName node for this mobile
+    if (userPhone.trim().isNotEmpty) {
+      try {
+        final snap = await _db.ref(AppConstants.userFamilyName).child(userPhone).get().timeout(const Duration(seconds: 2));
+        if (snap.exists && snap.value != null) {
+          final fam = snap.value.toString().trim();
+          if (fam.isNotEmpty) groupSet.add(fam);
+        }
+      } catch (_) {}
     }
 
-    for (var m in allMembers) {
-      final fam = m.familyName.trim();
-      if (fam.isNotEmpty && groupSet.contains(fam)) {
-        grouped[fam]!.add(m);
-      }
+    // 3. Check current saved active family
+    final savedFam = PreferencesService.getUserFamilyName()?.trim() ?? '';
+    if (savedFam.isNotEmpty) {
+      groupSet.add(savedFam);
     }
 
+    // 4. Fallback: only if groupSet is still empty, search database with timeout
+    if (groupSet.isEmpty) {
+      try {
+        final allMembers = await getAllDatabaseMembers().timeout(const Duration(seconds: 3), onTimeout: () => []);
+        for (var m in allMembers) {
+          if (PhoneUtils.isSame(m.mobile, userPhone) && m.familyName.trim().isNotEmpty) {
+            groupSet.add(m.familyName.trim());
+          }
+        }
+      } catch (_) {}
+    }
+
+    // 5. Build summaries for ONLY the user's groups by fetching only those group members
     final List<FamilyGroupSummary> summaries = [];
-    grouped.forEach((fam, members) {
+    for (final fam in groupSet) {
+      final members = await getFamilyMembers(fam);
       bool isUserAdmin = false;
       String? adminName;
       final Set<String> memberNames = {};
@@ -330,7 +407,7 @@ class DatabaseService {
         isUserAdmin: isUserAdmin,
         memberNames: memberNames.toList(),
       ));
-    });
+    }
 
     summaries.sort((a, b) {
       if (a.memberCount != b.memberCount) {
@@ -1039,10 +1116,18 @@ class DatabaseService {
   }
 
   // Delete Family Member
-  Future<void> deleteFamilyMember(String memberId, String mobile) async {
+  Future<void> deleteFamilyMember(String memberId, String mobile, [String? familyName]) async {
     try {
       if (memberId.isNotEmpty) {
         await _db.ref(AppConstants.familyMemberList).child(memberId).remove();
+        if (familyName != null && familyName.trim().isNotEmpty) {
+          await _db.ref(AppConstants.familyDbName).child(familyName.trim()).child(memberId).remove().catchError((_) {});
+        }
+      }
+      final norm = PhoneUtils.normalize(mobile);
+      if (norm.isNotEmpty && familyName != null && familyName.trim().isNotEmpty) {
+        await _db.ref('family_members').child(familyName.trim()).child(norm).remove().catchError((_) {});
+        await _db.ref('user_families').child(norm).child(familyName.trim()).remove().catchError((_) {});
       }
       if (mobile.isNotEmpty) {
         await _db.ref(AppConstants.locationList).child(mobile).remove();
