@@ -124,36 +124,27 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
   @override
   void didUpdateWidget(covariant AllMapsScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
-    bool shouldRebuild = false;
 
     if (widget.familyName != oldWidget.familyName) {
       _subscribeToPlaces();
     }
 
-    if (widget.members.length != oldWidget.members.length ||
-        widget.locations.length != oldWidget.locations.length ||
-        widget.familyName != oldWidget.familyName ||
-        (_markers.isEmpty && widget.members.isNotEmpty)) {
-      shouldRebuild = true;
-    } else {
-      for (final entry in widget.locations.entries) {
-        final oldLoc = oldWidget.locations[entry.key];
-        if (oldLoc == null ||
-            oldLoc.latitude != entry.value.latitude ||
-            oldLoc.longitude != entry.value.longitude) {
-          shouldRebuild = true;
-          break;
-        }
-      }
-    }
+    // Only resubscribe to movements and rebuild full markers if members or family changed
+    final membersChanged = widget.members.length != oldWidget.members.length ||
+        widget.familyName != oldWidget.familyName;
 
-    if (shouldRebuild) {
+    if (membersChanged) {
       _liveLocations.addAll(widget.locations);
       if (_selectedMember == null && widget.members.isNotEmpty) {
         _selectedMember = widget.members.first;
       }
       _subscribeToLiveMovements();
-      _loadPhotosAndBuildMarkers();
+      if (!kIsWeb) {
+        _loadPhotosAndBuildMarkers();
+      }
+    } else {
+      // Just update locations in memory without restarting streams
+      _liveLocations.addAll(widget.locations);
     }
   }
 
@@ -429,8 +420,8 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
       }
     });
 
-    final marker = await _buildMarkerForMember(member, loc, index);
-    if (marker != null && mounted) {
+    final marker = kIsWeb ? null : await _buildMarkerForMember(member, loc, index);
+    if (mounted) {
       setState(() {
         // Track live coordinates in memory for individual tracking
         final memberTrail =
@@ -445,9 +436,11 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
           }
         }
 
-        // Update current member marker position cleanly (no intermediate clutter markers)
-        _markers.removeWhere((m) => m.markerId.value == member.mobile);
-        _markers.add(marker);
+        if (marker != null) {
+          // Update current member marker position cleanly (no intermediate clutter markers)
+          _markers.removeWhere((m) => m.markerId.value == member.mobile);
+          _markers.add(marker);
+        }
 
         _updateActiveMovementPolylines();
         _buildPulseCircles();
@@ -530,6 +523,10 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
   }
 
   Future<void> _loadPhotosAndBuildMarkers() async {
+    // On Web, AdaptiveMapView renders lightweight Flutter widget markers directly via _buildAdaptiveMapPoints().
+    // Avoid running canvas PictureRecorder and toByteData() GPU rasterization.
+    if (kIsWeb) return;
+
     // Generate markers in parallel across all members using cached bitmaps
     final markerFutures = widget.members.asMap().entries.map((entry) async {
       final i = entry.key;

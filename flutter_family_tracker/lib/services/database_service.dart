@@ -135,14 +135,14 @@ class DatabaseService {
 
     try {
       // Execute all 3 DB queries in parallel instead of sequentially
-      final snaps = await Future.wait([
+      final snaps = await Future.wait<DataSnapshot?>([
         _db.ref(AppConstants.familyMemberList).get().timeout(const Duration(seconds: 3)).catchError((_) => null as dynamic),
         _db.ref(AppConstants.familyDbName).get().timeout(const Duration(seconds: 3)).catchError((_) => null as dynamic),
         _db.ref(AppConstants.legacyFamilyDb).get().timeout(const Duration(seconds: 3)).catchError((_) => null as dynamic),
       ]);
 
       for (final snap in snaps) {
-        if (snap.exists && snap.value != null) {
+        if (snap != null && snap.exists && snap.value != null) {
           for (var m in parseMembersFromSnapshot(snap.value)) {
             final key = '${m.mobile}_${m.familyName}';
             if (m.mobile.isNotEmpty && seen.add(key)) {
@@ -234,7 +234,7 @@ class DatabaseService {
     // Check all group names in familyList / familyNames
     if (groups.isEmpty) {
       try {
-        final snap = await _db.ref(AppConstants.familyList).get();
+        final snap = await _db.ref(AppConstants.familyList).get().timeout(const Duration(seconds: 3));
         if (snap.exists && snap.value is Map) {
           (snap.value as Map).forEach((k, v) {
             if (k != null && k.toString().trim().isNotEmpty) {

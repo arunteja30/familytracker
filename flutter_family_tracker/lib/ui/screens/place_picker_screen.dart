@@ -71,7 +71,10 @@ class _PlacePickerScreenState extends State<PlacePickerScreen> {
           pos = await Geolocator.getLastKnownPosition();
         } catch (_) {}
       }
-      pos ??= await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
+      pos ??= await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+        timeLimit: const Duration(seconds: 5),
+      );
 
       if (mounted) {
         setState(() {

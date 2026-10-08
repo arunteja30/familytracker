@@ -26,6 +26,7 @@ class MainNavigationScreen extends StatefulWidget {
 class _MainNavigationScreenState extends State<MainNavigationScreen>
     with WidgetsBindingObserver {
   late int _currentIndex;
+  final Set<int> _activatedTabs = {};
   bool _isPinPromptShowing = false;
 
   @override
@@ -33,6 +34,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _currentIndex = widget.initialIndex;
+    _activatedTabs.add(_currentIndex);
   }
 
   @override
@@ -65,7 +67,10 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
 
   void _onTabTapped(int index) {
     if (_currentIndex != index) {
-      setState(() => _currentIndex = index);
+      setState(() {
+        _currentIndex = index;
+        _activatedTabs.add(index);
+      });
     }
   }
 
@@ -80,30 +85,40 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
 
     final List<Widget> screens = [
       // Tab 0: Circle Dashboard
-      FamilyDashboardScreen(
-        onNavigateToTab: _onTabTapped,
-      ),
+      _activatedTabs.contains(0)
+          ? FamilyDashboardScreen(
+              onNavigateToTab: _onTabTapped,
+            )
+          : const SizedBox.shrink(),
 
       // Tab 1: Live Map Tracking
-      AllMapsScreen(
-        familyName: familyName,
-        members: members,
-        locations: locations,
-      ),
+      _activatedTabs.contains(1)
+          ? AllMapsScreen(
+              familyName: familyName,
+              members: members,
+              locations: locations,
+            )
+          : const SizedBox.shrink(),
 
       // Tab 2: Family Circle Chat
-      FamilyChatScreen(
-        familyName: familyName,
-      ),
+      _activatedTabs.contains(2)
+          ? FamilyChatScreen(
+              familyName: familyName,
+            )
+          : const SizedBox.shrink(),
 
       // Tab 3: Smart Geofencing & Safe Places
-      PlacesManagerScreen(
-        familyName: familyName,
-        userPhone: userPhone,
-      ),
+      _activatedTabs.contains(3)
+          ? PlacesManagerScreen(
+              familyName: familyName,
+              userPhone: userPhone,
+            )
+          : const SizedBox.shrink(),
 
       // Tab 4: Settings & Security
-      const SettingsScreen(),
+      _activatedTabs.contains(4)
+          ? const SettingsScreen()
+          : const SizedBox.shrink(),
     ];
 
     return Scaffold(

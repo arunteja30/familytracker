@@ -1,5 +1,4 @@
 import 'dart:math';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:geolocator/geolocator.dart';
@@ -206,14 +205,10 @@ class _SecurityPinGuardState extends State<SecurityPinGuard>
     try {
       Position? position;
       try {
-        position = kIsWeb
-            ? await Geolocator.getCurrentPosition(
-                desiredAccuracy: LocationAccuracy.medium,
-              )
-            : await Geolocator.getCurrentPosition(
-                desiredAccuracy: LocationAccuracy.high,
-                timeLimit: const Duration(seconds: 4),
-              );
+        position = await Geolocator.getCurrentPosition(
+          desiredAccuracy: LocationAccuracy.medium,
+          timeLimit: const Duration(seconds: 4),
+        );
       } catch (_) {}
 
       final latStr = position != null ? '${position.latitude}, ${position.longitude}' : 'Unavailable';

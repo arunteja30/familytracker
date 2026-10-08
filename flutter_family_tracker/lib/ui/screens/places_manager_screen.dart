@@ -70,6 +70,7 @@ class _PlacesManagerScreenState extends State<PlacesManagerScreen>
       }
       pos ??= await Geolocator.getCurrentPosition(
         desiredAccuracy: LocationAccuracy.medium,
+        timeLimit: const Duration(seconds: 5),
       );
       if (mounted) {
         setState(() => _currentPosition = pos);
@@ -749,6 +750,7 @@ class _PlacesManagerScreenState extends State<PlacesManagerScreen>
                                       try {
                                         final pos = await Geolocator.getCurrentPosition(
                                           desiredAccuracy: LocationAccuracy.high,
+                                          timeLimit: const Duration(seconds: 5),
                                         );
                                         setModalState(() {
                                           lat = pos.latitude;
