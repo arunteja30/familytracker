@@ -113,41 +113,8 @@ class DatabaseService {
     final clean = familyName.trim();
     if (clean.isEmpty) return const Stream.empty();
 
-    return _db.ref(AppConstants.familyDbName).child(clean).onValue.asyncMap((event) async {
-      var members = parseMembersFromSnapshot(event.snapshot.value, clean);
-      if (members.isNotEmpty) {
-        debugPrint('[FamilyTracker] Streamed ${members.length} members for $clean from familyNames');
-        return members;
-      }
-
-      // Check family_members node as secondary fallback
-      try {
-        final snap = await _db
-            .ref('family_members')
-            .child(clean)
-            .get()
-            .timeout(const Duration(seconds: 2));
-        if (snap.exists && snap.value != null) {
-          members = parseMembersFromSnapshot(snap.value, clean);
-          if (members.isNotEmpty) return members;
-        }
-      } catch (_) {}
-
-      // Secondary fallback: query familyMemberList filtered by child
-      try {
-        final snap = await _db
-            .ref(AppConstants.familyMemberList)
-            .orderByChild('familyName')
-            .equalTo(clean)
-            .get()
-            .timeout(const Duration(seconds: 2));
-        if (snap.exists && snap.value != null) {
-          members = parseMembersFromSnapshot(snap.value, clean);
-        }
-      } catch (_) {}
-
-      debugPrint('[FamilyTracker] Streamed ${members.length} fallback members for $clean');
-      return members;
+    return _db.ref(AppConstants.familyDbName).child(clean).onValue.map((event) {
+      return parseMembersFromSnapshot(event.snapshot.value, clean);
     });
   }
 
@@ -162,11 +129,11 @@ class DatabaseService {
     final seen = <String>{};
 
     try {
-      // Execute all 3 DB queries in parallel instead of sequentially
+      // Execute all 3 DB queries in parallel with short timeout to prevent UI thread lock
       final snaps = await Future.wait<DataSnapshot?>([
-        _db.ref(AppConstants.familyMemberList).get().timeout(const Duration(seconds: 3)).catchError((_) => null as dynamic),
-        _db.ref(AppConstants.familyDbName).get().timeout(const Duration(seconds: 3)).catchError((_) => null as dynamic),
-        _db.ref(AppConstants.legacyFamilyDb).get().timeout(const Duration(seconds: 3)).catchError((_) => null as dynamic),
+        _db.ref(AppConstants.familyMemberList).get().timeout(const Duration(seconds: 2)).catchError((_) => null as dynamic),
+        _db.ref(AppConstants.familyDbName).get().timeout(const Duration(seconds: 2)).catchError((_) => null as dynamic),
+        _db.ref(AppConstants.legacyFamilyDb).get().timeout(const Duration(seconds: 2)).catchError((_) => null as dynamic),
       ]);
 
       for (final snap in snaps) {
@@ -195,16 +162,15 @@ class DatabaseService {
     final clean = familyName.trim();
     if (clean.isEmpty) return [];
 
-    final target = clean.toLowerCase();
     final List<FamilyMemberModel> members = [];
     final Set<String> seen = {};
 
     try {
-      // 1. Direct fetch from family group node (familyNames/{clean}, family_members/{clean}, FamilyDetails/{clean})
+      // Direct fetch from family group node (familyNames/{clean}, family_members/{clean}, FamilyDetails/{clean})
       final snaps = await Future.wait<DataSnapshot?>([
-        _db.ref(AppConstants.familyDbName).child(clean).get().timeout(const Duration(seconds: 2)).catchError((_) => null as dynamic),
-        _db.ref('family_members').child(clean).get().timeout(const Duration(seconds: 2)).catchError((_) => null as dynamic),
-        _db.ref(AppConstants.legacyFamilyDb).child(clean).get().timeout(const Duration(seconds: 2)).catchError((_) => null as dynamic),
+        _db.ref(AppConstants.familyDbName).child(clean).get().timeout(const Duration(milliseconds: 1500)).catchError((_) => null as dynamic),
+        _db.ref('family_members').child(clean).get().timeout(const Duration(milliseconds: 1500)).catchError((_) => null as dynamic),
+        _db.ref(AppConstants.legacyFamilyDb).child(clean).get().timeout(const Duration(milliseconds: 1500)).catchError((_) => null as dynamic),
       ]);
 
       for (final snap in snaps) {
@@ -221,22 +187,7 @@ class DatabaseService {
       debugPrint('[FamilyTracker] Direct family fetch error: $e');
     }
 
-    if (members.isNotEmpty) {
-      debugPrint('[FamilyTracker] ⚡ Fast direct fetch found ${members.length} members for family $clean');
-      return members;
-    }
-
-    // 2. Fallback: only if direct nodes are empty, query all members with cache & timeout
-    try {
-      final allMembers = await getAllDatabaseMembers().timeout(const Duration(seconds: 3), onTimeout: () => []);
-      final filtered = allMembers.where((m) {
-        return m.familyName.trim().toLowerCase() == target;
-      }).toList();
-      debugPrint('[FamilyTracker] Fallback found ${filtered.length} members for family $clean');
-      return filtered;
-    } catch (_) {
-      return [];
-    }
+    return members;
   }
 
   // Find all Family Groups associated with a Phone Number (Fast O(1) Index Lookup with Legacy Fallback)
@@ -373,10 +324,16 @@ class DatabaseService {
       } catch (_) {}
     }
 
-    // 5. Build summaries for ONLY the user's groups by fetching only those group members
+    // 5. Build summaries for ONLY the user's groups by fetching group members in parallel
+    final groupList = groupSet.toList();
+    final memberResults = await Future.wait(
+      groupList.map((fam) => getFamilyMembers(fam).timeout(const Duration(seconds: 2), onTimeout: () => [])),
+    );
+
     final List<FamilyGroupSummary> summaries = [];
-    for (final fam in groupSet) {
-      final members = await getFamilyMembers(fam);
+    for (int i = 0; i < groupList.length; i++) {
+      final fam = groupList[i];
+      final members = memberResults[i];
       bool isUserAdmin = false;
       String? adminName;
       final Set<String> memberNames = {};

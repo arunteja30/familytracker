@@ -861,28 +861,65 @@ class FamilyProvider extends ChangeNotifier {
       return;
     }
 
+    // 1. Immediately cancel all previous subscriptions to halt background stream processing
+    _membersSubscription?.cancel();
+    _membersSubscription = null;
+    _emergencySubscription?.cancel();
+    _emergencySubscription = null;
+    _chatSubscription?.cancel();
+    _chatSubscription = null;
+    _placesSubscription?.cancel();
+    _placesSubscription = null;
+    _alertsSubscription?.cancel();
+    _alertsSubscription = null;
+    for (var sub in _locationSubscriptions.values) {
+      sub.cancel();
+    }
+    _locationSubscriptions.clear();
+
+    // 2. Clear previous family state and trigger loading state immediately
     _currentFamilyName = clean;
     if (!_userFamilyGroups.contains(clean)) {
       _userFamilyGroups.add(clean);
     }
-
+    _familyMembers = [];
+    _memberLocations.clear();
+    _familyPlaces = [];
+    _familyAlerts = [];
+    _activeEmergencyAlert = null;
     _unreadChatCount = 0;
     _unreadMemberPhones.clear();
     _processedChatMessageIds.clear();
     _hasInitialChatLoaded = false;
     _processedAlertIds.clear();
     _hasInitialAlertsLoaded = false;
-    await PreferencesService.saveUserFamilyName(clean);
+    _isLoading = true;
+    _safeNotifyListeners(immediate: true);
 
+    // Persist active family and update indexing in background without blocking
+    unawaited(PreferencesService.saveUserFamilyName(clean));
     final userPhone = PreferencesService.getUserPhone() ?? '';
     final normPhone = PhoneUtils.normalize(userPhone);
     if (normPhone.isNotEmpty) {
-      _dbService.indexUserFamily(normPhone, clean).catchError((_) {});
+      unawaited(_dbService.indexUserFamily(normPhone, clean).catchError((_) {}));
     }
 
+    // Safety fallback timer: guarantee that _isLoading is never stuck on true
+    Timer(const Duration(milliseconds: 3000), () {
+      if (_isLoading) {
+        debugPrint('[FamilyTracker] Switch family safety timer triggered: releasing loading state');
+        _isLoading = false;
+        _safeNotifyListeners(immediate: true);
+      }
+    });
+
     try {
-      final members = await _dbService.getFamilyMembers(clean);
+      final members = await _dbService
+          .getFamilyMembers(clean)
+          .timeout(const Duration(seconds: 2), onTimeout: () => []);
       _familyMembers = _enrichWithContactNames(members);
+
+      // Start live subscriptions for the new active family group
       _subscribeToMembers(clean);
       _subscribeToEmergencyAlerts(clean);
       _subscribeToChat(clean);
@@ -891,8 +928,10 @@ class FamilyProvider extends ChangeNotifier {
       _subscribeToLocations(members);
     } catch (e) {
       debugPrint('[FamilyTracker] Switch group error: $e');
+    } finally {
+      _isLoading = false;
+      _safeNotifyListeners(immediate: true);
     }
-    _safeNotifyListeners();
   }
 
   // Add Family Member

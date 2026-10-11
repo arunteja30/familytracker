@@ -109,7 +109,9 @@ class _GroupSwitcherDialogState extends State<GroupSwitcherDialog> {
 
     final messenger = ScaffoldMessenger.of(context);
     Navigator.pop(context);
-    widget.onSwitch(clean);
+    Future.microtask(() {
+      widget.onSwitch(clean);
+    });
     messenger.showSnackBar(
       SnackBar(
         content: Row(
