@@ -81,6 +81,9 @@ class DatabaseService {
         if (model.memberId.isEmpty && key != null) {
           model.memberId = key;
         }
+        if (model.mobile.isEmpty && key != null && PhoneUtils.normalize(key).length >= 10) {
+          model.mobile = key;
+        }
         if (model.familyName.isEmpty && fallbackFamilyName != null) {
           model.familyName = fallbackFamilyName;
         }
@@ -88,14 +91,34 @@ class DatabaseService {
       }
     }
 
+    bool isMemberMap(Map map) {
+      return map.containsKey('name') ||
+          map.containsKey('userName') ||
+          map.containsKey('adminName') ||
+          map.containsKey('mobile') ||
+          map.containsKey('mobileNo') ||
+          map.containsKey('phone') ||
+          map.containsKey('phoneNumber');
+    }
+
     if (data is Map) {
+      // Check if data itself is a single member object
+      if (isMemberMap(data)) {
+        processItem(data, fallbackFamilyName);
+        return result;
+      }
+
       data.forEach((k, v) {
-        if (v is Map && (v.containsKey('name') || v.containsKey('mobile') || v.containsKey('mobileNo'))) {
+        if (v is Map && isMemberMap(v)) {
           processItem(v, k.toString());
         } else if (v is Map) {
           // Nested group like { "MyFamily": { "member1": {...} } }
           v.forEach((nestedK, nestedV) {
-            processItem(nestedV, nestedK.toString());
+            if (nestedV is Map && isMemberMap(nestedV)) {
+              processItem(nestedV, nestedK.toString());
+            } else if (nestedV is Map) {
+              processItem(nestedV, nestedK.toString());
+            }
           });
         }
       });
@@ -108,14 +131,60 @@ class DatabaseService {
     return result;
   }
 
-  // Stream of Family Members for a given Group Name (targeted family node to avoid whole-DB thrashing)
+  // Stream of Family Members for a given Group Name (listening to all candidate keys across familyNames and family_members)
   Stream<List<FamilyMemberModel>> streamFamilyMembers(String familyName) {
     final clean = familyName.trim();
     if (clean.isEmpty) return const Stream.empty();
 
-    return _db.ref(AppConstants.familyDbName).child(clean).onValue.map((event) {
-      return parseMembersFromSnapshot(event.snapshot.value, clean);
-    });
+    final Set<String> candidates = {clean};
+    final norm = PhoneUtils.normalize(clean);
+    if (norm.isNotEmpty) {
+      candidates.add(norm);
+      candidates.add('+$norm');
+      candidates.add('+91$norm');
+      candidates.add('91$norm');
+    }
+    if (clean.startsWith('+')) {
+      candidates.add(clean.substring(1));
+    }
+
+    late StreamController<List<FamilyMemberModel>> controller;
+    final List<StreamSubscription> subs = [];
+
+    controller = StreamController<List<FamilyMemberModel>>.broadcast(
+      onListen: () {
+        void handleUpdate() async {
+          if (controller.isClosed) return;
+          try {
+            final members = await getFamilyMembers(clean);
+            if (!controller.isClosed && members.isNotEmpty) {
+              controller.add(members);
+            }
+          } catch (_) {}
+        }
+
+        for (final cand in candidates) {
+          subs.add(
+            _db.ref(AppConstants.familyDbName).child(cand).onValue.listen((_) {
+              handleUpdate();
+            }, onError: (_) {}),
+          );
+          subs.add(
+            _db.ref('family_members').child(cand).onValue.listen((_) {
+              handleUpdate();
+            }, onError: (_) {}),
+          );
+        }
+      },
+      onCancel: () {
+        for (final s in subs) {
+          s.cancel();
+        }
+        subs.clear();
+      },
+    );
+
+    return controller.stream;
   }
 
   // Get All Members Across All Known DB Nodes (Parallelized & TTL Cached)
@@ -157,7 +226,7 @@ class DatabaseService {
     return all;
   }
 
-  // Get Family Members for a Specific Group (Targeted Fast Node Query)
+  // Get Family Members for a Specific Group (Targeted Node Query with Phone/Numeric Variations & Fallbacks)
   Future<List<FamilyMemberModel>> getFamilyMembers(String familyName) async {
     final clean = familyName.trim();
     if (clean.isEmpty) return [];
@@ -165,13 +234,29 @@ class DatabaseService {
     final List<FamilyMemberModel> members = [];
     final Set<String> seen = {};
 
+    // 1. Generate all candidate variations of the family name (especially for phone numbers & numeric groups)
+    final Set<String> candidates = {clean};
+    final norm = PhoneUtils.normalize(clean);
+    if (norm.isNotEmpty) {
+      candidates.add(norm);
+      candidates.add('+$norm');
+      candidates.add('+91$norm');
+      candidates.add('91$norm');
+    }
+    if (clean.startsWith('+')) {
+      candidates.add(clean.substring(1));
+    }
+
     try {
-      // Direct fetch from family group node (familyNames/{clean}, family_members/{clean}, FamilyDetails/{clean})
-      final snaps = await Future.wait<DataSnapshot?>([
-        _db.ref(AppConstants.familyDbName).child(clean).get().timeout(const Duration(milliseconds: 1500)).catchError((_) => null as dynamic),
-        _db.ref('family_members').child(clean).get().timeout(const Duration(milliseconds: 1500)).catchError((_) => null as dynamic),
-        _db.ref(AppConstants.legacyFamilyDb).child(clean).get().timeout(const Duration(milliseconds: 1500)).catchError((_) => null as dynamic),
-      ]);
+      // Direct fetch from candidate nodes in familyNames, family_members, and FamilyDetails
+      final List<Future<DataSnapshot?>> futures = [];
+      for (final cand in candidates) {
+        futures.add(_db.ref(AppConstants.familyDbName).child(cand).get().timeout(const Duration(milliseconds: 1500)).catchError((_) => null as dynamic));
+        futures.add(_db.ref('family_members').child(cand).get().timeout(const Duration(milliseconds: 1500)).catchError((_) => null as dynamic));
+        futures.add(_db.ref(AppConstants.legacyFamilyDb).child(cand).get().timeout(const Duration(milliseconds: 1500)).catchError((_) => null as dynamic));
+      }
+
+      final snaps = await Future.wait<DataSnapshot?>(futures);
 
       for (final snap in snaps) {
         if (snap != null && snap.exists && snap.value != null) {
@@ -185,6 +270,92 @@ class DatabaseService {
       }
     } catch (e) {
       debugPrint('[FamilyTracker] Direct family fetch error: $e');
+    }
+
+    if (members.isNotEmpty) {
+      debugPrint('[FamilyTracker] ⚡ Fast direct fetch found ${members.length} members for family $clean');
+      return members;
+    }
+
+    // 2. Query familyMembersList for matching familyName across all candidates
+    try {
+      final List<Future<DataSnapshot?>> queryFutures = [];
+      for (final cand in candidates) {
+        queryFutures.add(
+          _db.ref(AppConstants.familyMemberList)
+              .orderByChild('familyName')
+              .equalTo(cand)
+              .get()
+              .timeout(const Duration(milliseconds: 1500))
+              .catchError((_) => null as dynamic),
+        );
+      }
+      final querySnaps = await Future.wait<DataSnapshot?>(queryFutures);
+      for (final snap in querySnaps) {
+        if (snap != null && snap.exists && snap.value != null) {
+          for (var m in parseMembersFromSnapshot(snap.value, clean)) {
+            final key = '${m.mobile}_${m.name}';
+            if (m.mobile.isNotEmpty && seen.add(key)) {
+              members.add(m);
+            }
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('[FamilyTracker] Query familyMembersList error: $e');
+    }
+
+    if (members.isNotEmpty) {
+      debugPrint('[FamilyTracker] ⚡ Found ${members.length} members for family $clean in familyMembersList');
+      return members;
+    }
+
+    // 3. Fallback: check cached all members or query with short timeout
+    try {
+      final allMembers = await getAllDatabaseMembers().timeout(const Duration(seconds: 2), onTimeout: () => []);
+      for (var m in allMembers) {
+        final mFam = m.familyName.trim();
+        final isMatch = candidates.any((c) => c.toLowerCase() == mFam.toLowerCase()) ||
+            (norm.isNotEmpty && PhoneUtils.normalize(mFam) == norm);
+        if (isMatch) {
+          final key = '${m.mobile}_${m.name}';
+          if (m.mobile.isNotEmpty && seen.add(key)) {
+            members.add(m);
+          }
+        }
+      }
+    } catch (_) {}
+
+    if (members.isNotEmpty) {
+      debugPrint('[FamilyTracker] ⚡ Found ${members.length} members for family $clean in allMembers cache');
+      return members;
+    }
+
+    // 4. If still empty and familyName is a phone number, check RegistrationDetails
+    if (members.isEmpty && norm.length >= 10) {
+      try {
+        final regSnaps = await Future.wait<DataSnapshot?>([
+          for (final cand in candidates)
+            _db.ref(AppConstants.registrationDetails).child(cand).get().timeout(const Duration(milliseconds: 1500)).catchError((_) => null as dynamic),
+        ]);
+        for (final snap in regSnaps) {
+          if (snap != null && snap.exists && snap.value is Map) {
+            final regMap = snap.value as Map;
+            final name = regMap['name']?.toString() ?? 'Family Admin';
+            final phone = regMap['phone']?.toString() ?? clean;
+            final key = '${phone}_$name';
+            if (seen.add(key)) {
+              members.add(FamilyMemberModel(
+                name: name,
+                mobile: phone,
+                relationship: 'Admin',
+                familyName: clean,
+                isRegistered: true,
+              ));
+            }
+          }
+        }
+      } catch (_) {}
     }
 
     return members;

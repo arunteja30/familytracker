@@ -336,9 +336,11 @@ class FamilyProvider extends ChangeNotifier {
     _membersSubscription?.cancel();
     _membersSubscription =
         _dbService.streamFamilyMembers(familyName).listen((members) {
-      _familyMembers = _enrichWithContactNames(members);
-      _subscribeToLocations(members);
-      _safeNotifyListeners();
+      if (members.isNotEmpty || _familyMembers.isEmpty) {
+        _familyMembers = _enrichWithContactNames(members);
+        _subscribeToLocations(members);
+        _safeNotifyListeners();
+      }
     }, onError: (err) {
       debugPrint('[FamilyTracker] Stream members error: $err');
     });
@@ -916,7 +918,7 @@ class FamilyProvider extends ChangeNotifier {
     try {
       final members = await _dbService
           .getFamilyMembers(clean)
-          .timeout(const Duration(seconds: 2), onTimeout: () => []);
+          .timeout(const Duration(seconds: 3), onTimeout: () => []);
       _familyMembers = _enrichWithContactNames(members);
 
       // Start live subscriptions for the new active family group
@@ -925,7 +927,7 @@ class FamilyProvider extends ChangeNotifier {
       _subscribeToChat(clean);
       _subscribeToPlaces(clean);
       _subscribeToAlerts(clean);
-      _subscribeToLocations(members);
+      _subscribeToLocations(_familyMembers);
     } catch (e) {
       debugPrint('[FamilyTracker] Switch group error: $e');
     } finally {
