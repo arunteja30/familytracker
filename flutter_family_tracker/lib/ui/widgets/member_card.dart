@@ -539,8 +539,9 @@ class _MemberCardState extends State<MemberCard> {
   Widget build(BuildContext context) {
     final battery = widget.location?.batteryPercentage ?? 0;
     final address = widget.location?.address ?? 'Location syncing...';
-    final familyProvider = context.watch<FamilyProvider>();
-    final hasUnread = familyProvider.hasUnreadForMember(widget.member.mobile);
+    final hasUnread = context.select<FamilyProvider, bool>(
+      (p) => p.hasUnreadForMember(widget.member.mobile),
+    );
 
     Color batteryColor = AppColors.success;
     if (battery <= 20 && battery > 0) {
@@ -551,18 +552,20 @@ class _MemberCardState extends State<MemberCard> {
 
     final userPhone = PreferencesService.getUserPhone() ?? '';
     final isSelf = DatabaseService.matchPhones(widget.member.mobile, userPhone);
-    final isMemberAdmin =
-        familyProvider.isMemberAdmin(widget.member) || widget.member.isAdmin;
+    final isMemberAdmin = context.select<FamilyProvider, bool>(
+      (p) => p.isMemberAdmin(widget.member) || widget.member.isAdmin,
+    );
 
-    LocationDetailsModel? currentUserLoc;
-    if (!isSelf && userPhone.isNotEmpty) {
-      for (final entry in familyProvider.memberLocations.entries) {
-        if (DatabaseService.matchPhones(entry.key, userPhone)) {
-          currentUserLoc = entry.value;
-          break;
-        }
-      }
-    }
+    final currentUserLoc = isSelf || userPhone.isEmpty
+        ? null
+        : context.select<FamilyProvider, LocationDetailsModel?>((p) {
+            for (final entry in p.memberLocations.entries) {
+              if (DatabaseService.matchPhones(entry.key, userPhone)) {
+                return entry.value;
+              }
+            }
+            return null;
+          });
     final relativeDistance = (!isSelf && currentUserLoc != null && widget.location != null)
         ? ProximityUtils.getRelativeDistance(
             userLat: currentUserLoc.latitude,

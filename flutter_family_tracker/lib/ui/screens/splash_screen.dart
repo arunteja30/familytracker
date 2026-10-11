@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import '../../constants/app_colors.dart';
 import '../../services/app_update_service.dart';
@@ -18,18 +19,22 @@ class _SplashScreenState extends State<SplashScreen> {
   @override
   void initState() {
     super.initState();
-    // Warm up and pre-load all shared cloud geocache entries to local disk
-    GeocodingService.syncCloudCacheToLocal();
+    // Only pre-sync heavy cloud geocache on native mobile platforms
+    if (!kIsWeb) {
+      GeocodingService.syncCloudCacheToLocal();
+    }
     _initializeApp();
   }
 
   Future<void> _initializeApp() async {
-    await Future.delayed(const Duration(milliseconds: 800));
+    if (!kIsWeb) {
+      await Future.delayed(const Duration(milliseconds: 400));
+    }
     if (!mounted) return;
 
     // Check RTDB 'UpdateData' for mandatory or available app update with safety timeout
     final isMandatoryBlocked = await AppUpdateService.checkAndPromptUpdate(context)
-        .timeout(const Duration(seconds: 3), onTimeout: () => false);
+        .timeout(const Duration(seconds: 2), onTimeout: () => false);
     if (isMandatoryBlocked) {
       // Mandatory update is open and blocks further app access
       return;

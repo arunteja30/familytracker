@@ -5,9 +5,6 @@
 
   <meta charset="UTF-8">
   <meta content="IE=Edge" http-equiv="X-UA-Compatible">
-  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
-  <meta http-equiv="Pragma" content="no-cache" />
-  <meta http-equiv="Expires" content="0" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <meta name="theme-color" content="#121826">
   <meta name="description" content="Cross-platform real-time Family Tracker web app.">
@@ -27,8 +24,118 @@
 
   <title>FamilyTracker</title>
   <link rel="manifest" href="manifest.json">
+
+  <style>
+    /* Instant High-Performance App Loader */
+    * { box-sizing: border-box; }
+    body, html {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      background: #111827;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      overflow: hidden;
+      user-select: none;
+    }
+    #ft-app-loader {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: radial-gradient(circle at center, #1e293b 0%, #0f172a 100%);
+      z-index: 999999;
+      transition: opacity 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    .ft-logo-glow {
+      position: relative;
+      width: 88px;
+      height: 88px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 0 35px rgba(99, 102, 241, 0.45);
+      animation: ft-pulse 2s infinite ease-in-out;
+    }
+    .ft-logo-icon {
+      width: 44px;
+      height: 44px;
+      fill: #ffffff;
+    }
+    .ft-title {
+      margin-top: 24px;
+      font-size: 26px;
+      font-weight: 800;
+      color: #ffffff;
+      letter-spacing: 0.5px;
+    }
+    .ft-subtitle {
+      margin-top: 6px;
+      font-size: 13px;
+      color: #94a3b8;
+      font-weight: 500;
+    }
+    .ft-progress-track {
+      margin-top: 36px;
+      width: 160px;
+      height: 4px;
+      border-radius: 4px;
+      background: rgba(255, 255, 255, 0.1);
+      overflow: hidden;
+      position: relative;
+    }
+    .ft-progress-bar {
+      position: absolute;
+      top: 0;
+      left: 0;
+      height: 100%;
+      width: 40%;
+      background: linear-gradient(90deg, #6366f1, #a855f7);
+      border-radius: 4px;
+      animation: ft-progress 1.5s infinite ease-in-out;
+    }
+    @keyframes ft-pulse {
+      0%, 100% { transform: scale(1); box-shadow: 0 0 35px rgba(99, 102, 241, 0.45); }
+      50% { transform: scale(1.04); box-shadow: 0 0 55px rgba(168, 85, 247, 0.65); }
+    }
+    @keyframes ft-progress {
+      0% { left: -40%; width: 40%; }
+      50% { width: 70%; }
+      100% { left: 100%; width: 40%; }
+    }
+  </style>
 </head>
 <body>
+  <!-- Instant Pre-Flutter Animated Splash -->
+  <div id="ft-app-loader">
+    <div class="ft-logo-glow">
+      <svg class="ft-logo-icon" viewBox="0 0 24 24">
+        <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/>
+      </svg>
+    </div>
+    <div class="ft-title">FamilyTracker</div>
+    <div class="ft-subtitle">Live Location & Safety Network</div>
+    <div class="ft-progress-track">
+      <div class="ft-progress-bar"></div>
+    </div>
+  </div>
+
+  <script>
+    // Smoothly dismiss loader when Flutter paints the first frame
+    window.addEventListener('flutter-first-frame', function() {
+      const loader = document.getElementById('ft-app-loader');
+      if (loader) {
+        loader.style.opacity = '0';
+        loader.style.pointerEvents = 'none';
+        setTimeout(function() { loader.remove(); }, 400);
+      }
+    });
+  </script>
+
   <script src="flutter_bootstrap.js" async></script>
 </body>
 </html>

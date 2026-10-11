@@ -90,31 +90,19 @@ class AdaptiveMapView extends StatefulWidget {
   State<AdaptiveMapView> createState() => _AdaptiveMapViewState();
 }
 
-class _AdaptiveMapViewState extends State<AdaptiveMapView>
-    with SingleTickerProviderStateMixin {
+class _AdaptiveMapViewState extends State<AdaptiveMapView> {
   fmap.MapController? _flutterMapController;
-  AnimationController? _pulseController;
-  Animation<double>? _pulseAnimation;
 
   @override
   void initState() {
     super.initState();
     if (kIsWeb) {
       _flutterMapController = widget.flutterMapController ?? fmap.MapController();
-      _pulseController = AnimationController(
-        vsync: this,
-        duration: const Duration(milliseconds: 1500),
-      )..repeat(reverse: true);
-      _pulseAnimation = CurvedAnimation(
-        parent: _pulseController!,
-        curve: Curves.easeInOut,
-      );
     }
   }
 
   @override
   void dispose() {
-    _pulseController?.dispose();
     super.dispose();
   }
 
@@ -251,21 +239,17 @@ class _AdaptiveMapViewState extends State<AdaptiveMapView>
                                         height: avatarSize,
                                         fit: BoxFit.cover,
                                       )
-                                    : Image.network(
-                                        'https://ui-avatars.com/api/?name=${Uri.encodeComponent(p.title.replaceAll(RegExp(r'[^a-zA-Z0-9 ]'), ''))}&background=${pinColor.toARGB32().toRadixString(16).padLeft(8, '0').substring(2)}&color=ffffff&size=128&bold=true',
-                                        width: avatarSize,
-                                        height: avatarSize,
-                                        fit: BoxFit.cover,
-                                        errorBuilder: (_, _, _) => Center(
-                                          child: Text(
-                                            p.title.isNotEmpty
-                                                ? p.title.replaceAll(RegExp(r'[^a-zA-Z]'), '')[0].toUpperCase()
-                                                : 'M',
-                                            style: TextStyle(
-                                              color: Colors.white,
-                                              fontSize: isSelected ? 18 : 14,
-                                              fontWeight: FontWeight.bold,
-                                            ),
+                                    : Center(
+                                        child: Text(
+                                          p.title.isNotEmpty
+                                              ? p.title.replaceAll(RegExp(r'[^a-zA-Z]'), '').isNotEmpty
+                                                  ? p.title.replaceAll(RegExp(r'[^a-zA-Z]'), '')[0].toUpperCase()
+                                                  : p.title[0].toUpperCase()
+                                              : 'M',
+                                          style: TextStyle(
+                                            color: Colors.white,
+                                            fontSize: isSelected ? 16 : 13,
+                                            fontWeight: FontWeight.bold,
                                           ),
                                         ),
                                       ),
@@ -360,37 +344,8 @@ class _AdaptiveMapViewState extends State<AdaptiveMapView>
                             ),
                           ),
 
-                          // 2. Avatar Head with Pulsing Radar Ring & Image
-                          if (_pulseAnimation != null && (p.isMoving || p.isUpdating))
-                            AnimatedBuilder(
-                              animation: _pulseAnimation!,
-                              builder: (context, child) {
-                                final pulseSpread = _pulseAnimation!.value * 18.0;
-                                final pulseOpacity = (1.0 - _pulseAnimation!.value) * 0.70;
-
-                                return Stack(
-                                  alignment: Alignment.center,
-                                  clipBehavior: Clip.none,
-                                  children: [
-                                    Container(
-                                      width: avatarSize + pulseSpread,
-                                      height: avatarSize + pulseSpread,
-                                      decoration: BoxDecoration(
-                                        shape: BoxShape.circle,
-                                        color: (p.isMoving
-                                                ? const Color(0xFF10B981)
-                                                : const Color(0xFF3B82F6))
-                                            .withValues(alpha: pulseOpacity),
-                                      ),
-                                    ),
-                                    child!,
-                                  ],
-                                );
-                              },
-                              child: avatarCore,
-                            )
-                          else
-                            avatarCore,
+                          // 2. Avatar Head & Image
+                          avatarCore,
 
                           // 3. Pin Needle / Stick (Metallic Grey gradient pointing straight down)
                           Container(

@@ -69,8 +69,10 @@ class GeocodingService {
       debugPrint('[GeocodingService] Error loading cache from disk: $e');
     }
 
-    // Pre-warm / sync shared Firebase Cloud Geo-Cache to local storage in background
-    syncCloudCacheToLocal();
+    // Pre-warm / sync shared Firebase Cloud Geo-Cache to local storage in background on mobile
+    if (!kIsWeb) {
+      syncCloudCacheToLocal();
+    }
   }
 
   /// Download and sync all available shared geocache from Firebase RTDB to local disk for offline resilience

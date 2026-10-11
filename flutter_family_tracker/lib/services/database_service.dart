@@ -541,49 +541,76 @@ class DatabaseService {
     }
   }
 
-  // Stream of Real-time Location for a Specific Mobile Number (Multi-format broadcast stream)
+  // Shared in-memory location cache and active stream registry
+  static final Map<String, LocationDetailsModel> _lastKnownLocations = {};
+  static final Map<String, Stream<LocationDetailsModel?>> _sharedLocationStreams = {};
+
+  // Stream of Real-time Location for a Specific Mobile Number (Deduplicated, Shared Broadcast Stream)
   Stream<LocationDetailsModel?> streamLocationDetails(String mobile) {
-    final candidates = <String>{
-      mobile,
-      mobile.replaceAll(RegExp(r'[^0-9+]'), ''),
-      mobile.replaceAll(RegExp(r'\D'), ''),
-    };
-    final digits = mobile.replaceAll(RegExp(r'\D'), '');
-    if (digits.length >= 10) {
-      final last10 = digits.substring(digits.length - 10);
-      candidates.add(last10);
-      candidates.add('+91$last10');
-      candidates.add('91$last10');
+    final cleanMobile = mobile.trim();
+    if (cleanMobile.isEmpty) return const Stream.empty();
+
+    final norm = PhoneUtils.normalize(cleanMobile);
+    final streamKey = norm.isNotEmpty ? norm : cleanMobile;
+
+    final existingStream = _sharedLocationStreams[streamKey];
+    if (existingStream != null) {
+      return existingStream;
     }
-    candidates.removeWhere((c) => c.isEmpty);
+
+    final candidates = <String>{cleanMobile};
+    if (norm.isNotEmpty && norm != cleanMobile) {
+      candidates.add(norm);
+    }
+    final rawDigits = cleanMobile.replaceAll(RegExp(r'\D'), '');
+    if (rawDigits.length >= 10) {
+      final last10 = rawDigits.substring(rawDigits.length - 10);
+      candidates.add(last10);
+    }
 
     late StreamController<LocationDetailsModel?> controller;
     final subscriptions = <StreamSubscription>[];
+    LocationDetailsModel? lastEmitted = _lastKnownLocations[streamKey];
 
     controller = StreamController<LocationDetailsModel?>.broadcast(
       onListen: () {
-        // Emit current initial value immediately so UI has markers right away
-        getLocationDetails(mobile).then((loc) {
-          if (!controller.isClosed && loc != null) {
-            controller.add(loc);
-          }
-        }).catchError((_) {});
+        // Emit cached value immediately if available
+        if (lastEmitted != null && !controller.isClosed) {
+          controller.add(lastEmitted);
+        } else {
+          getLocationDetails(cleanMobile).then((loc) {
+            if (!controller.isClosed && loc != null) {
+              lastEmitted = loc;
+              _lastKnownLocations[streamKey] = loc;
+              controller.add(loc);
+            }
+          }).catchError((_) {});
+        }
 
+        void handleSnapshot(dynamic data) {
+          if (data != null && data is Map && !controller.isClosed) {
+            try {
+              final newLoc = LocationDetailsModel.fromJson(data);
+              // Deduplicate identical packets (avoid CPU thrashing on duplicate WebSocket events)
+              if (lastEmitted != null &&
+                  (lastEmitted!.latitude - newLoc.latitude).abs() < 0.000005 &&
+                  (lastEmitted!.longitude - newLoc.longitude).abs() < 0.000005 &&
+                  lastEmitted!.batteryPercentage == newLoc.batteryPercentage &&
+                  lastEmitted!.timeStamp == newLoc.timeStamp) {
+                return;
+              }
+              lastEmitted = newLoc;
+              _lastKnownLocations[streamKey] = newLoc;
+              controller.add(newLoc);
+            } catch (_) {}
+          }
+        }
+
+        // Listen on primary locationList node
         for (final phone in candidates) {
           subscriptions.add(
             _db.ref(AppConstants.locationList).child(phone).onValue.listen((event) {
-              final data = event.snapshot.value;
-              if (data != null && data is Map && !controller.isClosed) {
-                controller.add(LocationDetailsModel.fromJson(data));
-              }
-            }, onError: (_) {}),
-          );
-          subscriptions.add(
-            _db.ref(AppConstants.legacyLocationList).child(phone).onValue.listen((event) {
-              final data = event.snapshot.value;
-              if (data != null && data is Map && !controller.isClosed) {
-                controller.add(LocationDetailsModel.fromJson(data));
-              }
+              handleSnapshot(event.snapshot.value);
             }, onError: (_) {}),
           );
         }
@@ -593,37 +620,60 @@ class DatabaseService {
           sub.cancel();
         }
         subscriptions.clear();
+        _sharedLocationStreams.remove(streamKey);
       },
     );
 
-    return controller.stream;
+    final broadcastStream = controller.stream;
+    _sharedLocationStreams[streamKey] = broadcastStream;
+    return broadcastStream;
   }
 
-  // Get Location Details Once (with phone format fallback & legacy node support)
+  // Get Location Details Once (with phone format fallback & in-memory cache check)
   Future<LocationDetailsModel?> getLocationDetails(String mobile) async {
+    final cleanMobile = mobile.trim();
+    if (cleanMobile.isEmpty) return null;
+
+    final norm = PhoneUtils.normalize(cleanMobile);
+    final cacheKey = norm.isNotEmpty ? norm : cleanMobile;
+    if (_lastKnownLocations.containsKey(cacheKey)) {
+      return _lastKnownLocations[cacheKey];
+    }
+
     try {
-      final candidates = <String>{
-        mobile,
-        mobile.replaceAll(RegExp(r'[^0-9+]'), ''),
-        mobile.replaceAll(RegExp(r'\D'), ''),
-      };
-      final digits = mobile.replaceAll(RegExp(r'\D'), '');
-      if (digits.length >= 10) {
-        final last10 = digits.substring(digits.length - 10);
-        candidates.add(last10);
-        candidates.add('+91$last10');
-        candidates.add('91$last10');
+      final candidates = <String>{cleanMobile};
+      if (norm.isNotEmpty && norm != cleanMobile) candidates.add(norm);
+      final rawDigits = cleanMobile.replaceAll(RegExp(r'\D'), '');
+      if (rawDigits.length >= 10) {
+        candidates.add(rawDigits.substring(rawDigits.length - 10));
       }
 
       for (final phone in candidates) {
         if (phone.isEmpty) continue;
-        var snapshot = await _db.ref(AppConstants.locationList).child(phone).get();
+        final snapshot = await _db
+            .ref(AppConstants.locationList)
+            .child(phone)
+            .get()
+            .timeout(const Duration(seconds: 2));
         if (snapshot.exists && snapshot.value is Map) {
-          return LocationDetailsModel.fromJson(snapshot.value as Map);
+          final loc = LocationDetailsModel.fromJson(snapshot.value as Map);
+          _lastKnownLocations[cacheKey] = loc;
+          return loc;
         }
-        var legacySnap = await _db.ref(AppConstants.legacyLocationList).child(phone).get();
+      }
+
+      // Legacy fallback
+      for (final phone in candidates) {
+        if (phone.isEmpty) continue;
+        final legacySnap = await _db
+            .ref(AppConstants.legacyLocationList)
+            .child(phone)
+            .get()
+            .timeout(const Duration(seconds: 1));
         if (legacySnap.exists && legacySnap.value is Map) {
-          return LocationDetailsModel.fromJson(legacySnap.value as Map);
+          final loc = LocationDetailsModel.fromJson(legacySnap.value as Map);
+          _lastKnownLocations[cacheKey] = loc;
+          return loc;
         }
       }
       return null;

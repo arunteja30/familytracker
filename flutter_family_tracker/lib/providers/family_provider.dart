@@ -192,7 +192,10 @@ class FamilyProvider extends ChangeNotifier {
     }
 
     if (_notifyDebounceTimer?.isActive ?? false) return;
-    _notifyDebounceTimer = Timer(const Duration(milliseconds: 50), () {
+    final debounceDuration = kIsWeb
+        ? const Duration(milliseconds: 100)
+        : const Duration(milliseconds: 50);
+    _notifyDebounceTimer = Timer(debounceDuration, () {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         notifyListeners();
       });
@@ -449,8 +452,8 @@ class FamilyProvider extends ChangeNotifier {
         _dbService.streamFamilyPlaces(familyName).listen((places) {
       _familyPlaces = places;
 
-      // Evaluate all existing member locations whenever safe places are added, edited, or loaded
-      if (_familyPlaces.isNotEmpty && _familyMembers.isNotEmpty) {
+      // Evaluate all existing member locations whenever safe places are added, edited, or loaded (Mobile background engine only)
+      if (!kIsWeb && _familyPlaces.isNotEmpty && _familyMembers.isNotEmpty) {
         for (final member in _familyMembers) {
           final loc = _memberLocations[member.mobile];
           if (loc != null && (loc.latitude != 0.0 || loc.longitude != 0.0)) {
@@ -571,8 +574,9 @@ class FamilyProvider extends ChangeNotifier {
           if (location != null) {
             _memberLocations[member.mobile] = location;
 
-            // 1. Real-time Geofence Safe Place Evaluation (Arrival / Departure)
-            if (_familyPlaces.isNotEmpty &&
+            // 1. Real-time Geofence Safe Place Evaluation (Arrival / Departure) - Mobile only
+            if (!kIsWeb &&
+                _familyPlaces.isNotEmpty &&
                 (location.latitude != 0.0 || location.longitude != 0.0)) {
               GeofenceService().evaluateMemberLocation(
                 member: member,
