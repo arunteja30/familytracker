@@ -78,6 +78,14 @@ class PreferencesService {
     await _prefs?.setInt(AppConstants.prefFailedPinAttempts, 0);
   }
 
+  static Future<void> setUseOpenStreetMap(bool useOpenStreetMap) async {
+    await _prefs?.setBool('pref_use_open_street_map', useOpenStreetMap);
+  }
+
+  static bool useOpenStreetMap() {
+    return _prefs?.getBool('pref_use_open_street_map') ?? true;
+  }
+
   static Future<void> clearSession() async {
     await _prefs?.clear();
   }

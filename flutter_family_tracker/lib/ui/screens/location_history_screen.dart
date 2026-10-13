@@ -9,7 +9,6 @@ import '../../models/family_member_model.dart';
 import '../../models/location_details_model.dart';
 import '../../services/database_service.dart';
 import '../../services/geocoding_service.dart';
-import '../../services/routing_service.dart';
 import '../widgets/adaptive_map_view.dart';
 
 enum HistoryTimeFilter {
@@ -45,6 +44,16 @@ int _normalizeTimestampMs(int ts, String dateStr) {
       final dt = DateTime.tryParse(dateStr);
       if (dt != null) return dt.millisecondsSinceEpoch;
     } catch (_) {}
+    try {
+      if (dateStr.contains('-')) {
+        final parts = dateStr.split('-');
+        if (parts.length == 3 && parts[0].length == 2 && parts[2].length == 4) {
+          // DD-MM-YYYY format
+          final dt = DateTime.tryParse('${parts[2]}-${parts[1]}-${parts[0]}');
+          if (dt != null) return dt.millisecondsSinceEpoch;
+        }
+      }
+    } catch (_) {}
   }
   return 0;
 }
@@ -56,8 +65,6 @@ class HistoryTripSegment {
   final Color color;
   final DateTime startTime;
   final DateTime endTime;
-  RouteResult? routeResult;
-  List<LatLng> routedCoords = [];
 
   HistoryTripSegment({
     required this.tripNumber,
@@ -73,9 +80,6 @@ class HistoryTripSegment {
 
   double get totalDistanceMeters {
     if (isSinglePoint) return 0.0;
-    if (routeResult != null && routeResult!.distanceMeters > 0) {
-      return routeResult!.distanceMeters;
-    }
     double total = 0.0;
     for (int i = 0; i < points.length - 1; i++) {
       total += Geolocator.distanceBetween(
@@ -155,11 +159,6 @@ class _LocationHistoryScreenState extends State<LocationHistoryScreen> {
   int? _selectedTripIndex; // null means all trips
   bool _isLoading = false;
 
-  // Directional Routing State
-  RouteProfile _selectedRouteProfile = RouteProfile.bicycle;
-  bool _isRoutingLoading = false;
-  int _routingRequestId = 0;
-
   GoogleMapController? _mapController;
   final Set<Marker> _markers = {};
   final Set<Polyline> _polylines = {};
@@ -199,37 +198,102 @@ class _LocationHistoryScreenState extends State<LocationHistoryScreen> {
     _resolveAddresses(points);
   }
 
-  void _applyTimeFilterAndRebuild() {
-    List<LocationDetailsModel> filtered;
+  List<LocationDetailsModel> _cleanAndFilterHistoryPoints(
+    List<LocationDetailsModel> rawPoints,
+    HistoryTimeFilter timeFilter,
+  ) {
+    // 1. Remove invalid / zero coordinates
+    final valid = rawPoints.where((p) =>
+      p.latitude != 0.0 &&
+      p.longitude != 0.0 &&
+      p.latitude >= -90.0 &&
+      p.latitude <= 90.0 &&
+      p.longitude >= -180.0 &&
+      p.longitude <= 180.0
+    ).toList();
 
-    if (_selectedTimeFilter == HistoryTimeFilter.all) {
-      filtered = List.from(_rawHistoryPoints);
-    } else {
-      filtered = _rawHistoryPoints.where((p) {
-        final ts = _normalizeTimestampMs(p.timeStamp, p.date);
-        if (ts <= 0) return true;
-        final hour = DateTime.fromMillisecondsSinceEpoch(ts).hour;
-        switch (_selectedTimeFilter) {
-          case HistoryTimeFilter.morning:
-            return hour >= 6 && hour < 12;
-          case HistoryTimeFilter.afternoon:
-            return hour >= 12 && hour < 18;
-          case HistoryTimeFilter.evening:
-            return hour >= 18 && hour < 24;
-          case HistoryTimeFilter.night:
-            return hour >= 0 && hour < 6;
-          case HistoryTimeFilter.all:
-            return true;
-        }
-      }).toList();
-    }
+    if (valid.isEmpty) return [];
 
-    // 1. Sort latest update on top (Newest to Oldest) for timeline
-    filtered.sort((a, b) {
+    // 2. Sort chronologically by normalized timestamp
+    valid.sort((a, b) {
       final tA = _normalizeTimestampMs(a.timeStamp, a.date);
       final tB = _normalizeTimestampMs(b.timeStamp, b.date);
-      return tB.compareTo(tA);
+      return tA.compareTo(tB);
     });
+
+    // 3. Filter out isolated GPS spikes / teleports (jumping away and immediately back)
+    final cleaned = <LocationDetailsModel>[];
+    for (int i = 0; i < valid.length; i++) {
+      final curr = valid[i];
+      if (i > 0 && i < valid.length - 1) {
+        final prev = valid[i - 1];
+        final next = valid[i + 1];
+
+        final dPrev = Geolocator.distanceBetween(
+          prev.latitude, prev.longitude, curr.latitude, curr.longitude,
+        );
+        final dNext = Geolocator.distanceBetween(
+          curr.latitude, curr.longitude, next.latitude, next.longitude,
+        );
+        final dDirect = Geolocator.distanceBetween(
+          prev.latitude, prev.longitude, next.latitude, next.longitude,
+        );
+
+        final tPrev = _normalizeTimestampMs(prev.timeStamp, prev.date);
+        final tCurr = _normalizeTimestampMs(curr.timeStamp, curr.date);
+        final tNext = _normalizeTimestampMs(next.timeStamp, next.date);
+
+        final dt1Sec = (tCurr - tPrev).abs() / 1000.0;
+        final dt2Sec = (tNext - tCurr).abs() / 1000.0;
+
+        // Anomaly: jumped away > 600m and returned within 5 min, while direct distance < 350m
+        bool isSpike = false;
+        if (dPrev > 600 && dNext > 600 && dDirect < 350 && dt1Sec < 300 && dt2Sec < 300) {
+          isSpike = true;
+        } else if (dt1Sec > 0 && dt1Sec < 180 && (dPrev / dt1Sec) * 3.6 > 160.0 && dDirect < dPrev * 0.4) {
+          isSpike = true;
+        }
+
+        if (isSpike) {
+          continue; // Discard isolated outlier spike
+        }
+      }
+      cleaned.add(curr);
+    }
+
+    // 4. Time of day filter
+    if (timeFilter == HistoryTimeFilter.all) {
+      return cleaned;
+    }
+    return cleaned.where((p) {
+      final ts = _normalizeTimestampMs(p.timeStamp, p.date);
+      if (ts <= 0) return true;
+      final hour = DateTime.fromMillisecondsSinceEpoch(ts).hour;
+      switch (timeFilter) {
+        case HistoryTimeFilter.morning:
+          return hour >= 6 && hour < 12;
+        case HistoryTimeFilter.afternoon:
+          return hour >= 12 && hour < 18;
+        case HistoryTimeFilter.evening:
+          return hour >= 18 && hour < 24;
+        case HistoryTimeFilter.night:
+          return hour >= 0 && hour < 6;
+        case HistoryTimeFilter.all:
+          return true;
+      }
+    }).toList();
+  }
+
+  void _applyTimeFilterAndRebuild() {
+    final cleaned = _cleanAndFilterHistoryPoints(_rawHistoryPoints, _selectedTimeFilter);
+
+    // 1. Sort latest update on top (Newest to Oldest) for timeline
+    final filtered = List<LocationDetailsModel>.from(cleaned)
+      ..sort((a, b) {
+        final tA = _normalizeTimestampMs(a.timeStamp, a.date);
+        final tB = _normalizeTimestampMs(b.timeStamp, b.date);
+        return tB.compareTo(tA);
+      });
 
     _displayedPoints = filtered;
     _displayedIndexMap.clear();
@@ -237,8 +301,8 @@ class _LocationHistoryScreenState extends State<LocationHistoryScreen> {
       _displayedIndexMap[filtered[i]] = i;
     }
 
-    // 2. Segment chronological points into distinct trips based on >= 30 min gap
-    final chronological = List<LocationDetailsModel>.from(filtered)
+    // 2. Chronological order for trip segmentation
+    final chronological = List<LocationDetailsModel>.from(cleaned)
       ..sort((a, b) {
         final tA = _normalizeTimestampMs(a.timeStamp, a.date);
         final tB = _normalizeTimestampMs(b.timeStamp, b.date);
@@ -272,7 +336,7 @@ class _LocationHistoryScreenState extends State<LocationHistoryScreen> {
     }
 
     // Initial direct polylines and markers build
-    _rebuildMapElements(isSnapped: false);
+    _rebuildMapElements();
 
     final allCoords = chronological
         .where((p) => p.latitude != 0.0 && p.longitude != 0.0)
@@ -282,9 +346,6 @@ class _LocationHistoryScreenState extends State<LocationHistoryScreen> {
     if (allCoords.isNotEmpty) {
       _fitMapToBounds(allCoords);
     }
-
-    // 4. Asynchronously fetch OpenStreetMap / Libre bike road directional route for trips
-    _fetchDirectionalRoutesForTrips();
   }
 
   List<HistoryTripSegment> _segmentHistoryIntoTrips(List<LocationDetailsModel> chronologicalPoints) {
@@ -305,9 +366,17 @@ class _LocationHistoryScreenState extends State<LocationHistoryScreen> {
       final currTs = _normalizeTimestampMs(curr.timeStamp, curr.date);
 
       final timeGapMs = currTs - prevTs;
-      final bool isNewTripGap = prevTs > 0 && currTs > 0 && timeGapMs >= (30 * 60 * 1000);
+      final distMeters = Geolocator.distanceBetween(
+        prev.latitude, prev.longitude, curr.latitude, curr.longitude,
+      );
 
-      if (isNewTripGap) {
+      // Split into a separate trip if:
+      // 1. Inactivity gap >= 15 minutes
+      // 2. OR spatial jump > 3000m with time gap >= 5 minutes (discontinuous jump)
+      final bool isTimeGap = prevTs > 0 && currTs > 0 && timeGapMs >= (15 * 60 * 1000);
+      final bool isDiscontinuousJump = distMeters > 3000 && timeGapMs >= (5 * 60 * 1000);
+
+      if (isTimeGap || isDiscontinuousJump) {
         final color = _kTripColors[trips.length % _kTripColors.length];
         final startTs = _normalizeTimestampMs(currentTripPoints.first.timeStamp, currentTripPoints.first.date);
         final endTs = _normalizeTimestampMs(currentTripPoints.last.timeStamp, currentTripPoints.last.date);
@@ -346,53 +415,7 @@ class _LocationHistoryScreenState extends State<LocationHistoryScreen> {
     return trips;
   }
 
-  Future<void> _fetchDirectionalRoutesForTrips() async {
-    final reqId = ++_routingRequestId;
-
-    if (_trips.isEmpty) {
-      if (mounted) setState(() => _isRoutingLoading = false);
-      return;
-    }
-
-    final routableTrips = _trips.where((t) => t.points.length >= 2).toList();
-    if (routableTrips.isEmpty) {
-      if (mounted) setState(() => _isRoutingLoading = false);
-      return;
-    }
-
-    setState(() {
-      _isRoutingLoading = true;
-    });
-
-    try {
-      // Parallelize route fetching across all trips for maximum network efficiency
-      await Future.wait(
-        routableTrips.map((trip) async {
-          final coords = trip.points.map((p) => LatLng(p.latitude, p.longitude)).toList();
-          final result = await RoutingService.getRoute(
-            waypoints: coords,
-            profile: _selectedRouteProfile,
-          );
-          trip.routeResult = result;
-          trip.routedCoords = result.points.isNotEmpty ? result.points : coords;
-        }),
-      );
-
-      if (mounted && reqId == _routingRequestId) {
-        setState(() {
-          _rebuildMapElements(isSnapped: true);
-          _isRoutingLoading = false;
-        });
-      }
-    } catch (e) {
-      debugPrint('[LocationHistoryScreen] Routing fetch error: $e');
-      if (mounted && reqId == _routingRequestId) {
-        setState(() => _isRoutingLoading = false);
-      }
-    }
-  }
-
-  void _rebuildMapElements({bool isSnapped = false}) {
+  void _rebuildMapElements() {
     _polylines.clear();
     _adaptivePolylines.clear();
     _markers.clear();
@@ -400,7 +423,7 @@ class _LocationHistoryScreenState extends State<LocationHistoryScreen> {
 
     final formattedDate = DateFormat('MMM dd, yyyy').format(_selectedDate);
 
-    // 1. Polylines
+    // 1. Polylines: direct lines between actual GPS coordinates
     for (int t = 0; t < _trips.length; t++) {
       final trip = _trips[t];
       if (trip.points.length < 2) continue;
@@ -408,10 +431,9 @@ class _LocationHistoryScreenState extends State<LocationHistoryScreen> {
         continue;
       }
 
-      // Directional road route is used when available; smooth spline as fallback
-      final List<LatLng> coords = trip.routedCoords.isNotEmpty
-          ? trip.routedCoords
-          : _generateSmoothCurve(trip.points.map((p) => LatLng(p.latitude, p.longitude)).toList());
+      final List<LatLng> coords = trip.points
+          .map((p) => LatLng(p.latitude, p.longitude))
+          .toList();
 
       if (coords.length < 2) continue;
 
@@ -420,7 +442,7 @@ class _LocationHistoryScreenState extends State<LocationHistoryScreen> {
           polylineId: PolylineId('trip_${trip.tripNumber}'),
           points: List.from(coords),
           color: trip.color,
-          width: isSnapped ? 6 : 4,
+          width: 4,
           startCap: Cap.roundCap,
           endCap: Cap.roundCap,
           jointType: JointType.round,
@@ -432,7 +454,7 @@ class _LocationHistoryScreenState extends State<LocationHistoryScreen> {
           id: 'trip_${trip.tripNumber}',
           points: coords.map((p) => ll.LatLng(p.latitude, p.longitude)).toList(),
           color: trip.color,
-          strokeWidth: isSnapped ? 5.5 : 4.0,
+          strokeWidth: 4.0,
         ),
       );
     }
@@ -504,6 +526,7 @@ class _LocationHistoryScreenState extends State<LocationHistoryScreen> {
               markerId: markerId,
               position: pos,
               icon: icon,
+              anchor: const Offset(0.5, 1.0),
               zIndexInt: isSelected
                   ? 100
                   : (isSinglePointTrip
@@ -527,15 +550,21 @@ class _LocationHistoryScreenState extends State<LocationHistoryScreen> {
               latitude: p.latitude,
               longitude: p.longitude,
               title: isSinglePointTrip
-                  ? '📍 #$updateNum • Point ($shortTimeStr)'
+                  ? '#$updateNum • Single Point ($shortTimeStr)'
                   : (isTripStart
-                      ? '🟢 #$updateNum Start ($shortTimeStr)'
-                      : (isTripEnd ? '🏁 #$updateNum End ($shortTimeStr)' : '#$updateNum ($shortTimeStr)')),
-              snippet: 'Trip #${trip.tripNumber} • $addr',
+                      ? '🟢 Start • Trip #${trip.tripNumber} ($shortTimeStr)'
+                      : (isTripEnd
+                          ? '🏁 End • Trip #${trip.tripNumber} ($shortTimeStr)'
+                          : '#$updateNum ($shortTimeStr)')),
+              snippet: addr,
               pinColor: isSinglePointTrip
                   ? trip.color
-                  : (isTripStart ? AppColors.success : (isTripEnd ? AppColors.danger : trip.color)),
+                  : (isTripStart ? const Color(0xFF10B981) : (isTripEnd ? const Color(0xFFEF4444) : trip.color)),
               isSelected: isSelected,
+              isWaypoint: true,
+              waypointNumber: updateNum,
+              isTripStart: isTripStart,
+              isTripEnd: isTripEnd,
               onTap: () {
                 if (displayedIdx != -1) {
                   _onMarkerTapped(displayedIdx);
@@ -546,55 +575,6 @@ class _LocationHistoryScreenState extends State<LocationHistoryScreen> {
         }
       }
     }
-  }
-
-  /// Generate smooth Catmull-Rom spline curves between discrete GPS update points
-  List<LatLng> _generateSmoothCurve(List<LatLng> points, {int stepsPerSegment = 10}) {
-    if (points.length < 3) {
-      return List.from(points);
-    }
-
-    final List<LatLng> smoothPoints = [];
-    final int n = points.length;
-
-    for (int i = 0; i < n - 1; i++) {
-      final p0 = i == 0
-          ? LatLng(2 * points[0].latitude - points[1].latitude,
-                   2 * points[0].longitude - points[1].longitude)
-          : points[i - 1];
-      final p1 = points[i];
-      final p2 = points[i + 1];
-      final p3 = i + 2 < n
-          ? points[i + 2]
-          : LatLng(2 * points[n - 1].latitude - points[n - 2].latitude,
-                   2 * points[n - 1].longitude - points[n - 2].longitude);
-
-      for (int step = 0; step < stepsPerSegment; step++) {
-        final double t = step / stepsPerSegment;
-        final double t2 = t * t;
-        final double t3 = t2 * t;
-
-        final double lat = 0.5 * (
-          (2 * p1.latitude) +
-          (-p0.latitude + p2.latitude) * t +
-          (2 * p0.latitude - 5 * p1.latitude + 4 * p2.latitude - p3.latitude) * t2 +
-          (-p0.latitude + 3 * p1.latitude - 3 * p2.latitude + p3.latitude) * t3
-        );
-
-        final double lng = 0.5 * (
-          (2 * p1.longitude) +
-          (-p0.longitude + p2.longitude) * t +
-          (2 * p0.longitude - 5 * p1.longitude + 4 * p2.longitude - p3.longitude) * t2 +
-          (-p0.longitude + 3 * p1.longitude - 3 * p2.longitude + p3.longitude) * t3
-        );
-
-        smoothPoints.add(LatLng(lat, lng));
-      }
-    }
-
-    // Append exact final endpoint
-    smoothPoints.add(points.last);
-    return smoothPoints;
   }
 
   /// Bidirectional Tap from Timeline Card -> Map Focus + Marker Highlight + Trip Selection
@@ -610,7 +590,7 @@ class _LocationHistoryScreenState extends State<LocationHistoryScreen> {
       if (meta != null) {
         _selectedTripIndex = meta.trip.tripNumber;
       }
-      _rebuildMapElements(isSnapped: true);
+      _rebuildMapElements();
     });
 
     _mapController?.animateCamera(
@@ -642,7 +622,7 @@ class _LocationHistoryScreenState extends State<LocationHistoryScreen> {
       if (meta != null) {
         _selectedTripIndex = meta.trip.tripNumber;
       }
-      _rebuildMapElements(isSnapped: true);
+      _rebuildMapElements();
     });
 
     _scrollToCard(index);
@@ -852,94 +832,6 @@ class _LocationHistoryScreenState extends State<LocationHistoryScreen> {
       appBar: AppBar(
         title: Text('${widget.member.name} History'),
         actions: [
-          // Route Profile Selector Popup Menu
-          PopupMenuButton<RouteProfile>(
-            icon: Tooltip(
-              message: 'Route Mode: ${_selectedRouteProfile.label}',
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(_selectedRouteProfile.icon, style: const TextStyle(fontSize: 16)),
-                  const Icon(Icons.arrow_drop_down_rounded, size: 20),
-                ],
-              ),
-            ),
-            tooltip: 'Select Directional Route Profile',
-            initialValue: _selectedRouteProfile,
-            onSelected: (profile) {
-              setState(() {
-                _selectedRouteProfile = profile;
-              });
-              _fetchDirectionalRoutesForTrips();
-            },
-            itemBuilder: (context) => [
-              const PopupMenuItem(
-                value: RouteProfile.bicycle,
-                child: Row(
-                  children: [
-                    Text('🚲', style: TextStyle(fontSize: 18)),
-                    SizedBox(width: 10),
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('Bike Roads (OSM)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-                        Text('OpenStreetMap Bike Paths', style: TextStyle(fontSize: 11, color: AppColors.textMuted)),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-              const PopupMenuItem(
-                value: RouteProfile.driving,
-                child: Row(
-                  children: [
-                    Text('🚗', style: TextStyle(fontSize: 18)),
-                    SizedBox(width: 10),
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('Driving Route', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-                        Text('OSRM Road Directions', style: TextStyle(fontSize: 11, color: AppColors.textMuted)),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-              const PopupMenuItem(
-                value: RouteProfile.foot,
-                child: Row(
-                  children: [
-                    Text('🚶', style: TextStyle(fontSize: 18)),
-                    SizedBox(width: 10),
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('Walking Paths', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-                        Text('Pedestrian / Footways', style: TextStyle(fontSize: 11, color: AppColors.textMuted)),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-              const PopupMenuItem(
-                value: RouteProfile.direct,
-                child: Row(
-                  children: [
-                    Text('📏', style: TextStyle(fontSize: 18)),
-                    SizedBox(width: 10),
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('Direct GPS Path', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-                        Text('Straight Point-to-Point', style: TextStyle(fontSize: 11, color: AppColors.textMuted)),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-
           // Clear / Delete History Button
           IconButton(
             icon: const Icon(Icons.delete_sweep_rounded),
@@ -1099,58 +991,39 @@ class _LocationHistoryScreenState extends State<LocationHistoryScreen> {
                               child: Row(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
-                                  Text(
-                                    _selectedRouteProfile.icon,
-                                    style: const TextStyle(fontSize: 14),
+                                  const Icon(
+                                    Icons.route_rounded,
+                                    size: 15,
+                                    color: AppColors.primary,
                                   ),
                                   const SizedBox(width: 6),
-                                  if (_isRoutingLoading) ...[
-                                    const SizedBox(
-                                      width: 12,
-                                      height: 12,
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2,
-                                        color: AppColors.primary,
-                                      ),
+                                  Text(
+                                    '${_trips.length} ${_trips.length == 1 ? "Trip" : "Trips"} • ${_totalDistanceAllTripsKm.toStringAsFixed(2)} km',
+                                    style: const TextStyle(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.bold,
+                                      color: AppColors.textPrimary,
                                     ),
-                                    const SizedBox(width: 6),
-                                    const Text(
-                                      'Routing trips on roads...',
+                                  ),
+                                  const SizedBox(width: 6),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 5,
+                                      vertical: 1.5,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFFE0F2FE),
+                                      borderRadius: BorderRadius.circular(6),
+                                    ),
+                                    child: const Text(
+                                      'GPS Direct',
                                       style: TextStyle(
-                                        fontSize: 11,
-                                        fontWeight: FontWeight.w600,
-                                        color: AppColors.textSecondary,
-                                      ),
-                                    ),
-                                  ] else ...[
-                                    Text(
-                                      '${_trips.length} ${_trips.length == 1 ? "Trip" : "Trips"} • ${_totalDistanceAllTripsKm.toStringAsFixed(2)} km',
-                                      style: const TextStyle(
-                                        fontSize: 11,
+                                        fontSize: 9,
                                         fontWeight: FontWeight.bold,
-                                        color: AppColors.textPrimary,
+                                        color: Color(0xFF0369A1),
                                       ),
                                     ),
-                                    const SizedBox(width: 6),
-                                    Container(
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 5,
-                                        vertical: 1.5,
-                                      ),
-                                      decoration: BoxDecoration(
-                                        color: const Color(0xFFE0F2FE),
-                                        borderRadius: BorderRadius.circular(6),
-                                      ),
-                                      child: const Text(
-                                        '≥30m Split',
-                                        style: TextStyle(
-                                          fontSize: 9,
-                                          fontWeight: FontWeight.bold,
-                                          color: Color(0xFF0369A1),
-                                        ),
-                                      ),
-                                    ),
-                                  ],
+                                  ),
                                 ],
                               ),
                             ),
@@ -1204,7 +1077,7 @@ class _LocationHistoryScreenState extends State<LocationHistoryScreen> {
                               onTap: () {
                                 setState(() {
                                   _selectedTripIndex = null;
-                                  _rebuildMapElements(isSnapped: true);
+                                  _rebuildMapElements();
                                 });
                                 final allCoords = _rawHistoryPoints
                                     .where((p) => p.latitude != 0.0 && p.longitude != 0.0)
@@ -1252,7 +1125,7 @@ class _LocationHistoryScreenState extends State<LocationHistoryScreen> {
                                 onTap: () {
                                   setState(() {
                                     _selectedTripIndex = isTripSelected ? null : trip.tripNumber;
-                                    _rebuildMapElements(isSnapped: true);
+                                    _rebuildMapElements();
                                   });
                                   final coords = trip.points
                                       .map((p) => LatLng(p.latitude, p.longitude))
@@ -1397,7 +1270,7 @@ class _LocationHistoryScreenState extends State<LocationHistoryScreen> {
                                             _selectedTripIndex = _selectedTripIndex == meta.trip.tripNumber
                                                 ? null
                                                 : meta.trip.tripNumber;
-                                            _rebuildMapElements(isSnapped: true);
+                                            _rebuildMapElements();
                                           });
                                         }
                                       : null,

@@ -502,10 +502,9 @@ class _MemberMapScreenState extends State<MemberMapScreen> {
   Future<void> _animateCamera(double lat, double lng) async {
     if (!mounted || (lat == 0.0 && lng == 0.0)) return;
     try {
-      if (kIsWeb) {
-        _flutterMapController.move(ll.LatLng(lat, lng), 16);
-        return;
-      }
+      _flutterMapController.move(ll.LatLng(lat, lng), 16);
+    } catch (_) {}
+    try {
       if (!_controller.isCompleted) return;
       final GoogleMapController controller = await _controller.future;
       if (!mounted) return;
@@ -536,15 +535,15 @@ class _MemberMapScreenState extends State<MemberMapScreen> {
     }
 
     try {
-      if (kIsWeb) {
-        _flutterMapController.fitCamera(fmap.CameraFit.bounds(
-          bounds: fmap.LatLngBounds.fromPoints(_liveTrailPoints
-              .map((point) => ll.LatLng(point.latitude, point.longitude)).toList()),
-          padding: const EdgeInsets.all(80),
-          maxZoom: 16,
-        ));
-        return;
-      }
+      _flutterMapController.fitCamera(fmap.CameraFit.bounds(
+        bounds: fmap.LatLngBounds.fromPoints(_liveTrailPoints
+            .map((point) => ll.LatLng(point.latitude, point.longitude)).toList()),
+        padding: const EdgeInsets.all(80),
+        maxZoom: 16,
+      ));
+    } catch (_) {}
+
+    try {
       if (!_controller.isCompleted) return;
       final GoogleMapController controller = await _controller.future;
       if (!mounted) return;

@@ -35,17 +35,21 @@ class LocationDetailsModel {
 
     int parseInt(dynamic val) {
       if (val == null) return 0;
-      if (val is num) return val.toInt();
+      if (val is num) {
+        final n = val.toInt();
+        return (n > 0 && n < 10000000000) ? n * 1000 : n;
+      }
       final str = val.toString().replaceAll('%', '').trim();
-      return int.tryParse(str) ?? 0;
+      final n = int.tryParse(str) ?? 0;
+      return (n > 0 && n < 10000000000) ? n * 1000 : n;
     }
 
     return LocationDetailsModel(
-      latitude: parseDouble(json['latitude']),
-      longitude: parseDouble(json['longitude']),
-      timeStamp: parseInt(json['timeStamp']),
+      latitude: parseDouble(json['latitude'] ?? json['lat']),
+      longitude: parseDouble(json['longitude'] ?? json['lng'] ?? json['lon']),
+      timeStamp: parseInt(json['timeStamp'] ?? json['timestamp'] ?? json['time'] ?? json['ts'] ?? json['timeKey']),
       date: json['date']?.toString() ?? '',
-      batteryPercentage: parseInt(json['batteryPercentage']),
+      batteryPercentage: parseInt(json['batteryPercentage'] ?? json['battery']),
       address: json['address']?.toString() ?? '',
       message: json['message']?.toString() ?? '',
       gpsStatus: json['gpsStatus']?.toString() ?? '',

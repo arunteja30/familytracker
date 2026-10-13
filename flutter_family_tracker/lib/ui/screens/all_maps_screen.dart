@@ -709,6 +709,12 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
         await controller.showMarkerInfoWindow(MarkerId(member.mobile));
       } catch (_) {}
     }
+
+    if (loc != null) {
+      try {
+        _flutterMapController.move(ll.LatLng(loc.latitude, loc.longitude), 17.0);
+      } catch (_) {}
+    }
   }
 
   Future<void> _fitAllBounds() async {
@@ -725,10 +731,9 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
       _updateSingleMemberMarker(previousSelected);
     }
 
-    if (kIsWeb) {
-      final points = _buildAdaptiveMapPoints()
-          .map((point) => ll.LatLng(point.latitude, point.longitude)).toList();
-      if (points.isEmpty) return;
+    final points = _buildAdaptiveMapPoints()
+        .map((point) => ll.LatLng(point.latitude, point.longitude)).toList();
+    if (points.isNotEmpty) {
       try {
         _flutterMapController.fitCamera(fmap.CameraFit.bounds(
           bounds: fmap.LatLngBounds.fromPoints(points),
@@ -736,7 +741,6 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
           maxZoom: 15,
         ));
       } catch (_) {}
-      return;
     }
 
     final targetMarkers = _showPlacesLayer && _placeMarkers.isNotEmpty
@@ -1198,7 +1202,7 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
             initialZoom: 12,
             mapType: _currentMapType,
             flutterMapController: _flutterMapController,
-            points: kIsWeb ? _buildAdaptiveMapPoints() : const [],
+            points: _buildAdaptiveMapPoints(),
             googleMarkers: _showPlacesLayer
                 ? {..._markers, ..._placeMarkers}
                 : _markers,

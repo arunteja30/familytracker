@@ -6,6 +6,7 @@ import 'package:flutter_map/flutter_map.dart' as fmap;
 import 'package:latlong2/latlong.dart' as ll;
 import '../../constants/app_colors.dart';
 import '../../models/geofence_place_model.dart';
+import '../../services/preferences_service.dart';
 
 class PlacePickerResult {
   final double latitude;
@@ -84,16 +85,17 @@ class _PlacePickerScreenState extends State<PlacePickerScreen> {
         });
 
         if (animateCamera) {
-          if (!kIsWeb && _googleMapController != null) {
+          if (!kIsWeb && !PreferencesService.useOpenStreetMap() && _googleMapController != null) {
             _googleMapController!.animateCamera(
               gmaps.CameraUpdate.newLatLngZoom(
                 gmaps.LatLng(pos.latitude, pos.longitude),
                 16.5,
               ),
             );
-          } else if (kIsWeb) {
-            _flutterMapController.move(ll.LatLng(pos.latitude, pos.longitude), 16.5);
           }
+          try {
+            _flutterMapController.move(ll.LatLng(pos.latitude, pos.longitude), 16.5);
+          } catch (_) {}
         }
       }
     } catch (e) {
@@ -108,13 +110,14 @@ class _PlacePickerScreenState extends State<PlacePickerScreen> {
       _currentLng = lng;
     });
 
-    if (!kIsWeb && _googleMapController != null) {
+    if (!kIsWeb && !PreferencesService.useOpenStreetMap() && _googleMapController != null) {
       _googleMapController!.animateCamera(
         gmaps.CameraUpdate.newLatLng(gmaps.LatLng(lat, lng)),
       );
-    } else if (kIsWeb) {
-      _flutterMapController.move(ll.LatLng(lat, lng), _flutterMapController.camera.zoom);
     }
+    try {
+      _flutterMapController.move(ll.LatLng(lat, lng), _flutterMapController.camera.zoom);
+    } catch (_) {}
   }
 
   @override
@@ -159,7 +162,9 @@ class _PlacePickerScreenState extends State<PlacePickerScreen> {
         children: [
           // 1. Live Interactive Map
           Positioned.fill(
-            child: kIsWeb ? _buildWebMap(themeColor) : _buildNativeGoogleMap(themeColor),
+            child: (kIsWeb || PreferencesService.useOpenStreetMap())
+                ? _buildWebMap(themeColor)
+                : _buildNativeGoogleMap(themeColor),
           ),
 
           // 2. Center Target Crosshair & Pin

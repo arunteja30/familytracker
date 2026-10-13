@@ -1028,7 +1028,14 @@ class DatabaseService {
           if (v is Map) {
             if (v.containsKey('latitude') || v.containsKey('lat')) {
               try {
-                history.add(LocationDetailsModel.fromJson(v));
+                final map = Map<dynamic, dynamic>.from(v);
+                if (!map.containsKey('timeStamp') && !map.containsKey('timestamp')) {
+                  final kNum = num.tryParse(k.toString());
+                  if (kNum != null && kNum > 0) {
+                    map['timeStamp'] = kNum;
+                  }
+                }
+                history.add(LocationDetailsModel.fromJson(map));
               } catch (_) {}
             } else {
               parseAndAdd(v);
@@ -1105,7 +1112,7 @@ class DatabaseService {
       final sorted = uniquePoints.values.toList()
         ..sort((a, b) => a.timeStamp.compareTo(b.timeStamp));
 
-      // 3. Collapse sequential duplicate / < 200m stationary stays into a single card with latest time
+      // 3. Collapse stationary micro-jitter (< 30m) into single updates to preserve true path geometry
       final List<LocationDetailsModel> collapsed = [];
       for (final p in sorted) {
         if (p.latitude == 0.0 && p.longitude == 0.0) continue;
@@ -1121,8 +1128,8 @@ class DatabaseService {
             p.longitude,
           );
 
-          if (dist < 200.0) {
-            // Duplicate location or < 200m change: update time only, do not add extra card
+          if (dist < 30.0) {
+            // Stationary stay within 30m: update time only, avoid spiderweb jitter
             last.timeStamp = p.timeStamp;
             if (p.address.isNotEmpty && (last.address.isEmpty || last.address.startsWith('Lat:'))) {
               last.address = p.address;
