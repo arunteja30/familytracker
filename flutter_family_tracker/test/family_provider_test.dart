@@ -104,6 +104,7 @@ void main() {
   testWidgets('latest switch wins when earlier request completes last', (tester) async {
     final first = provider.switchFamilyGroup('First');
     final second = provider.switchFamilyGroup('Second');
+    await second;
     database.members['Second']!.add([]);
     await tester.pump(const Duration(milliseconds: 100));
     await second;
@@ -119,6 +120,7 @@ void main() {
   testWidgets('stale completion cannot release newer loading state', (tester) async {
     final first = provider.switchFamilyGroup('First');
     final second = provider.switchFamilyGroup('Second');
+    await second;
     database.members['First']!.add([]);
     await tester.pump(const Duration(milliseconds: 100));
     await first;

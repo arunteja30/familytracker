@@ -261,6 +261,27 @@ class FamilyProvider extends ChangeNotifier {
     }
   }
 
+  bool _sameMemberSnapshot(
+    List<FamilyMemberModel> current,
+    List<FamilyMemberModel> next,
+  ) {
+    if (current.length != next.length) return false;
+    for (var index = 0; index < current.length; index++) {
+      final left = current[index];
+      final right = next[index];
+      if (left.memberId != right.memberId ||
+          left.mobile != right.mobile ||
+          left.name != right.name ||
+          left.relationship != right.relationship ||
+          left.familyName != right.familyName ||
+          left.adminName != right.adminName ||
+          left.isRegistered != right.isRegistered) {
+        return false;
+      }
+    }
+    return true;
+  }
+
   // Initialize and Load Data
   Future<void> init(String userPhone) async {
     if (_isDisposed || _isLoading) return;
@@ -379,13 +400,16 @@ class FamilyProvider extends ChangeNotifier {
     _membersSubscription =
         _dbService.streamFamilyMembers(familyName).listen((members) {
       if (!_isCurrentLoad(generation)) return;
-      _familyMembers = _enrichWithContactNames(members);
+      final enrichedMembers = _enrichWithContactNames(members);
+      final membersChanged = !_sameMemberSnapshot(_familyMembers, enrichedMembers);
+      final wasLoading = _isLoading;
+      _familyMembers = enrichedMembers;
       _loadingTimeout?.cancel();
       _loadingTimeout = null;
       _isLoading = false;
       _errorMessage = null;
       _subscribeToLocations(members);
-      _safeNotifyListeners();
+      if (membersChanged || wasLoading) _safeNotifyListeners();
     }, onError: (err) {
       debugPrint('[FamilyTracker] Stream members error: $err');
     });
@@ -923,20 +947,20 @@ class FamilyProvider extends ChangeNotifier {
     final generation = ++_familyLoadGeneration;
     _loadingTimeout?.cancel();
 
-    // 1. Immediately cancel all previous subscriptions to halt background stream processing
-    _membersSubscription?.cancel();
+    // Cancel old listeners before attaching the next group's listeners.
+    final previousSubscriptions = <StreamSubscription?>[
+      _membersSubscription,
+      _emergencySubscription,
+      _chatSubscription,
+      _placesSubscription,
+      _alertsSubscription,
+      ..._locationSubscriptions.values,
+    ];
     _membersSubscription = null;
-    _emergencySubscription?.cancel();
     _emergencySubscription = null;
-    _chatSubscription?.cancel();
     _chatSubscription = null;
-    _placesSubscription?.cancel();
     _placesSubscription = null;
-    _alertsSubscription?.cancel();
     _alertsSubscription = null;
-    for (var sub in _locationSubscriptions.values) {
-      sub.cancel();
-    }
     _locationSubscriptions.clear();
 
     // 2. Clear previous family state and trigger loading state immediately
@@ -975,6 +999,11 @@ class FamilyProvider extends ChangeNotifier {
       _errorMessage = 'Connection is taking longer than expected. Waiting for live updates.';
       _safeNotifyListeners(immediate: true);
     });
+
+    for (final subscription in previousSubscriptions.whereType<StreamSubscription>()) {
+      unawaited(subscription.cancel());
+    }
+    if (!_isCurrentLoad(generation)) return;
 
     _subscribeToMembers(clean);
     _subscribeToEmergencyAlerts(clean);

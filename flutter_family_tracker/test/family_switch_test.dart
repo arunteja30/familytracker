@@ -100,6 +100,7 @@ void main() {
   testWidgets('rapid switches ignore the old group snapshot', (tester) async {
     final first = provider.switchFamilyGroup('Alpha');
     final second = provider.switchFamilyGroup('Beta');
+    await second;
     expect(database.members['Alpha']!.hasListener, isFalse);
     database.members['Beta']!.add([_member('Beta member')]);
     await tester.pump(const Duration(milliseconds: 100));

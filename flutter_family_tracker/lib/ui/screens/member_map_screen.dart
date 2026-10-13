@@ -601,11 +601,18 @@ class _MemberMapScreenState extends State<MemberMapScreen> {
             ? _currentLocation!.date
             : 'Recently');
 
+    final hasCoordinates = _currentLocation != null &&
+      (_currentLocation!.latitude != 0.0 || _currentLocation!.longitude != 0.0);
+    final storedAddress = _currentLocation?.address ?? '';
     final displayAddress = _resolvedAddress.isNotEmpty
-        ? _resolvedAddress
-        : (_currentLocation?.address.isNotEmpty == true
-            ? _currentLocation!.address
-            : 'Fetching street address...');
+      ? _resolvedAddress
+      : storedAddress.isNotEmpty && !storedAddress.startsWith('Lat:')
+        ? storedAddress
+        : !hasCoordinates
+          ? 'No GPS coordinates yet'
+          : storedAddress.isNotEmpty
+            ? storedAddress
+            : 'Resolving street address...';
 
     return Scaffold(
       appBar: AppBar(

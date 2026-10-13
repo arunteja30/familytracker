@@ -60,6 +60,8 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
   final Map<String, LocationDetailsModel> _liveLocations = {};
   FamilyMemberModel? _selectedMember;
   final Map<String, String> _resolvedAddresses = {};
+  final Map<String, String> _resolvedAddressCoordinates = {};
+  final Set<String> _addressRequests = {};
   final Map<String, File?> _memberPhotos = {};
   final Set<String> _checkedPhotos = {};
   bool _isCardExpanded = false;
@@ -107,6 +109,10 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
     _loadPhotosAndBuildMarkers();
     _subscribeToLiveMovements();
     _subscribeToPlaces();
+    if (_selectedMember != null) {
+      final location = _getMemberLocation(_selectedMember!.mobile);
+      if (location != null) _resolveMemberAddress(_selectedMember!, location);
+    }
 
     // Continuous pulsing radar animation timer for Google Maps on mobile only
     if (!kIsWeb) {
@@ -139,6 +145,8 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
       _pulseCircles.clear();
       _recentlyUpdatedMobiles.clear();
       _resolvedAddresses.clear();
+      _resolvedAddressCoordinates.clear();
+      _addressRequests.clear();
       for (final timer in _pulseResetTimers.values) {
         timer.cancel();
       }
@@ -331,6 +339,10 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
     if (location.latitude == 0.0 && location.longitude == 0.0) return;
     final previous = _liveLocations[member.mobile];
     _liveLocations[member.mobile] = location;
+    if (_selectedMember != null &&
+        DatabaseService.matchPhones(_selectedMember!.mobile, member.mobile)) {
+      _resolveMemberAddress(member, location);
+    }
     if (previous == null ||
         previous.latitude != location.latitude ||
         previous.longitude != location.longitude ||
@@ -359,6 +371,54 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
       }
     }
     return null;
+  }
+
+  void _resolveMemberAddress(
+      FamilyMemberModel member, LocationDetailsModel location) {
+    if (location.latitude == 0.0 && location.longitude == 0.0) return;
+
+    final phone = DatabaseService.normalizePhone(member.mobile);
+    final memberKey = phone.isNotEmpty ? phone : member.mobile;
+    final coordinateKey =
+        '${location.latitude.toStringAsFixed(4)}_${location.longitude.toStringAsFixed(4)}';
+    final existingAddress = _resolvedAddresses[member.mobile];
+    if (existingAddress != null &&
+        existingAddress.isNotEmpty &&
+        !existingAddress.startsWith('Lat:') &&
+        _resolvedAddressCoordinates[member.mobile] == coordinateKey) {
+      return;
+    }
+
+    if (location.address.isNotEmpty && !location.address.startsWith('Lat:')) {
+      _resolvedAddresses[member.mobile] = location.address;
+      _resolvedAddressCoordinates[member.mobile] = coordinateKey;
+      return;
+    }
+
+    final requestKey = '$memberKey:$coordinateKey';
+    if (!_addressRequests.add(requestKey)) return;
+    final generation = _mapGeneration;
+    unawaited(GeocodingService.getAddressFromCoordinates(
+      location.latitude,
+      location.longitude,
+    ).then((address) {
+      _addressRequests.remove(requestKey);
+      if (!mounted || generation != _mapGeneration) return;
+      final currentLocation = _getMemberLocation(member.mobile);
+      if (currentLocation == null ||
+          currentLocation.latitude.toStringAsFixed(4) !=
+              coordinateKey.split('_').first ||
+          currentLocation.longitude.toStringAsFixed(4) !=
+              coordinateKey.split('_').last) {
+        return;
+      }
+      setState(() {
+        _resolvedAddresses[member.mobile] = address;
+        _resolvedAddressCoordinates[member.mobile] = coordinateKey;
+      });
+    }, onError: (Object _) {
+      _addressRequests.remove(requestKey);
+    }));
   }
 
   Future<Marker?> _buildMarkerForMember(
@@ -624,6 +684,7 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
     }
 
     if (loc != null && (loc.latitude != 0.0 || loc.longitude != 0.0)) {
+      _resolveMemberAddress(member, loc);
       // 1. Zoom into the selected member on Web (zoom 17.0 for close marker focus)
       if (kIsWeb) {
         try {
@@ -966,7 +1027,7 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
           latitude: loc.latitude,
           longitude: loc.longitude,
           title: isSelected ? '⭐ ${m.name}' : m.name,
-          snippet: loc.address,
+          snippet: _resolvedAddresses[m.mobile] ?? loc.address,
           pinColor: isSelected ? const Color(0xFFF59E0B) : MarkerGenerator.getMarkerColor(m.relationship),
           isSelected: isSelected,
           isMoving: isMoving,
@@ -1035,12 +1096,20 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
             ? selectedLoc!.date
             : 'Pending sync...');
 
-    final currentAddress = _selectedMember != null
-        ? (_resolvedAddresses[_selectedMember!.mobile] ??
-            (selectedLoc?.address.isNotEmpty == true
-                ? selectedLoc!.address
-                : 'Fetching street address...'))
-        : 'Select a member';
+    final selectedAddress = _selectedMember == null
+      ? ''
+      : (_resolvedAddresses[_selectedMember!.mobile] ?? selectedLoc?.address ?? '');
+    final hasSelectedCoordinates = selectedLoc != null &&
+      (selectedLoc.latitude != 0.0 || selectedLoc.longitude != 0.0);
+    final currentAddress = _selectedMember == null
+      ? 'Select a member'
+      : selectedAddress.isNotEmpty && !selectedAddress.startsWith('Lat:')
+        ? selectedAddress
+        : !hasSelectedCoordinates
+          ? 'No GPS coordinates yet'
+          : selectedAddress.isNotEmpty
+            ? selectedAddress
+            : 'Resolving street address...';
 
     final userPhone = PreferencesService.getUserPhone() ?? '';
     final isSelf = _selectedMember != null && DatabaseService.matchPhones(_selectedMember!.mobile, userPhone);

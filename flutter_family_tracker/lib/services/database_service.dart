@@ -14,7 +14,6 @@ import '../models/alert_item_model.dart';
 import '../models/family_group_summary.dart';
 import '../utils/phone_utils.dart';
 import 'geocoding_service.dart';
-import 'preferences_service.dart';
 
 class DatabaseService {
   final FirebaseDatabase _db;
@@ -134,22 +133,111 @@ class DatabaseService {
     return result;
   }
 
+  static List<FamilyMemberModel> mergeFamilyMemberSources(
+    String familyName,
+    Iterable<List<FamilyMemberModel>> sources,
+  ) {
+    final cleanFamily = familyName.trim();
+    final familyAliases = familyNameCandidates(cleanFamily)
+        .map((candidate) => candidate.toLowerCase())
+        .toSet();
+
+    final merged = <String, FamilyMemberModel>{};
+    for (final source in sources) {
+      for (final member in source) {
+        final memberFamily = member.familyName.trim();
+        if (memberFamily.isNotEmpty &&
+          !familyAliases.contains(memberFamily.toLowerCase())) {
+          continue;
+        }
+
+        final normalizedPhone = PhoneUtils.normalize(member.mobile);
+        final key = normalizedPhone.isNotEmpty
+            ? normalizedPhone
+            : member.mobile.trim().toLowerCase();
+        if (key.isEmpty) continue;
+
+        final existing = merged[key];
+        if (existing == null) {
+          merged[key] = member;
+          continue;
+        }
+
+        if (member.isRegistered || existing.name.isEmpty || existing.name == 'Member') {
+          existing.name = member.name;
+        }
+        if (existing.relationship.isEmpty) {
+          existing.relationship = member.relationship;
+        }
+        if (existing.memberId.isEmpty) existing.memberId = member.memberId;
+        if (existing.familyName.isEmpty) existing.familyName = member.familyName;
+        existing.adminName ??= member.adminName;
+        existing.uid ??= member.uid;
+        existing.pushNofityToken ??= member.pushNofityToken;
+        existing.isRegistered = existing.isRegistered || member.isRegistered;
+      }
+    }
+    return merged.values.toList();
+  }
+
+  static Set<String> familyNameCandidates(String familyName) {
+    final clean = familyName.trim();
+    if (clean.isEmpty) return {};
+
+    final candidates = <String>{clean};
+    final digitsAndFormattingOnly = RegExp(r'^\+?[\d\s().-]+$').hasMatch(clean);
+    final normalized = PhoneUtils.normalize(clean);
+    if (!digitsAndFormattingOnly || normalized.length < 10) return candidates;
+
+    candidates.addAll([
+      normalized,
+      '+$normalized',
+      '+91$normalized',
+      '91$normalized',
+    ]);
+    if (clean.startsWith('+')) candidates.add(clean.substring(1));
+    return candidates;
+  }
+
+  static Set<String> _locationPhoneAliases(String mobile) {
+    final clean = mobile.replaceAll(RegExp(r'[^0-9+]'), '');
+    return {mobile, if (clean.isNotEmpty) clean};
+  }
+
+  static Map<String, Object?> buildLiveLocationUpdates(
+    String mobile,
+    Map<String, dynamic> locationJson,
+  ) {
+    final updates = <String, Object?>{};
+    for (final phone in _locationPhoneAliases(mobile)) {
+      if (phone.isEmpty) continue;
+      updates['locationList/$phone'] = locationJson;
+      updates['LocationDetails/$phone'] = locationJson;
+    }
+    return updates;
+  }
+
+  static Map<String, Object?> buildLocationHistoryUpdates({
+    required String mobile,
+    required String date,
+    required String timeKey,
+    required Map<String, dynamic> values,
+  }) {
+    final updates = <String, Object?>{};
+    for (final phone in _locationPhoneAliases(mobile)) {
+      if (phone.isEmpty) continue;
+      updates['locationHistory/$phone/$date/$timeKey'] = values;
+      updates['LocationHistory/$phone/$date/$timeKey'] = values;
+    }
+    return updates;
+  }
+
   // Stream of Family Members for a given Group Name (listening to all candidate keys across familyNames and family_members)
   Stream<List<FamilyMemberModel>> streamFamilyMembers(String familyName) {
     final clean = familyName.trim();
     if (clean.isEmpty) return const Stream.empty();
 
-    final Set<String> candidates = {clean};
-    final norm = PhoneUtils.normalize(clean);
-    if (norm.isNotEmpty) {
-      candidates.add(norm);
-      candidates.add('+$norm');
-      candidates.add('+91$norm');
-      candidates.add('91$norm');
-    }
-    if (clean.startsWith('+')) {
-      candidates.add(clean.substring(1));
-    }
+    final candidates = familyNameCandidates(clean);
 
     late StreamController<List<FamilyMemberModel>> controller;
     final List<StreamSubscription> subs = [];
@@ -257,21 +345,11 @@ class DatabaseService {
     final clean = familyName.trim();
     if (clean.isEmpty) return [];
 
-    final List<FamilyMemberModel> members = [];
-    final Set<String> seen = {};
+    final List<FamilyMemberModel> directMembers = [];
 
     // 1. Generate all candidate variations of the family name (especially for phone numbers & numeric groups)
-    final Set<String> candidates = {clean};
-    final norm = PhoneUtils.normalize(clean);
-    if (norm.isNotEmpty) {
-      candidates.add(norm);
-      candidates.add('+$norm');
-      candidates.add('+91$norm');
-      candidates.add('91$norm');
-    }
-    if (clean.startsWith('+')) {
-      candidates.add(clean.substring(1));
-    }
+    final candidates = familyNameCandidates(clean);
+    final norm = candidates.length > 1 ? PhoneUtils.normalize(clean) : '';
 
     try {
       // Direct fetch from candidate nodes in familyNames, family_members, and FamilyDetails
@@ -287,10 +365,7 @@ class DatabaseService {
       for (final snap in snaps) {
         if (snap != null && snap.exists && snap.value != null) {
           for (var m in parseMembersFromSnapshot(snap.value, clean)) {
-            final key = '${m.mobile}_${m.name}';
-            if (m.mobile.isNotEmpty && seen.add(key)) {
-              members.add(m);
-            }
+            directMembers.add(m);
           }
         }
       }
@@ -298,12 +373,8 @@ class DatabaseService {
       debugPrint('[FamilyTracker] Direct family fetch error: $e');
     }
 
-    if (members.isNotEmpty) {
-      debugPrint('[FamilyTracker] ⚡ Fast direct fetch found ${members.length} members for family $clean');
-      return members;
-    }
-
     // 2. Query familyMembersList for matching familyName across all candidates
+    final indexedMembers = <FamilyMemberModel>[];
     try {
       final List<Future<DataSnapshot?>> queryFutures = [];
       for (final cand in candidates) {
@@ -320,10 +391,7 @@ class DatabaseService {
       for (final snap in querySnaps) {
         if (snap != null && snap.exists && snap.value != null) {
           for (var m in parseMembersFromSnapshot(snap.value, clean)) {
-            final key = '${m.mobile}_${m.name}';
-            if (m.mobile.isNotEmpty && seen.add(key)) {
-              members.add(m);
-            }
+            indexedMembers.add(m);
           }
         }
       }
@@ -331,6 +399,7 @@ class DatabaseService {
       debugPrint('[FamilyTracker] Query familyMembersList error: $e');
     }
 
+    var members = mergeFamilyMemberSources(clean, [directMembers, indexedMembers]);
     if (members.isNotEmpty) {
       debugPrint('[FamilyTracker] ⚡ Found ${members.length} members for family $clean in familyMembersList');
       return members;
@@ -339,17 +408,15 @@ class DatabaseService {
     // 3. Fallback: check cached all members or query with short timeout
     try {
       final allMembers = await getAllDatabaseMembers().timeout(const Duration(seconds: 2), onTimeout: () => []);
+      final fallbackMembers = <FamilyMemberModel>[];
       for (var m in allMembers) {
         final mFam = m.familyName.trim();
-        final isMatch = candidates.any((c) => c.toLowerCase() == mFam.toLowerCase()) ||
-            (norm.isNotEmpty && PhoneUtils.normalize(mFam) == norm);
+        final isMatch = candidates.any((c) => c.toLowerCase() == mFam.toLowerCase());
         if (isMatch) {
-          final key = '${m.mobile}_${m.name}';
-          if (m.mobile.isNotEmpty && seen.add(key)) {
-            members.add(m);
-          }
+          fallbackMembers.add(m);
         }
       }
+      members = mergeFamilyMemberSources(clean, [members, fallbackMembers]);
     } catch (_) {}
 
     if (members.isNotEmpty) {
@@ -369,16 +436,13 @@ class DatabaseService {
             final regMap = snap.value as Map;
             final name = regMap['name']?.toString() ?? 'Family Admin';
             final phone = regMap['phone']?.toString() ?? clean;
-            final key = '${phone}_$name';
-            if (seen.add(key)) {
-              members.add(FamilyMemberModel(
+              members = mergeFamilyMemberSources(clean, [members, [FamilyMemberModel(
                 name: name,
                 mobile: phone,
                 relationship: 'Admin',
                 familyName: clean,
                 isRegistered: true,
-              ));
-            }
+              )]]);
           }
         }
       } catch (_) {}
@@ -391,6 +455,7 @@ class DatabaseService {
   Future<List<String>> getFamilyNamesForPhone(String mobile) async {
     final Set<String> groups = {};
     final norm = PhoneUtils.normalize(mobile);
+    final phoneAliases = familyNameCandidates(mobile);
 
     // 1. Fast O(1) direct index lookup from user_families/{normalizedPhone}
     if (norm.isNotEmpty) {
@@ -413,21 +478,29 @@ class DatabaseService {
     }
 
     // 2. Check UserFamilyName node fallback before expensive global search
-    if (mobile.isNotEmpty) {
+    if (phoneAliases.isNotEmpty) {
       try {
-        final snap = await _db.ref(AppConstants.userFamilyName).child(mobile).get().timeout(const Duration(seconds: 2));
-        if (snap.exists && snap.value != null) {
+        final snapshots = await Future.wait<DataSnapshot?>([
+          for (final alias in phoneAliases)
+            _db.ref(AppConstants.userFamilyName)
+                .child(alias)
+                .get()
+                .timeout(const Duration(seconds: 2))
+                .catchError((_) => null as dynamic),
+        ]);
+        for (final snap in snapshots) {
+          if (snap == null || !snap.exists || snap.value == null) continue;
           final fam = snap.value.toString().trim();
           if (fam.isNotEmpty) {
             groups.add(fam);
             if (norm.isNotEmpty) {
               _db.ref('user_families').child(norm).child(fam).set(true).catchError((_) {});
             }
-            return groups.toList();
           }
         }
       } catch (_) {}
     }
+    if (groups.isNotEmpty) return groups.toList();
 
     // 3. Fallback: Search all members for legacy backwards-compatibility
     try {
@@ -445,20 +518,6 @@ class DatabaseService {
         }
       }
     } catch (_) {}
-
-    // Check all group names in familyList / familyNames
-    if (groups.isEmpty) {
-      try {
-        final snap = await _db.ref(AppConstants.familyList).get().timeout(const Duration(seconds: 2));
-        if (snap.exists && snap.value is Map) {
-          (snap.value as Map).forEach((k, v) {
-            if (k != null && k.toString().trim().isNotEmpty) {
-              groups.add(k.toString().trim());
-            }
-          });
-        }
-      } catch (_) {}
-    }
 
     debugPrint('[FamilyTracker] Groups found for $mobile: $groups');
     return groups.toList();
@@ -503,13 +562,7 @@ class DatabaseService {
       } catch (_) {}
     }
 
-    // 3. Check current saved active family
-    final savedFam = PreferencesService.getUserFamilyName()?.trim() ?? '';
-    if (savedFam.isNotEmpty) {
-      groupSet.add(savedFam);
-    }
-
-    // 4. Fallback: only if groupSet is still empty, search database with timeout
+    // 3. Fallback: only if no membership indexes exist, search legacy member data.
     if (groupSet.isEmpty) {
       try {
         final allMembers = await getAllDatabaseMembers().timeout(const Duration(seconds: 3), onTimeout: () => []);
@@ -689,8 +742,11 @@ class DatabaseService {
   Future<void> indexUserFamily(String normalizedPhone, String familyName) async {
     if (normalizedPhone.isNotEmpty && familyName.isNotEmpty) {
       try {
-        await _db.ref('user_families').child(normalizedPhone).child(familyName).set(true);
-        await _db.ref(AppConstants.familyList).child(familyName).set(familyName);
+        await _db.ref().update({
+          'user_families/$normalizedPhone/$familyName': true,
+          '${AppConstants.familyList}/$familyName': familyName,
+        });
+        invalidateMembersCache(normalizedPhone);
       } catch (_) {}
     }
   }
@@ -839,6 +895,7 @@ class DatabaseService {
   // Save Location to Realtime DB & History (Resolves Address at Save Time & Filters <200m Duplicates)
   Future<void> saveLocation(
       String mobile, LocationDetailsModel location) async {
+    if (mobile.trim().isEmpty) return;
     try {
       // 1. Resolve human-readable address on save if missing or placeholder
       if (location.latitude != 0.0 && location.longitude != 0.0) {
@@ -858,20 +915,14 @@ class DatabaseService {
       }
 
       final json = location.toJson();
-      final clean = mobile.replaceAll(RegExp(r'[^0-9+]'), '');
-
       // 2. Always update live location nodes
-      await _db.ref('locationList').child(mobile).set(json);
-      await _db.ref('LocationDetails').child(mobile).set(json);
-      if (clean != mobile && clean.isNotEmpty) {
-        await _db.ref('locationList').child(clean).set(json);
-        await _db.ref('LocationDetails').child(clean).set(json);
-      }
+      await _db.ref().update(buildLiveLocationUpdates(mobile, json));
 
       // 3. Save to locationHistory with 200-meter stationary filter
       if (location.date.isNotEmpty && location.latitude != 0.0 && location.longitude != 0.0) {
         final dateKey = location.date;
-        final cleanKey = clean.isNotEmpty ? clean : mobile;
+        final aliases = _locationPhoneAliases(mobile);
+        final cleanKey = aliases.length > 1 ? aliases.last : mobile;
 
         LocationDetailsModel? lastPoint = _lastSavedHistoryPoints[cleanKey];
         String? lastKey = _lastSavedHistoryKeys[cleanKey];
@@ -927,12 +978,12 @@ class DatabaseService {
             if (location.gpsStatus.isNotEmpty) 'gpsStatus': location.gpsStatus,
           };
 
-          await _db.ref('locationHistory').child(mobile).child(dateKey).child(lastKey).update(updateData);
-          await _db.ref('LocationHistory').child(mobile).child(dateKey).child(lastKey).update(updateData);
-          if (clean != mobile && clean.isNotEmpty) {
-            await _db.ref('locationHistory').child(clean).child(dateKey).child(lastKey).update(updateData);
-            await _db.ref('LocationHistory').child(clean).child(dateKey).child(lastKey).update(updateData);
-          }
+          await _db.ref().update(buildLocationHistoryUpdates(
+            mobile: mobile,
+            date: dateKey,
+            timeKey: lastKey,
+            values: updateData,
+          ));
 
           // Update memory cache
           lastPoint?.timeStamp = location.timeStamp;
@@ -944,12 +995,12 @@ class DatabaseService {
               ? location.timeStamp.toString()
               : DateTime.now().millisecondsSinceEpoch.toString();
 
-          await _db.ref('locationHistory').child(mobile).child(dateKey).child(timeKey).set(json);
-          await _db.ref('LocationHistory').child(mobile).child(dateKey).child(timeKey).set(json);
-          if (clean != mobile && clean.isNotEmpty) {
-            await _db.ref('locationHistory').child(clean).child(dateKey).child(timeKey).set(json);
-            await _db.ref('LocationHistory').child(clean).child(dateKey).child(timeKey).set(json);
-          }
+          await _db.ref().update(buildLocationHistoryUpdates(
+            mobile: mobile,
+            date: dateKey,
+            timeKey: timeKey,
+            values: json,
+          ));
 
           _lastSavedHistoryPoints[cleanKey] = location;
           _lastSavedHistoryKeys[cleanKey] = timeKey;
@@ -1098,11 +1149,11 @@ class DatabaseService {
   // Register Phone Profile
   Future<void> registerPhone(RegistrationModel model) async {
     try {
-      await _db
-          .ref(AppConstants.registrationDetails)
-          .child(model.phone)
-          .set(model.toJson());
-      await _db.ref(AppConstants.userList).child(model.phone).set(model.toJson());
+      await _db.ref().update({
+        '${AppConstants.registrationDetails}/${model.phone}': model.toJson(),
+        '${AppConstants.userList}/${model.phone}': model.toJson(),
+      });
+      invalidateMembersCache();
     } catch (e) {
       rethrow;
     }
@@ -1118,43 +1169,24 @@ class DatabaseService {
 
       final json = member.toJson();
 
-      // Save to familyMembersList/{memberId}
-      await _db.ref(AppConstants.familyMemberList).child(memberId).set(json);
+      final updates = <String, Object?>{
+        '${AppConstants.familyMemberList}/$memberId': json,
+      };
 
-      // Save to familyNames/{familyName}/{memberId}
       if (member.familyName.isNotEmpty) {
-        await _db
-            .ref(AppConstants.familyDbName)
-            .child(member.familyName)
-            .child(memberId)
-            .set(json);
-
-        await _db
-            .ref(AppConstants.familyList)
-            .child(member.familyName)
-            .set(member.familyName);
-
-        await _db
-            .ref(AppConstants.userFamilyName)
-            .child(member.mobile)
-            .set(member.familyName);
+        updates['${AppConstants.familyDbName}/${member.familyName}/$memberId'] = json;
+        updates['${AppConstants.familyList}/${member.familyName}'] = member.familyName;
+        updates['${AppConstants.userFamilyName}/${member.mobile}'] = member.familyName;
 
         // Fast O(1) Index mapping: user_families/{normalizedMobile}/{familyName} = true
         final norm = PhoneUtils.normalize(member.mobile);
         if (norm.isNotEmpty) {
-          await _db
-              .ref('user_families')
-              .child(norm)
-              .child(member.familyName)
-              .set(true);
-
-          await _db
-              .ref('family_members')
-              .child(member.familyName)
-              .child(norm)
-              .set(json);
+            updates['user_families/$norm/${member.familyName}'] = true;
+            updates['family_members/${member.familyName}/$norm'] = json;
         }
       }
+          await _db.ref().update(updates);
+      invalidateMembersCache(PhoneUtils.normalize(member.mobile));
     } catch (e) {
       rethrow;
     }
@@ -1322,20 +1354,29 @@ class DatabaseService {
   // Delete Family Member
   Future<void> deleteFamilyMember(String memberId, String mobile, [String? familyName]) async {
     try {
+      final updates = <String, Object?>{};
       if (memberId.isNotEmpty) {
-        await _db.ref(AppConstants.familyMemberList).child(memberId).remove();
+        updates['${AppConstants.familyMemberList}/$memberId'] = null;
         if (familyName != null && familyName.trim().isNotEmpty) {
-          await _db.ref(AppConstants.familyDbName).child(familyName.trim()).child(memberId).remove().catchError((_) {});
+          updates['${AppConstants.familyDbName}/${familyName.trim()}/$memberId'] = null;
         }
       }
       final norm = PhoneUtils.normalize(mobile);
       if (norm.isNotEmpty && familyName != null && familyName.trim().isNotEmpty) {
-        await _db.ref('family_members').child(familyName.trim()).child(norm).remove().catchError((_) {});
-        await _db.ref('user_families').child(norm).child(familyName.trim()).remove().catchError((_) {});
+        updates['family_members/${familyName.trim()}/$norm'] = null;
+        updates['user_families/$norm/${familyName.trim()}'] = null;
       }
-      if (mobile.isNotEmpty) {
-        await _db.ref(AppConstants.locationList).child(mobile).remove();
+      for (final phone in _locationPhoneAliases(mobile)) {
+        if (phone.isEmpty) continue;
+        updates['${AppConstants.locationList}/$phone'] = null;
+        updates['LocationDetails/$phone'] = null;
       }
+      if (updates.isNotEmpty) await _db.ref().update(updates);
+      for (final phone in _locationPhoneAliases(mobile)) {
+        _lastSavedHistoryPoints.remove(phone);
+        _lastSavedHistoryKeys.remove(phone);
+      }
+      invalidateMembersCache(norm);
     } catch (e) {
       rethrow;
     }
@@ -1358,19 +1399,21 @@ class DatabaseService {
 
     final norm = PhoneUtils.normalize(mobile);
 
-    // 1. Direct update by memberId if known
     if (memberId.isNotEmpty) {
-      try {
-        await _db
-            .ref(AppConstants.familyMemberList)
-            .child(memberId)
-            .update(updates);
-      } catch (e) {
-        debugPrint('[DatabaseService] Error updating familyMemberList for $memberId: $e');
-      }
+      final cleanFamily = familyName.trim();
+      final writes = <String, Object?>{
+        '${AppConstants.familyMemberList}/$memberId': updates,
+        if (cleanFamily.isNotEmpty)
+          '${AppConstants.familyDbName}/$cleanFamily/$memberId': updates,
+        if (cleanFamily.isNotEmpty && norm.isNotEmpty)
+          'family_members/$cleanFamily/$norm': updates,
+      };
+      await _db.ref().update(writes);
+      invalidateMembersCache(norm);
+      return;
     }
 
-    // 2. Scan and update all entries in familyMemberList matching this mobile
+    // Legacy fallback for records without a stable member ID.
     if (norm.isNotEmpty) {
       try {
         final snap = await _db
@@ -1379,6 +1422,7 @@ class DatabaseService {
             .timeout(const Duration(seconds: 4));
         if (snap.exists && snap.value is Map) {
           final map = snap.value as Map;
+          final writes = <String, Object?>{};
           for (final entry in map.entries) {
             if (entry.value is Map) {
               final mMobile = entry.value['mobile']?.toString() ??
@@ -1392,13 +1436,11 @@ class DatabaseService {
                   (familyName.isEmpty ||
                       mFamily.isEmpty ||
                       mFamily.toLowerCase() == familyName.toLowerCase())) {
-                await _db
-                    .ref(AppConstants.familyMemberList)
-                    .child(entry.key.toString())
-                    .update(updates);
+                    writes['${AppConstants.familyMemberList}/${entry.key}'] = updates;
               }
             }
           }
+                  if (writes.isNotEmpty) await _db.ref().update(writes);
         }
       } catch (e) {
         debugPrint('[DatabaseService] Error querying familyMemberList: $e');
@@ -1409,13 +1451,6 @@ class DatabaseService {
     if (familyName.isNotEmpty) {
       final cleanFamily = familyName.trim();
       try {
-        if (memberId.isNotEmpty) {
-          await _db
-              .ref(AppConstants.familyDbName)
-              .child(cleanFamily)
-              .child(memberId)
-              .update(updates);
-        }
         final familySnap = await _db
             .ref(AppConstants.familyDbName)
             .child(cleanFamily)
@@ -1423,6 +1458,7 @@ class DatabaseService {
             .timeout(const Duration(seconds: 4));
         if (familySnap.exists && familySnap.value is Map) {
           final fMap = familySnap.value as Map;
+          final writes = <String, Object?>{};
           for (final entry in fMap.entries) {
             if (entry.value is Map) {
               final mMobile = entry.value['mobile']?.toString() ??
@@ -1430,14 +1466,11 @@ class DatabaseService {
                   entry.value['phone']?.toString() ??
                   '';
               if (PhoneUtils.isSame(mMobile, mobile)) {
-                await _db
-                    .ref(AppConstants.familyDbName)
-                    .child(cleanFamily)
-                    .child(entry.key.toString())
-                    .update(updates);
+                    writes['${AppConstants.familyDbName}/$cleanFamily/${entry.key}'] = updates;
               }
             }
           }
+                  if (writes.isNotEmpty) await _db.ref().update(writes);
         }
       } catch (e) {
         debugPrint('[DatabaseService] Error updating familyNames: $e');
@@ -1445,13 +1478,7 @@ class DatabaseService {
 
       // 4. Update family_members/{familyName}/{norm}
       if (norm.isNotEmpty) {
-        try {
-          await _db
-              .ref('family_members')
-              .child(cleanFamily)
-              .child(norm)
-              .update(updates);
-        } catch (_) {}
+        await _db.ref('family_members').child(cleanFamily).child(norm).update(updates);
       }
     }
 
@@ -1476,6 +1503,14 @@ class DatabaseService {
             await _db.ref(table).child(phone).remove();
           }
         } catch (_) {}
+      }
+    }
+
+    for (final phone in _locationPhoneAliases(mobile)) {
+      final cachedPoint = _lastSavedHistoryPoints[phone];
+      if (date == null || cachedPoint?.date == date) {
+        _lastSavedHistoryPoints.remove(phone);
+        _lastSavedHistoryKeys.remove(phone);
       }
     }
   }

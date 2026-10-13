@@ -177,11 +177,11 @@ class _AdaptiveMapViewState extends State<AdaptiveMapView> {
             if (widget.points.isNotEmpty)
               fmap.MarkerLayer(
                 markers: widget.points.map((p) {
-                  final isSelected = p.isSelected;
+                  final isSelected = p.isSelected && !p.isPlace;
                   final pinColor = isSelected ? const Color(0xFFF59E0B) : p.pinColor;
-                  final avatarSize = isSelected ? 42.0 : 34.0;
-                  final needleHeight = isSelected ? 20.0 : 16.0;
-                  final needleWidth = isSelected ? 3.5 : 2.8;
+                  final avatarSize = p.isPlace ? 36.0 : (isSelected ? 42.0 : 34.0);
+                  final needleHeight = p.isPlace ? 12.0 : (isSelected ? 20.0 : 16.0);
+                  final needleWidth = p.isPlace ? 3.0 : (isSelected ? 3.5 : 2.8);
 
                   File? validPhotoFile = p.photoFile;
                   if (validPhotoFile == null && p.localPhotoPath != null && p.localPhotoPath!.isNotEmpty) {
@@ -210,18 +210,21 @@ class _AdaptiveMapViewState extends State<AdaptiveMapView> {
                         width: avatarSize,
                         height: avatarSize,
                         decoration: BoxDecoration(
-                          shape: BoxShape.circle,
+                          shape: p.isPlace ? BoxShape.rectangle : BoxShape.circle,
+                          borderRadius: p.isPlace ? BorderRadius.circular(10) : null,
                           color: pinColor,
                           border: Border.all(
-                            color: isSelected ? const Color(0xFFF59E0B) : Colors.white,
+                            color: Colors.white,
                             width: isSelected ? 3.0 : 2.0,
                           ),
                           boxShadow: [
                             BoxShadow(
-                              color: isSelected
+                              color: p.isPlace
+                                  ? pinColor.withValues(alpha: 0.45)
+                                  : isSelected
                                   ? const Color(0xFFF59E0B).withValues(alpha: 0.6)
                                   : Colors.black.withValues(alpha: 0.35),
-                              blurRadius: isSelected ? 10 : 5,
+                              blurRadius: p.isPlace ? 7 : (isSelected ? 10 : 5),
                               offset: const Offset(0, 3),
                             ),
                           ],
@@ -277,8 +280,8 @@ class _AdaptiveMapViewState extends State<AdaptiveMapView> {
 
                   return fmap.Marker(
                     point: ll.LatLng(p.latitude, p.longitude),
-                    width: isSelected ? 170 : 150,
-                    height: isSelected ? 115 : 100,
+                    width: p.isPlace ? 165 : (isSelected ? 170 : 150),
+                    height: p.isPlace ? 92 : (isSelected ? 115 : 100),
                     alignment: Alignment.bottomCenter,
                     child: GestureDetector(
                       behavior: HitTestBehavior.opaque,
@@ -321,7 +324,7 @@ class _AdaptiveMapViewState extends State<AdaptiveMapView> {
                               mainAxisSize: MainAxisSize.min,
                               children: [
                                 Text(
-                                  p.title,
+                                  p.isPlace ? 'SAFE PLACE · ${p.title}' : p.title,
                                   style: TextStyle(
                                     color: isSelected ? const Color(0xFFFCD34D) : Colors.white,
                                     fontSize: isSelected ? 11 : 10,
@@ -354,8 +357,11 @@ class _AdaptiveMapViewState extends State<AdaptiveMapView> {
                           Container(
                             width: needleWidth,
                             height: needleHeight,
-                            decoration: const BoxDecoration(
-                              gradient: LinearGradient(
+                              decoration: BoxDecoration(
+                                color: p.isPlace ? pinColor : null,
+                                gradient: p.isPlace
+                                    ? null
+                                    : const LinearGradient(
                                 begin: Alignment.centerLeft,
                                 end: Alignment.centerRight,
                                 colors: [
@@ -363,7 +369,7 @@ class _AdaptiveMapViewState extends State<AdaptiveMapView> {
                                   Color(0xFF334155),
                                   Color(0xFF1E293B),
                                 ],
-                              ),
+                                ),
                               borderRadius: BorderRadius.only(
                                 bottomLeft: Radius.circular(1.5),
                                 bottomRight: Radius.circular(1.5),
