@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_map/flutter_map.dart' as fmap;
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:latlong2/latlong.dart' as ll;
 import 'package:intl/intl.dart';
@@ -37,6 +39,8 @@ class MemberMapScreen extends StatefulWidget {
 
 class _MemberMapScreenState extends State<MemberMapScreen> {
   final Completer<GoogleMapController> _controller = Completer();
+  final fmap.MapController _flutterMapController = fmap.MapController();
+  static const int _maxTrailPoints = 200;
   final DatabaseService _dbService = DatabaseService();
   StreamSubscription? _locationSubscription;
   LocationDetailsModel? _currentLocation;
@@ -126,6 +130,12 @@ class _MemberMapScreenState extends State<MemberMapScreen> {
   }
 
   Future<void> _loadProfileAndMarker() async {
+    if (kIsWeb) {
+      if (_currentLocation != null) {
+        _resolveAddress(_currentLocation!.latitude, _currentLocation!.longitude);
+      }
+      return;
+    }
     final photo =
         await ProfileImageService.getProfileImageFile(widget.member.mobile);
     if (mounted) {
@@ -441,7 +451,7 @@ class _MemberMapScreenState extends State<MemberMapScreen> {
         .streamLocationDetails(widget.member.mobile)
         .listen((loc) {
       if (loc != null && mounted) {
-        final hasCoords = loc.latitude != 0.0 && loc.longitude != 0.0;
+        final hasCoords = loc.latitude != 0.0 || loc.longitude != 0.0;
         final newLatLng = LatLng(loc.latitude, loc.longitude);
 
         setState(() {
@@ -465,6 +475,10 @@ class _MemberMapScreenState extends State<MemberMapScreen> {
               if (latDiff > 0.00003 || lngDiff > 0.00003) {
                 _sessionUpdates.add(loc);
                 _liveTrailPoints.add(newLatLng);
+                if (_sessionUpdates.length > _maxTrailPoints) {
+                  _sessionUpdates.removeAt(0);
+                  _liveTrailPoints.removeAt(0);
+                }
                 _rebuildMapPointsAndMarkers();
                 _updatePolylineSet();
               } else {
@@ -486,10 +500,16 @@ class _MemberMapScreenState extends State<MemberMapScreen> {
   }
 
   Future<void> _animateCamera(double lat, double lng) async {
-    if (lat == 0.0 && lng == 0.0) return;
+    if (!mounted || (lat == 0.0 && lng == 0.0)) return;
     try {
+      if (kIsWeb) {
+        _flutterMapController.move(ll.LatLng(lat, lng), 16);
+        return;
+      }
+      if (!_controller.isCompleted) return;
       final GoogleMapController controller = await _controller.future;
-      controller.animateCamera(
+      if (!mounted) return;
+      await controller.animateCamera(
         CameraUpdate.newCameraPosition(
           CameraPosition(
             target: LatLng(lat, lng),
@@ -516,7 +536,18 @@ class _MemberMapScreenState extends State<MemberMapScreen> {
     }
 
     try {
+      if (kIsWeb) {
+        _flutterMapController.fitCamera(fmap.CameraFit.bounds(
+          bounds: fmap.LatLngBounds.fromPoints(_liveTrailPoints
+              .map((point) => ll.LatLng(point.latitude, point.longitude)).toList()),
+          padding: const EdgeInsets.all(80),
+          maxZoom: 16,
+        ));
+        return;
+      }
+      if (!_controller.isCompleted) return;
       final GoogleMapController controller = await _controller.future;
+      if (!mounted) return;
       double minLat = _liveTrailPoints.first.latitude;
       double maxLat = _liveTrailPoints.first.latitude;
       double minLng = _liveTrailPoints.first.longitude;
@@ -552,6 +583,7 @@ class _MemberMapScreenState extends State<MemberMapScreen> {
   @override
   void dispose() {
     _locationSubscription?.cancel();
+    _flutterMapController.dispose();
     super.dispose();
   }
 
@@ -631,6 +663,7 @@ class _MemberMapScreenState extends State<MemberMapScreen> {
       body: Stack(
         children: [
           AdaptiveMapView(
+            flutterMapController: _flutterMapController,
             initialLat: pos.latitude,
             initialLng: pos.longitude,
             initialZoom: 15,

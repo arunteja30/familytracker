@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import 'package:geolocator/geolocator.dart';
 import '../../constants/app_colors.dart';
 import '../../models/family_member_model.dart';
+import '../../models/location_details_model.dart';
 import '../../providers/family_provider.dart';
 import '../../services/preferences_service.dart';
 import '../../services/permission_service.dart';
@@ -534,9 +535,11 @@ class _FamilyDashboardScreenState extends State<FamilyDashboardScreen> with Widg
 
   @override
   Widget build(BuildContext context) {
-    final familyProvider = context.watch<FamilyProvider>();
+    context.select<FamilyProvider, int>((provider) => provider.dashboardRevision);
+    final familyProvider = context.read<FamilyProvider>();
     final members = familyProvider.familyMembers;
     final locations = familyProvider.memberLocations;
+    final isCurrentUserAdmin = familyProvider.isUserAdmin(_userPhone);
 
     return Scaffold(
       body: Column(
@@ -994,46 +997,52 @@ class _FamilyDashboardScreenState extends State<FamilyDashboardScreen> with Widg
                           itemBuilder: (context, index) {
                             final member = members[index];
                             final location = locations[member.mobile];
-                            final isCurrentUserAdmin =
-                                familyProvider.isUserAdmin(_userPhone);
                             final isSelf = DatabaseService.matchPhones(
                                 member.mobile, _userPhone);
 
-                            return MemberCard(
-                              member: member,
-                              location: location,
-                              onTrackOnMap: () {
-                                Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                    builder: (_) => MemberMapScreen(
-                                      member: member,
-                                      initialLocation: location,
+                            return Selector<FamilyProvider,
+                                (LocationDetailsModel?, LocationDetailsModel?)>(
+                              selector: (context, provider) => (
+                                provider.locationForPhone(member.mobile) ?? location,
+                                provider.locationForPhone(_userPhone),
+                              ),
+                              builder: (context, selectedLocations, _) => MemberCard(
+                                member: member,
+                                location: selectedLocations.$1,
+                                currentUserLocation: selectedLocations.$2,
+                                onTrackOnMap: () {
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (_) => MemberMapScreen(
+                                        member: member,
+                                        initialLocation: selectedLocations.$1,
+                                      ),
                                     ),
-                                  ),
-                                );
-                              },
-                              onHistory: () {
-                                Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                    builder: (_) => LocationHistoryScreen(
-                                      member: member,
+                                  );
+                                },
+                                onHistory: () {
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (_) => LocationHistoryScreen(
+                                        member: member,
+                                      ),
                                     ),
-                                  ),
-                                );
-                              },
-                              onToggleAdmin: isCurrentUserAdmin && !isSelf
-                                  ? (makeAdmin) =>
-                                      _confirmToggleAdmin(member, makeAdmin)
-                                  : null,
-                              onDelete: isCurrentUserAdmin && !isSelf
-                                  ? () => _confirmDeleteMember(
-                                        member.memberId,
-                                        member.name,
-                                        member.mobile,
-                                      )
-                                  : null,
+                                  );
+                                },
+                                onToggleAdmin: isCurrentUserAdmin && !isSelf
+                                    ? (makeAdmin) =>
+                                        _confirmToggleAdmin(member, makeAdmin)
+                                    : null,
+                                onDelete: isCurrentUserAdmin && !isSelf
+                                    ? () => _confirmDeleteMember(
+                                          member.memberId,
+                                          member.name,
+                                          member.mobile,
+                                        )
+                                    : null,
+                              ),
                             );
                           },
                         ),

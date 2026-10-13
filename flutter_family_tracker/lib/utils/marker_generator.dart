@@ -20,10 +20,29 @@ class MarkerGenerator {
   static void clearCache([String? memberPhone]) {
     if (memberPhone != null) {
       _markerCache.removeWhere((key, _) => key.contains(memberPhone));
-      _decodedImageCache.removeWhere((key, _) => key.contains(memberPhone));
+      _decodedImageCache.removeWhere((key, image) {
+        if (!key.contains(memberPhone)) return false;
+        image.dispose();
+        return true;
+      });
     } else {
       _markerCache.clear();
+      for (final image in _decodedImageCache.values) {
+        image.dispose();
+      }
       _decodedImageCache.clear();
+    }
+  }
+
+  static Future<ByteData?> _encodeMarker(
+      ui.Picture picture, int width, int height) async {
+    ui.Image? image;
+    try {
+      image = await picture.toImage(width, height);
+      return await image.toByteData(format: ui.ImageByteFormat.png);
+    } finally {
+      image?.dispose();
+      picture.dispose();
     }
   }
 
@@ -131,9 +150,16 @@ class MarkerGenerator {
               targetWidth: (avatarRadius * 2).toInt(),
               targetHeight: (avatarRadius * 2).toInt(),
             );
-            final frameInfo = await codec.getNextFrame();
-            img = frameInfo.image;
-            _decodedImageCache[localPhotoPath] = img;
+            try {
+              final frameInfo = await codec.getNextFrame();
+              img = frameInfo.image;
+              if (_decodedImageCache.length >= _maxMarkerCacheSize) {
+                _decodedImageCache.remove(_decodedImageCache.keys.first)?.dispose();
+              }
+              _decodedImageCache[localPhotoPath] = img;
+            } finally {
+              codec.dispose();
+            }
           } catch (_) {}
         }
       }
@@ -194,6 +220,7 @@ class MarkerGenerator {
           const Color(0xFF334155),
           const Color(0xFF1E293B),
         ],
+        const [0.0, 0.5, 1.0],
       )
       ..strokeWidth = 3.5
       ..strokeCap = StrokeCap.round;
@@ -322,11 +349,11 @@ class MarkerGenerator {
     }
 
     final picture = recorder.endRecording();
-    final image = await picture.toImage(
+    final byteData = await _encodeMarker(
+      picture,
       markerWidth.toInt(),
       markerHeight.toInt(),
     );
-    final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
 
     if (byteData == null) {
       return BitmapDescriptor.defaultMarker;
@@ -440,6 +467,7 @@ class MarkerGenerator {
           const Color(0xFF334155),
           const Color(0xFF1E293B),
         ],
+        const [0.0, 0.5, 1.0],
       )
       ..strokeWidth = 3.2
       ..strokeCap = StrokeCap.round;
@@ -499,11 +527,11 @@ class MarkerGenerator {
     }
 
     final picture = recorder.endRecording();
-    final image = await picture.toImage(
+    final byteData = await _encodeMarker(
+      picture,
       markerWidth.toInt(),
       markerHeight.toInt(),
     );
-    final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
 
     if (byteData == null) {
       return BitmapDescriptor.defaultMarker;
@@ -511,6 +539,9 @@ class MarkerGenerator {
 
     final Uint8List uint8list = byteData.buffer.asUint8List();
     final descriptor = BitmapDescriptor.bytes(uint8list);
+    if (_markerCache.length >= _maxMarkerCacheSize) {
+      _markerCache.remove(_markerCache.keys.first);
+    }
     _markerCache[cacheKey] = descriptor;
     return descriptor;
   }

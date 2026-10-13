@@ -76,7 +76,8 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
 
   @override
   Widget build(BuildContext context) {
-    final familyProvider = context.watch<FamilyProvider>();
+    context.select<FamilyProvider, int>((provider) => provider.dashboardRevision);
+    final familyProvider = context.read<FamilyProvider>();
     final familyName = familyProvider.currentFamilyName;
     final members = familyProvider.familyMembers;
     final locations = familyProvider.memberLocations;
@@ -92,7 +93,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
           : const SizedBox.shrink(),
 
       // Tab 1: Live Map Tracking
-      _activatedTabs.contains(1)
+        _currentIndex == 1
           ? AllMapsScreen(
               familyName: familyName,
               members: members,
@@ -124,7 +125,13 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
     return Scaffold(
       body: IndexedStack(
         index: _currentIndex,
-        children: screens,
+        children: [
+          for (final entry in screens.asMap().entries)
+            TickerMode(
+              enabled: entry.key == _currentIndex,
+              child: entry.value,
+            ),
+        ],
       ),
       bottomNavigationBar: Container(
         decoration: BoxDecoration(

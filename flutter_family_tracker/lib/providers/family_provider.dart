@@ -20,8 +20,18 @@ import '../services/permission_service.dart';
 import '../utils/phone_utils.dart';
 
 class FamilyProvider extends ChangeNotifier {
-  final DatabaseService _dbService = DatabaseService();
-  final LocationService _locationService = LocationService();
+  final DatabaseService _dbService;
+  final LocationService _locationService;
+
+  FamilyProvider({DatabaseService? databaseService, LocationService? locationService})
+      : _dbService = databaseService ?? DatabaseService(),
+        _locationService = locationService ?? LocationService();
+
+  int _familyLoadGeneration = 0;
+  Timer? _loadingTimeout;
+
+  bool _isCurrentLoad(int generation) =>
+      !_isDisposed && generation == _familyLoadGeneration;
 
   String _currentFamilyName = '';
   List<String> _userFamilyGroups = [];
@@ -41,6 +51,7 @@ class FamilyProvider extends ChangeNotifier {
   bool _hasInitialAlertsLoaded = false;
   bool _isLoading = false;
   String? _errorMessage;
+  int _dashboardRevision = 0;
 
   StreamSubscription? _membersSubscription;
   StreamSubscription? _emergencySubscription;
@@ -58,12 +69,24 @@ class FamilyProvider extends ChangeNotifier {
 
   String get currentFamilyName =>
       _currentFamilyName.isNotEmpty ? _currentFamilyName : 'MyFamily';
+  int get dashboardRevision => _dashboardRevision;
   String get displayFamilyName => formatFamilyDisplayName(_currentFamilyName);
   List<String> get userFamilyGroups => _userFamilyGroups;
   List<FamilyMemberModel> get familyMembers => _familyMembers;
   List<GeofencePlaceModel> get familyPlaces => _familyPlaces;
   List<AlertItemModel> get familyAlerts => _familyAlerts;
   Map<String, LocationDetailsModel> get memberLocations => _memberLocations;
+  LocationDetailsModel? locationForPhone(String phone) {
+    if (phone.isEmpty) return null;
+    final direct = _memberLocations[phone];
+    if (direct != null) return direct;
+    final normalized = PhoneUtils.normalize(phone);
+    if (normalized.isEmpty) return null;
+    for (final entry in _memberLocations.entries) {
+      if (PhoneUtils.normalize(entry.key) == normalized) return entry.value;
+    }
+    return null;
+  }
   Map<String, dynamic>? get activeEmergencyAlert => _activeEmergencyAlert;
   List<ChatMessageModel> get chatMessages => _chatMessages;
   int get unreadChatCount => _unreadChatCount;
@@ -181,13 +204,22 @@ class FamilyProvider extends ChangeNotifier {
   }
 
   Timer? _notifyDebounceTimer;
+  bool _isDisposed = false;
 
-  void _safeNotifyListeners({bool immediate = false}) {
+  void _notifyOnNextFrame() {
+    if (_isDisposed) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!_isDisposed) notifyListeners();
+    });
+    WidgetsBinding.instance.ensureVisualUpdate();
+  }
+
+  void _safeNotifyListeners({bool immediate = false, bool locationOnly = false}) {
+    if (_isDisposed) return;
+    if (!locationOnly) _dashboardRevision++;
     if (immediate) {
       _notifyDebounceTimer?.cancel();
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        notifyListeners();
-      });
+      _notifyOnNextFrame();
       return;
     }
 
@@ -196,9 +228,7 @@ class FamilyProvider extends ChangeNotifier {
         ? const Duration(milliseconds: 100)
         : const Duration(milliseconds: 50);
     _notifyDebounceTimer = Timer(debounceDuration, () {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        notifyListeners();
-      });
+      _notifyOnNextFrame();
     });
   }
 
@@ -233,13 +263,15 @@ class FamilyProvider extends ChangeNotifier {
 
   // Initialize and Load Data
   Future<void> init(String userPhone) async {
-    if (_isLoading) return;
+    if (_isDisposed || _isLoading) return;
+    final generation = ++_familyLoadGeneration;
     _isLoading = true;
     _safeNotifyListeners();
 
     // Safety fallback timer: guarantee that _isLoading is never stuck on true for more than 3.5 seconds
-    Timer(const Duration(milliseconds: 3500), () {
-      if (_isLoading) {
+    _loadingTimeout?.cancel();
+    _loadingTimeout = Timer(const Duration(milliseconds: 3500), () {
+      if (_isCurrentLoad(generation) && _isLoading) {
         debugPrint('[FamilyTracker] Init safety timer triggered: releasing loading state');
         _isLoading = false;
         _safeNotifyListeners();
@@ -254,10 +286,13 @@ class FamilyProvider extends ChangeNotifier {
 
       // 2. Fetch all groups on Firebase that this phone is added to
       try {
-        _userFamilyGroups = await _dbService
+        final groups = await _dbService
             .getFamilyNamesForPhone(userPhone)
             .timeout(const Duration(seconds: 3), onTimeout: () => []);
+        if (!_isCurrentLoad(generation)) return;
+        _userFamilyGroups = groups;
       } catch (e) {
+        if (!_isCurrentLoad(generation)) return;
         debugPrint('[FamilyTracker] Fetch groups error: $e');
         _userFamilyGroups = [];
       }
@@ -281,18 +316,21 @@ class FamilyProvider extends ChangeNotifier {
       }
 
       debugPrint('[FamilyTracker] Selected active group: $_currentFamilyName');
+      if (!_isCurrentLoad(generation)) return;
 
       // 4. Fetch initial snapshot directly and enrich with contacts
       try {
         final initialMembers = await _dbService
             .getFamilyMembers(_currentFamilyName)
             .timeout(const Duration(seconds: 3), onTimeout: () => []);
+        if (!_isCurrentLoad(generation)) return;
         _familyMembers = _enrichWithContactNames(initialMembers);
       } catch (e) {
         debugPrint('[FamilyTracker] Initial members error: $e');
       }
       debugPrint('[FamilyTracker] Initial snapshot loaded: ${_familyMembers.length} members');
 
+      if (!_isCurrentLoad(generation)) return;
       // 5. Subscribe to real-time updates for the active family group
       _subscribeToMembers(_currentFamilyName);
       _subscribeToEmergencyAlerts(_currentFamilyName);
@@ -310,11 +348,14 @@ class FamilyProvider extends ChangeNotifier {
         }
       }
     } catch (e) {
-      _errorMessage = e.toString();
+      if (_isCurrentLoad(generation)) _errorMessage = e.toString();
       debugPrint('[FamilyTracker] Init error: $e');
     } finally {
-      _isLoading = false;
-      _safeNotifyListeners();
+      if (_isCurrentLoad(generation)) {
+        _loadingTimeout?.cancel();
+        _isLoading = false;
+        _safeNotifyListeners();
+      }
     }
   }
 
@@ -333,14 +374,18 @@ class FamilyProvider extends ChangeNotifier {
 
   // Subscribe to Live Members
   void _subscribeToMembers(String familyName) {
+    final generation = _familyLoadGeneration;
     _membersSubscription?.cancel();
     _membersSubscription =
         _dbService.streamFamilyMembers(familyName).listen((members) {
-      if (members.isNotEmpty || _familyMembers.isEmpty) {
-        _familyMembers = _enrichWithContactNames(members);
-        _subscribeToLocations(members);
-        _safeNotifyListeners();
-      }
+      if (!_isCurrentLoad(generation)) return;
+      _familyMembers = _enrichWithContactNames(members);
+      _loadingTimeout?.cancel();
+      _loadingTimeout = null;
+      _isLoading = false;
+      _errorMessage = null;
+      _subscribeToLocations(members);
+      _safeNotifyListeners();
     }, onError: (err) {
       debugPrint('[FamilyTracker] Stream members error: $err');
     });
@@ -348,11 +393,13 @@ class FamilyProvider extends ChangeNotifier {
 
   // Subscribe to Peer-to-Peer Emergency SOS Alerts
   void _subscribeToEmergencyAlerts(String familyName) {
+    final generation = _familyLoadGeneration;
     _emergencySubscription?.cancel();
     if (familyName.isEmpty) return;
 
     _emergencySubscription =
         _dbService.streamEmergencyAlerts(familyName).listen((alert) {
+      if (!_isCurrentLoad(generation)) return;
       _activeEmergencyAlert = alert;
       if (alert != null && alert['status'] == 'ACTIVE') {
         final senderPhone = alert['senderPhone']?.toString() ?? '';
@@ -396,11 +443,13 @@ class FamilyProvider extends ChangeNotifier {
 
   // Subscribe to Peer-to-Peer Family Group Chat
   void _subscribeToChat(String familyName) {
+    final generation = _familyLoadGeneration;
     _chatSubscription?.cancel();
     if (familyName.isEmpty) return;
 
     _chatSubscription =
         _dbService.streamChatMessages(familyName).listen((messages) {
+      if (!_isCurrentLoad(generation)) return;
       final myPhone = PreferencesService.getUserPhone() ?? '';
 
       // Process newly arrived / sent family messages
@@ -447,11 +496,13 @@ class FamilyProvider extends ChangeNotifier {
 
   // Subscribe to Realtime Safe Places & Geofences
   void _subscribeToPlaces(String familyName) {
+    final generation = _familyLoadGeneration;
     _placesSubscription?.cancel();
     if (familyName.isEmpty) return;
 
     _placesSubscription =
         _dbService.streamFamilyPlaces(familyName).listen((places) {
+      if (!_isCurrentLoad(generation)) return;
       _familyPlaces = places;
 
       // Evaluate all existing member locations whenever safe places are added, edited, or loaded (Mobile background engine only)
@@ -475,11 +526,13 @@ class FamilyProvider extends ChangeNotifier {
 
   // Subscribe to Realtime Safety Alerts (Safe Places Arrival/Departure, Check-Ins, Low Battery, Intruder)
   void _subscribeToAlerts(String familyName) {
+    final generation = _familyLoadGeneration;
     _alertsSubscription?.cancel();
     if (familyName.isEmpty) return;
 
     _alertsSubscription =
         _dbService.streamFamilyAlerts(familyName).listen((alerts) {
+      if (!_isCurrentLoad(generation)) return;
       final myPhone = PreferencesService.getUserPhone() ?? '';
       final now = DateTime.now().millisecondsSinceEpoch;
 
@@ -563,16 +616,21 @@ class FamilyProvider extends ChangeNotifier {
 
   // Subscribe to Realtime Locations of all Members
   void _subscribeToLocations(List<FamilyMemberModel> members) {
-    for (var sub in _locationSubscriptions.values) {
-      sub.cancel();
+    final generation = _familyLoadGeneration;
+    final phones = members.map((member) => member.mobile).toSet();
+    for (final phone in _locationSubscriptions.keys.toList()) {
+      if (!phones.contains(phone)) {
+        _locationSubscriptions.remove(phone)?.cancel();
+      }
     }
-    _locationSubscriptions.clear();
+    _memberLocations.removeWhere((phone, _) => !phones.contains(phone));
 
     for (var member in members) {
-      if (member.mobile.isNotEmpty) {
+      if (member.mobile.isNotEmpty && !_locationSubscriptions.containsKey(member.mobile)) {
         _locationSubscriptions[member.mobile] = _dbService
             .streamLocationDetails(member.mobile)
             .listen((location) {
+          if (!_isCurrentLoad(generation) || !_locationSubscriptions.containsKey(member.mobile)) return;
           if (location != null) {
             _memberLocations[member.mobile] = location;
 
@@ -616,7 +674,7 @@ class FamilyProvider extends ChangeNotifier {
               _notifiedLowBatteryMembers.remove(member.mobile);
             }
 
-            _safeNotifyListeners();
+            _safeNotifyListeners(locationOnly: true);
           }
         }, onError: (err) {
           debugPrint('[FamilyTracker] Stream location error for ${member.mobile}: $err');
@@ -856,12 +914,14 @@ class FamilyProvider extends ChangeNotifier {
   // Switch Family Group
   Future<void> switchFamilyGroup(String newFamilyName) async {
     final clean = newFamilyName.trim();
-    if (clean.isEmpty) return;
+    if (_isDisposed || clean.isEmpty) return;
 
     // Fast-path: if already on this family and members are loaded, skip redundant reload
-    if (_currentFamilyName.toLowerCase() == clean.toLowerCase() && _familyMembers.isNotEmpty) {
+    if (_currentFamilyName == clean && (_isLoading || _familyMembers.isNotEmpty)) {
       return;
     }
+    final generation = ++_familyLoadGeneration;
+    _loadingTimeout?.cancel();
 
     // 1. Immediately cancel all previous subscriptions to halt background stream processing
     _membersSubscription?.cancel();
@@ -888,6 +948,9 @@ class FamilyProvider extends ChangeNotifier {
     _memberLocations.clear();
     _familyPlaces = [];
     _familyAlerts = [];
+    _chatMessages = [];
+    _notifiedLowBatteryMembers.clear();
+    _errorMessage = null;
     _activeEmergencyAlert = null;
     _unreadChatCount = 0;
     _unreadMemberPhones.clear();
@@ -906,34 +969,18 @@ class FamilyProvider extends ChangeNotifier {
       unawaited(_dbService.indexUserFamily(normPhone, clean).catchError((_) {}));
     }
 
-    // Safety fallback timer: guarantee that _isLoading is never stuck on true
-    Timer(const Duration(milliseconds: 3000), () {
-      if (_isLoading) {
-        debugPrint('[FamilyTracker] Switch family safety timer triggered: releasing loading state');
-        _isLoading = false;
-        _safeNotifyListeners(immediate: true);
-      }
+    _loadingTimeout = Timer(const Duration(seconds: 3), () {
+      if (!_isCurrentLoad(generation) || !_isLoading) return;
+      _isLoading = false;
+      _errorMessage = 'Connection is taking longer than expected. Waiting for live updates.';
+      _safeNotifyListeners(immediate: true);
     });
 
-    try {
-      final members = await _dbService
-          .getFamilyMembers(clean)
-          .timeout(const Duration(seconds: 3), onTimeout: () => []);
-      _familyMembers = _enrichWithContactNames(members);
-
-      // Start live subscriptions for the new active family group
-      _subscribeToMembers(clean);
-      _subscribeToEmergencyAlerts(clean);
-      _subscribeToChat(clean);
-      _subscribeToPlaces(clean);
-      _subscribeToAlerts(clean);
-      _subscribeToLocations(_familyMembers);
-    } catch (e) {
-      debugPrint('[FamilyTracker] Switch group error: $e');
-    } finally {
-      _isLoading = false;
-      _safeNotifyListeners(immediate: true);
-    }
+    _subscribeToMembers(clean);
+    _subscribeToEmergencyAlerts(clean);
+    _subscribeToChat(clean);
+    _subscribeToPlaces(clean);
+    _subscribeToAlerts(clean);
   }
 
   // Add Family Member
@@ -1160,6 +1207,8 @@ class FamilyProvider extends ChangeNotifier {
 
   @override
   void dispose() {
+    _isDisposed = true;
+    _loadingTimeout?.cancel();
     _notifyDebounceTimer?.cancel();
     _locationService.stopContinuousTracking();
     _membersSubscription?.cancel();

@@ -1,0 +1,136 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Verify Flutter stream regressions",
+			"type": "shell",
+			"command": "Set-Location 'c:\\Arun\\other\\familytracker\\flutter_family_tracker'; & 'C:\\Users\\Arunteja\\flutter\\bin\\flutter.bat' test --no-pub --reporter expanded --timeout 15s test/database_member_stream_test.dart",
+			"isBackground": false,
+			"problemMatcher": []
+		},
+		{
+			"label": "Verify Flutter stream regressions (cmd)",
+			"type": "shell",
+			"command": "cd /d c:\\Arun\\other\\familytracker\\flutter_family_tracker & C:\\Users\\Arunteja\\flutter\\bin\\flutter.bat test --no-pub --reporter expanded --timeout 15s test/database_member_stream_test.dart",
+			"isBackground": false,
+			"problemMatcher": []
+		},
+		{
+			"label": "Verify family switching",
+			"type": "shell",
+			"command": "C:\\Users\\Arunteja\\flutter\\bin\\flutter.bat",
+			"args": [
+				"test",
+				"--no-pub",
+				"--reporter",
+				"expanded"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}/flutter_family_tracker"
+			},
+			"isBackground": false,
+			"problemMatcher": []
+		},
+		{
+			"label": "Analyze Flutter app",
+			"type": "shell",
+			"command": "C:\\Users\\Arunteja\\flutter\\bin\\flutter.bat",
+			"args": [
+				"analyze",
+				"--no-pub"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}/flutter_family_tracker"
+			},
+			"problemMatcher": []
+		},
+		{
+			"label": "Flutter final regression checks",
+			"type": "shell",
+			"command": "C:\\Users\\Arunteja\\flutter\\bin\\flutter.bat",
+			"args": [
+				"test",
+				"--no-pub",
+				"--reporter",
+				"expanded",
+				"--timeout",
+				"15s"
+			],
+			"presentation": {
+				"panel": "new",
+				"clear": true
+			},
+			"options": {
+				"cwd": "${workspaceFolder}/flutter_family_tracker"
+			},
+			"problemMatcher": []
+		},
+		{
+			"label": "Build Android freeze fixes",
+			"type": "shell",
+			"command": "C:\\Users\\Arunteja\\flutter\\bin\\flutter.bat",
+			"args": [
+				"build",
+				"apk",
+				"--debug",
+				"--no-pub"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}/flutter_family_tracker"
+			},
+			"presentation": {
+				"panel": "new",
+				"clear": true
+			},
+			"problemMatcher": []
+		},
+		{
+			"label": "Preview Flutter freeze fixes",
+			"type": "shell",
+			"command": "C:\\Users\\Arunteja\\flutter\\bin\\flutter.bat",
+			"args": [
+				"run",
+				"-d",
+				"web-server",
+				"--release",
+				"--no-pub",
+				"--web-port",
+				"8091",
+				"--web-hostname",
+				"127.0.0.1"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}/flutter_family_tracker"
+			},
+			"presentation": {
+				"panel": "new",
+				"clear": true
+			},
+			"isBackground": true,
+			"problemMatcher": []
+		},
+		{
+			"label": "Verify switching in Chrome",
+			"type": "shell",
+			"command": "C:\\Users\\Arunteja\\flutter\\bin\\flutter.bat",
+			"args": [
+				"test",
+				"--no-pub",
+				"--platform",
+				"chrome",
+				"--reporter",
+				"expanded",
+				"test/family_switch_test.dart",
+				"test/widget_test.dart"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}/flutter_family_tracker"
+			},
+			"presentation": {
+				"panel": "new",
+				"clear": true
+			},
+			"problemMatcher": []
+		},
+	]
+}

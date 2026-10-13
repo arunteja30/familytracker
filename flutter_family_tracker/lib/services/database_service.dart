@@ -17,7 +17,10 @@ import 'geocoding_service.dart';
 import 'preferences_service.dart';
 
 class DatabaseService {
-  final FirebaseDatabase _db = FirebaseDatabase.instance;
+  final FirebaseDatabase _db;
+
+  DatabaseService({FirebaseDatabase? database})
+      : _db = database ?? FirebaseDatabase.instance;
 
   // Cache of last saved history point per mobile to avoid redundant DB reads
   static final Map<String, LocationDetailsModel> _lastSavedHistoryPoints = {};
@@ -150,17 +153,38 @@ class DatabaseService {
 
     late StreamController<List<FamilyMemberModel>> controller;
     final List<StreamSubscription> subs = [];
+    Timer? refreshTimer;
+    int generation = 0;
 
     controller = StreamController<List<FamilyMemberModel>>.broadcast(
       onListen: () {
-        void handleUpdate() async {
-          if (controller.isClosed) return;
+        final currentGeneration = ++generation;
+        bool refreshing = false;
+        bool pending = false;
+
+        Future<void> refreshMembers() async {
+          if (controller.isClosed || !controller.hasListener || currentGeneration != generation) return;
+          refreshing = true;
+          pending = false;
           try {
             final members = await getFamilyMembers(clean);
-            if (!controller.isClosed && members.isNotEmpty) {
+            if (!controller.isClosed && controller.hasListener && currentGeneration == generation) {
               controller.add(members);
             }
           } catch (_) {}
+          finally {
+            refreshing = false;
+            if (pending && currentGeneration == generation && controller.hasListener) {
+              refreshTimer = Timer(const Duration(milliseconds: 100), refreshMembers);
+            }
+          }
+        }
+
+        void handleUpdate() {
+          pending = true;
+          if (refreshing) return;
+          refreshTimer?.cancel();
+          refreshTimer = Timer(const Duration(milliseconds: 100), refreshMembers);
         }
 
         for (final cand in candidates) {
@@ -177,6 +201,8 @@ class DatabaseService {
         }
       },
       onCancel: () {
+        generation++;
+        refreshTimer?.cancel();
         for (final s in subs) {
           s.cancel();
         }

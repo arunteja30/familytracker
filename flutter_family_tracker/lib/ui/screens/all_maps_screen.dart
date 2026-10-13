@@ -15,7 +15,6 @@ import '../../models/geofence_place_model.dart';
 import '../../providers/family_provider.dart';
 import '../../services/database_service.dart';
 import '../../services/geocoding_service.dart';
-import '../../services/geofence_service.dart';
 import '../../services/preferences_service.dart';
 import '../../services/profile_image_service.dart';
 import '../../utils/marker_generator.dart';
@@ -53,6 +52,8 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
   final Set<Marker> _placeMarkers = {};
   MapType _currentMapType = MapType.normal;
   final Set<Marker> _markers = {};
+  int _mapGeneration = 0;
+  final Map<String, int> _markerRevisions = {};
   final Set<Polyline> _polylines = {};
   final List<AdaptivePolyline> _adaptivePolylines = [];
   final Map<String, List<LatLng>> _sessionMovements = {};
@@ -125,15 +126,40 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
   void didUpdateWidget(covariant AllMapsScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
 
-    if (widget.familyName != oldWidget.familyName) {
+    final familyChanged = widget.familyName != oldWidget.familyName;
+    if (familyChanged) {
+      _liveLocations.clear();
+      _markers.clear();
+      _familyPlaces = [];
+      _geofenceCircles.clear();
+      _placeMarkers.clear();
+      _sessionMovements.clear();
+      _polylines.clear();
+      _adaptivePolylines.clear();
+      _pulseCircles.clear();
+      _recentlyUpdatedMobiles.clear();
+      _resolvedAddresses.clear();
+      for (final timer in _pulseResetTimers.values) {
+        timer.cancel();
+      }
+      _pulseResetTimers.clear();
+      _selectedMember = null;
       _subscribeToPlaces();
     }
 
     // Only resubscribe to movements and rebuild full markers if members or family changed
-    final membersChanged = widget.members.length != oldWidget.members.length ||
-        widget.familyName != oldWidget.familyName;
+    final membersChanged = familyChanged || !listEquals(
+      widget.members.map((member) => member.mobile).toList(),
+      oldWidget.members.map((member) => member.mobile).toList(),
+    );
 
     if (membersChanged) {
+      _mapGeneration++;
+      _markerRevisions.clear();
+      final phones = widget.members.map((member) => member.mobile).toSet();
+      _liveLocations.removeWhere((phone, _) => !phones.contains(phone));
+      _markers.removeWhere((marker) => !phones.contains(marker.markerId.value));
+      if (!phones.contains(_selectedMember?.mobile)) _selectedMember = null;
       _liveLocations.addAll(widget.locations);
       if (_selectedMember == null && widget.members.isNotEmpty) {
         _selectedMember = widget.members.first;
@@ -143,8 +169,12 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
         _loadPhotosAndBuildMarkers();
       }
     } else {
-      // Just update locations in memory without restarting streams
-      _liveLocations.addAll(widget.locations);
+      for (final entry in widget.members.asMap().entries) {
+        final location = widget.locations[entry.value.mobile];
+        if (location != null) {
+          _applyMemberLocation(entry.value, location, entry.key);
+        }
+      }
     }
   }
 
@@ -169,6 +199,7 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
 
   @override
   void dispose() {
+    _mapGeneration++;
     _radarPulseTimer?.cancel();
     for (var timer in _pulseResetTimers.values) {
       timer.cancel();
@@ -177,6 +208,7 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
       sub.cancel();
     }
     _placesSubscription?.cancel();
+    _flutterMapController.dispose();
     super.dispose();
   }
 
@@ -208,7 +240,7 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
     if (family.isEmpty) return;
 
     _placesSubscription = _dbService.streamFamilyPlaces(family).listen((places) {
-      if (mounted) {
+      if (mounted && family == _resolveFamilyName()) {
         setState(() {
           _familyPlaces = places;
           _buildGeofenceOverlays();
@@ -273,6 +305,7 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
 
   // Subscribe to live location stream for all family members to track movements live
   void _subscribeToLiveMovements() {
+    final generation = _mapGeneration;
     for (var sub in _locationSubscriptions) {
       sub.cancel();
     }
@@ -285,29 +318,27 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
       final sub = _dbService.streamLocationDetails(member.mobile).listen((newLoc) {
         if (newLoc != null &&
             (newLoc.latitude != 0.0 || newLoc.longitude != 0.0) &&
-            mounted) {
-          final oldLoc = _liveLocations[member.mobile];
-          final hasMoved = oldLoc == null ||
-              (oldLoc.latitude - newLoc.latitude).abs() > 0.00001 ||
-              (oldLoc.longitude - newLoc.longitude).abs() > 0.00001;
-
-          _liveLocations[member.mobile] = newLoc;
-
-          if (hasMoved) {
-            _updateMemberMarker(member, newLoc, memberIndex);
-          }
-
-          // Real-time Geofence Safe Place Evaluation (Arrival / Departure)
-          if (_familyPlaces.isNotEmpty) {
-            GeofenceService().evaluateMemberLocation(
-              member: member,
-              location: newLoc,
-              places: _familyPlaces,
-            );
-          }
+            mounted && generation == _mapGeneration) {
+          _applyMemberLocation(member, newLoc, memberIndex);
         }
       });
       _locationSubscriptions.add(sub);
+    }
+  }
+
+  void _applyMemberLocation(
+      FamilyMemberModel member, LocationDetailsModel location, int index) {
+    if (location.latitude == 0.0 && location.longitude == 0.0) return;
+    final previous = _liveLocations[member.mobile];
+    _liveLocations[member.mobile] = location;
+    if (previous == null ||
+        previous.latitude != location.latitude ||
+        previous.longitude != location.longitude ||
+        previous.timeStamp != location.timeStamp ||
+        previous.batteryPercentage != location.batteryPercentage ||
+        previous.isMoving != location.isMoving ||
+        previous.address != location.address) {
+      _updateMemberMarker(member, location, index);
     }
   }
 
@@ -332,13 +363,12 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
 
   Future<Marker?> _buildMarkerForMember(
       FamilyMemberModel member, LocationDetailsModel? loc, int index) async {
-    LocationDetailsModel? effectiveLoc = loc ?? _getMemberLocation(member.mobile);
-    if (effectiveLoc == null || (effectiveLoc.latitude == 0.0 && effectiveLoc.longitude == 0.0)) {
-      effectiveLoc = await _dbService.getLocationDetails(member.mobile);
-      if (effectiveLoc != null && (effectiveLoc.latitude != 0.0 || effectiveLoc.longitude != 0.0)) {
-        _liveLocations[member.mobile] = effectiveLoc;
-      }
-    }
+    final generation = _mapGeneration;
+    final revision = (_markerRevisions[member.mobile] ?? 0) + 1;
+    _markerRevisions[member.mobile] = revision;
+    bool isCurrent() => mounted && generation == _mapGeneration &&
+        _markerRevisions[member.mobile] == revision;
+    final effectiveLoc = loc ?? _getMemberLocation(member.mobile);
     if (effectiveLoc == null || (effectiveLoc.latitude == 0.0 && effectiveLoc.longitude == 0.0)) return null;
 
     final color = _markerColors[index % _markerColors.length];
@@ -347,6 +377,7 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
       photoFile = _memberPhotos[member.mobile];
     } else {
       photoFile = await ProfileImageService.getProfileImageFile(member.mobile);
+      if (!isCurrent()) return null;
       _memberPhotos[member.mobile] = photoFile;
       _checkedPhotos.add(member.mobile);
     }
@@ -355,7 +386,7 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
     if (effectiveLoc.address.isEmpty || effectiveLoc.address.startsWith('Lat:')) {
       GeocodingService.getAddressFromCoordinates(effectiveLoc.latitude, effectiveLoc.longitude)
           .then((addr) {
-        if (mounted) {
+        if (isCurrent()) {
           setState(() => _resolvedAddresses[member.mobile] = addr);
         }
       });
@@ -389,6 +420,7 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
       );
     }
 
+    if (!isCurrent()) return null;
     final displayAddr = _resolvedAddresses[member.mobile] ?? effectiveLoc.address;
 
     return Marker(
@@ -408,6 +440,7 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
 
   Future<void> _updateMemberMarker(
       FamilyMemberModel member, LocationDetailsModel loc, int index) async {
+    final generation = _mapGeneration;
     // Record recent movement/update timestamp to trigger blinking animation
     _recentlyUpdatedMobiles[member.mobile] = DateTime.now();
     _pulseResetTimers[member.mobile]?.cancel();
@@ -421,7 +454,8 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
     });
 
     final marker = kIsWeb ? null : await _buildMarkerForMember(member, loc, index);
-    if (mounted) {
+    if (mounted && generation == _mapGeneration &&
+      (kIsWeb || marker != null)) {
       setState(() {
         // Track live coordinates in memory for individual tracking
         final memberTrail =
@@ -527,25 +561,27 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
     // Avoid running canvas PictureRecorder and toByteData() GPU rasterization.
     if (kIsWeb) return;
 
-    // Generate markers in parallel across all members using cached bitmaps
-    final markerFutures = widget.members.asMap().entries.map((entry) async {
-      final i = entry.key;
-      final member = entry.value;
-      final loc = _liveLocations[member.mobile] ?? widget.locations[member.mobile];
-      return await _buildMarkerForMember(member, loc, i);
-    });
-
-    final resolvedMarkers = await Future.wait(markerFutures);
-
-    if (mounted) {
-      setState(() {
-        _markers.clear();
-        _markers.addAll(resolvedMarkers.whereType<Marker>());
-      });
+    final generation = _mapGeneration;
+    final members = List<FamilyMemberModel>.of(widget.members);
+    for (final member in members) {
+      final location = _getMemberLocation(member.mobile);
+      if (location == null) continue;
+      _markers.removeWhere((marker) => marker.markerId.value == member.mobile);
+      _markers.add(Marker(
+        markerId: MarkerId(member.mobile),
+        position: LatLng(location.latitude, location.longitude),
+        infoWindow: InfoWindow(title: member.name),
+        onTap: () => _focusMember(member),
+      ));
+    }
+    for (final member in members) {
+      if (!mounted || generation != _mapGeneration) return;
+      await _updateSingleMemberMarker(member);
     }
   }
 
   Future<void> _updateSingleMemberMarker(FamilyMemberModel targetMember) async {
+    if (kIsWeb) return;
     final index = widget.members.indexWhere((m) => m.mobile == targetMember.mobile);
     if (index < 0) return;
     final loc = _getMemberLocation(targetMember.mobile);
@@ -559,6 +595,7 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
   }
 
   Future<void> _focusMember(FamilyMemberModel member) async {
+    final generation = _mapGeneration;
     final previousSelected = _selectedMember;
     setState(() {
       _selectedMember = member;
@@ -575,7 +612,12 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
     // Robust multi-tier location resolution
     LocationDetailsModel? loc = _getMemberLocation(member.mobile);
     if (loc == null || (loc.latitude == 0.0 && loc.longitude == 0.0)) {
-      loc = await _dbService.getLocationDetails(member.mobile);
+      loc = await _dbService.getLocationDetails(member.mobile)
+          .timeout(const Duration(seconds: 5), onTimeout: () => null);
+        if (!mounted || generation != _mapGeneration ||
+            _selectedMember?.mobile != member.mobile) {
+          return;
+        }
       if (loc != null && (loc.latitude != 0.0 || loc.longitude != 0.0)) {
         _liveLocations[member.mobile] = loc;
       }
@@ -583,13 +625,18 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
 
     if (loc != null && (loc.latitude != 0.0 || loc.longitude != 0.0)) {
       // 1. Zoom into the selected member on Web (zoom 17.0 for close marker focus)
-      try {
-        _flutterMapController.move(ll.LatLng(loc.latitude, loc.longitude), 17.0);
-      } catch (_) {}
+      if (kIsWeb) {
+        try {
+          _flutterMapController.move(ll.LatLng(loc.latitude, loc.longitude), 17.0);
+        } catch (_) {}
+        return;
+      }
 
       // 2. Animate camera and zoom into selected member marker on Google Maps
       try {
+        if (!_controller.isCompleted) return;
         final GoogleMapController controller = await _controller.future;
+        if (!mounted || _selectedMember?.mobile != member.mobile) return;
         await controller.animateCamera(
           CameraUpdate.newCameraPosition(
             CameraPosition(
@@ -604,6 +651,7 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
   }
 
   Future<void> _fitAllBounds() async {
+    if (!mounted) return;
     final previousSelected = _selectedMember;
     setState(() {
       _selectedMember = null;
@@ -616,41 +664,31 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
       _updateSingleMemberMarker(previousSelected);
     }
 
+    if (kIsWeb) {
+      final points = _buildAdaptiveMapPoints()
+          .map((point) => ll.LatLng(point.latitude, point.longitude)).toList();
+      if (points.isEmpty) return;
+      try {
+        _flutterMapController.fitCamera(fmap.CameraFit.bounds(
+          bounds: fmap.LatLngBounds.fromPoints(points),
+          padding: const EdgeInsets.all(80),
+          maxZoom: 15,
+        ));
+      } catch (_) {}
+      return;
+    }
+
     final targetMarkers = _showPlacesLayer && _placeMarkers.isNotEmpty
         ? {..._markers, ..._placeMarkers}
         : _markers;
 
     if (targetMarkers.isEmpty) return;
 
-    // Move Web FlutterMap camera to fit all members and safe places
-    try {
-      if (targetMarkers.length == 1) {
-        _flutterMapController.move(
-          ll.LatLng(targetMarkers.first.position.latitude, targetMarkers.first.position.longitude),
-          14.0,
-        );
-      } else if (targetMarkers.length > 1) {
-        double minLat = targetMarkers.first.position.latitude;
-        double maxLat = targetMarkers.first.position.latitude;
-        double minLng = targetMarkers.first.position.longitude;
-        double maxLng = targetMarkers.first.position.longitude;
-
-        for (var marker in targetMarkers) {
-          if (marker.position.latitude < minLat) minLat = marker.position.latitude;
-          if (marker.position.latitude > maxLat) maxLat = marker.position.latitude;
-          if (marker.position.longitude < minLng) minLng = marker.position.longitude;
-          if (marker.position.longitude > maxLng) maxLng = marker.position.longitude;
-        }
-
-        final centerLat = (minLat + maxLat) / 2;
-        final centerLng = (minLng + maxLng) / 2;
-        _flutterMapController.move(ll.LatLng(centerLat, centerLng), 13.0);
-      }
-    } catch (_) {}
-
     // Animate Google Maps camera to fit all members & safe places on Mobile
     try {
+      if (!_controller.isCompleted) return;
       final GoogleMapController controller = await _controller.future;
+      if (!mounted) return;
 
       if (targetMarkers.length == 1) {
         controller.animateCamera(
@@ -969,7 +1007,12 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
   @override
   Widget build(BuildContext context) {
     LatLng initialPos = const LatLng(17.3850, 78.4867);
-    if (_markers.isNotEmpty) {
+    final locatedMembers = widget.members
+        .map((member) => _getMemberLocation(member.mobile))
+        .whereType<LocationDetailsModel>();
+    if (locatedMembers.isNotEmpty) {
+      initialPos = LatLng(locatedMembers.first.latitude, locatedMembers.first.longitude);
+    } else if (_markers.isNotEmpty) {
       initialPos = _markers.first.position;
     } else if (_familyPlaces.isNotEmpty && _familyPlaces.first.latitude != 0.0) {
       initialPos = LatLng(_familyPlaces.first.latitude, _familyPlaces.first.longitude);

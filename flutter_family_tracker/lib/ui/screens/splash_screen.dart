@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import '../../constants/app_colors.dart';
+import '../../services/app_startup_service.dart';
 import '../../services/app_update_service.dart';
 import '../../services/geocoding_service.dart';
 import '../../services/preferences_service.dart';
@@ -27,6 +28,7 @@ class _SplashScreenState extends State<SplashScreen> {
   }
 
   Future<void> _initializeApp() async {
+    await AppStartupService.initialize();
     if (!kIsWeb) {
       await Future.delayed(const Duration(milliseconds: 400));
     }

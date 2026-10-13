@@ -103,6 +103,9 @@ class _AdaptiveMapViewState extends State<AdaptiveMapView> {
 
   @override
   void dispose() {
+    if (widget.flutterMapController == null) {
+      _flutterMapController?.dispose();
+    }
     super.dispose();
   }
 

@@ -19,6 +19,7 @@ import 'buzzing_dot.dart';
 class MemberCard extends StatefulWidget {
   final FamilyMemberModel member;
   final LocationDetailsModel? location;
+  final LocationDetailsModel? currentUserLocation;
   final VoidCallback onTrackOnMap;
   final VoidCallback onHistory;
   final VoidCallback? onDelete;
@@ -28,6 +29,7 @@ class MemberCard extends StatefulWidget {
     super.key,
     required this.member,
     this.location,
+    this.currentUserLocation,
     required this.onTrackOnMap,
     required this.onHistory,
     this.onDelete,
@@ -538,7 +540,7 @@ class _MemberCardState extends State<MemberCard> {
   @override
   Widget build(BuildContext context) {
     final battery = widget.location?.batteryPercentage ?? 0;
-    final address = widget.location?.address ?? 'Location syncing...';
+    final address = widget.location?.address ?? 'No location update yet';
     final hasUnread = context.select<FamilyProvider, bool>(
       (p) => p.hasUnreadForMember(widget.member.mobile),
     );
@@ -556,16 +558,7 @@ class _MemberCardState extends State<MemberCard> {
       (p) => p.isMemberAdmin(widget.member) || widget.member.isAdmin,
     );
 
-    final currentUserLoc = isSelf || userPhone.isEmpty
-        ? null
-        : context.select<FamilyProvider, LocationDetailsModel?>((p) {
-            for (final entry in p.memberLocations.entries) {
-              if (DatabaseService.matchPhones(entry.key, userPhone)) {
-                return entry.value;
-              }
-            }
-            return null;
-          });
+    final currentUserLoc = isSelf || userPhone.isEmpty ? null : widget.currentUserLocation;
     final relativeDistance = (!isSelf && currentUserLoc != null && widget.location != null)
         ? ProximityUtils.getRelativeDistance(
             userLat: currentUserLoc.latitude,

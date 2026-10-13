@@ -29,6 +29,7 @@ class _GroupSwitcherDialogState extends State<GroupSwitcherDialog> {
   bool _isLoading = true;
   String _selectedTab = 'all'; // 'all', 'admin'
   bool _showCustomInput = false;
+  bool _switchRequested = false;
 
   @override
   void initState() {
@@ -105,12 +106,15 @@ class _GroupSwitcherDialogState extends State<GroupSwitcherDialog> {
 
   void _switchGroup(String familyName) {
     final clean = familyName.trim();
-    if (clean.isEmpty) return;
+    if (_switchRequested || clean.isEmpty) return;
+    _switchRequested = true;
 
     final messenger = ScaffoldMessenger.of(context);
     Navigator.pop(context);
+    if (clean == widget.currentGroup) return;
+    final onSwitch = widget.onSwitch;
     Future.microtask(() {
-      widget.onSwitch(clean);
+      onSwitch(clean);
     });
     messenger.showSnackBar(
       SnackBar(
