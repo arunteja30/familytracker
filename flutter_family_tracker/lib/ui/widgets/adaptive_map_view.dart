@@ -78,6 +78,7 @@ class AdaptiveMapView extends StatefulWidget {
   final Set<gmaps.Polyline>? googlePolylines;
   final Set<gmaps.Circle>? googleCircles;
   final Function(gmaps.GoogleMapController)? onGoogleMapCreated;
+  final ValueChanged<bool>? onMapEngineChanged;
   final fmap.MapController? flutterMapController;
 
   const AdaptiveMapView({
@@ -92,6 +93,7 @@ class AdaptiveMapView extends StatefulWidget {
     this.googlePolylines,
     this.googleCircles,
     this.onGoogleMapCreated,
+    this.onMapEngineChanged,
     this.flutterMapController,
   });
 
@@ -712,6 +714,7 @@ class _AdaptiveMapViewState extends State<AdaptiveMapView> {
             setState(() {
               _useLibreMap = newMode;
             });
+            widget.onMapEngineChanged?.call(newMode);
           } else {
             setState(() {
               _tileSource = value;

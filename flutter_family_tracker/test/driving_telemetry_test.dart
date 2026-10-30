@@ -36,6 +36,7 @@ void main() {
 
       expect(parsed.latitude, 12.9716);
       expect(parsed.longitude, 77.5946);
+      expect(parsed.timeStamp, 1726000000000);
       expect(parsed.speedKmh, 62.4);
       expect(parsed.heading, 180.5);
       expect(parsed.batteryPercentage, 88);

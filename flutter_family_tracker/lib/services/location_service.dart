@@ -13,6 +13,7 @@ class LocationService {
   final DatabaseService _dbService = DatabaseService();
   StreamSubscription<Position>? _positionStreamSubscription;
   StreamSubscription<ServiceStatus>? _serviceStatusSubscription;
+  String? _trackingMobile;
 
   // Check and Request Location Permissions
   Future<bool> checkPermission() async {
@@ -144,6 +145,7 @@ class LocationService {
   // Start Continuous Background Location Tracking with Foreground Notification
   void startContinuousBackgroundLocationTracking(String mobile) {
     if (mobile.isEmpty) return;
+    if (_trackingMobile == mobile && _positionStreamSubscription != null) return;
 
     // 1. Immediately fetch & push location on launch so Firebase is updated without waiting for movement
     updateAndPushLocation(mobile);
@@ -161,7 +163,6 @@ class LocationService {
       locationSettings = AndroidSettings(
         accuracy: LocationAccuracy.high,
         distanceFilter: 40,
-        forceLocationManager: true,
         intervalDuration: const Duration(seconds: 30),
       );
     } else if (defaultTargetPlatform == TargetPlatform.iOS ||
@@ -252,6 +253,7 @@ class LocationService {
 
     debugPrint(
         '[FamilyTracker] Continuous background tracking started for: $mobile');
+    _trackingMobile = mobile;
   }
 
   // Stop Continuous Tracking
@@ -260,5 +262,6 @@ class LocationService {
     _positionStreamSubscription = null;
     _serviceStatusSubscription?.cancel();
     _serviceStatusSubscription = null;
+    _trackingMobile = null;
   }
 }

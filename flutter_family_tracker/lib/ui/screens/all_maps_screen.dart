@@ -67,6 +67,7 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
   bool _isCardExpanded = false;
   bool _showBottomCard = true;
   bool _showPlacesLayer = true;
+  bool _usesLibreMap = true;
 
   final List<Color> _markerColors = [
     const Color(0xFF4F46E5), // Indigo
@@ -102,6 +103,7 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
   @override
   void initState() {
     super.initState();
+    _usesLibreMap = kIsWeb || PreferencesService.useOpenStreetMap();
     _liveLocations.addAll(widget.locations);
     if (widget.members.isNotEmpty) {
       _selectedMember = widget.members.first;
@@ -114,18 +116,23 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
       if (location != null) _resolveMemberAddress(_selectedMember!, location);
     }
 
-    // Continuous pulsing radar animation timer for Google Maps on mobile only
-    if (!kIsWeb) {
-      _radarPulseTimer = Timer.periodic(const Duration(milliseconds: 900), (_) {
-        if (!mounted) return;
-        if (_recentlyUpdatedMobiles.isNotEmpty || _hasAnyMovingMember()) {
-          setState(() {
-            _pulsePhase = _pulsePhase == 0.0 ? 1.0 : 0.0;
-            _buildPulseCircles();
-          });
-        }
-      });
-    }
+    _updateRadarPulseTimer();
+  }
+
+  void _updateRadarPulseTimer() {
+    _radarPulseTimer?.cancel();
+    _radarPulseTimer = null;
+    if (kIsWeb || _usesLibreMap) return;
+
+    _radarPulseTimer = Timer.periodic(const Duration(milliseconds: 900), (_) {
+      if (!mounted) return;
+      if (_recentlyUpdatedMobiles.isNotEmpty || _hasAnyMovingMember()) {
+        setState(() {
+          _pulsePhase = _pulsePhase == 0.0 ? 1.0 : 0.0;
+          _buildPulseCircles();
+        });
+      }
+    });
   }
 
   @override
@@ -513,9 +520,11 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
       }
     });
 
-    final marker = kIsWeb ? null : await _buildMarkerForMember(member, loc, index);
+    final marker = _usesLibreMap
+        ? null
+        : await _buildMarkerForMember(member, loc, index);
     if (mounted && generation == _mapGeneration &&
-      (kIsWeb || marker != null)) {
+      (_usesLibreMap || marker != null)) {
       setState(() {
         // Track live coordinates in memory for individual tracking
         final memberTrail =
@@ -617,12 +626,23 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
   }
 
   Future<void> _loadPhotosAndBuildMarkers() async {
-    // On Web, AdaptiveMapView renders lightweight Flutter widget markers directly via _buildAdaptiveMapPoints().
-    // Avoid running canvas PictureRecorder and toByteData() GPU rasterization.
     if (kIsWeb) return;
-
     final generation = _mapGeneration;
     final members = List<FamilyMemberModel>.of(widget.members);
+    if (_usesLibreMap) {
+      final photos = await Future.wait(
+        members.map((member) =>
+            ProfileImageService.getProfileImageFile(member.mobile)),
+      );
+      if (!mounted || generation != _mapGeneration) return;
+      for (var index = 0; index < members.length; index++) {
+        _memberPhotos[members[index].mobile] = photos[index];
+        _checkedPhotos.add(members[index].mobile);
+      }
+      setState(() {});
+      return;
+    }
+
     for (final member in members) {
       final location = _getMemberLocation(member.mobile);
       if (location == null) continue;
@@ -641,7 +661,7 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
   }
 
   Future<void> _updateSingleMemberMarker(FamilyMemberModel targetMember) async {
-    if (kIsWeb) return;
+    if (_usesLibreMap) return;
     final index = widget.members.indexWhere((m) => m.mobile == targetMember.mobile);
     if (index < 0) return;
     final loc = _getMemberLocation(targetMember.mobile);
@@ -1211,6 +1231,13 @@ class _AllMapsScreenState extends State<AllMapsScreen> {
                 ? {..._geofenceCircles, ..._pulseCircles}
                 : _pulseCircles,
             polylines: _adaptivePolylines,
+            onMapEngineChanged: (usesLibreMap) {
+              _usesLibreMap = usesLibreMap;
+              _updateRadarPulseTimer();
+              if (!usesLibreMap) {
+                _loadPhotosAndBuildMarkers();
+              }
+            },
             onGoogleMapCreated: (GoogleMapController controller) {
               if (!_controller.isCompleted) {
                 _controller.complete(controller);
